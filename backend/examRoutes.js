@@ -231,4 +231,71 @@ router.post('/submit', async (req, res, next) => {
     }
 });
 
+// --------------------------------------------------------------------------
+// 4. POST /api/exam/start-session
+// Initializes or resumes an active exam session for a specific subject paper
+// --------------------------------------------------------------------------
+router.post('/start-session', async (req, res, next) => {
+    try {
+        const { student_id, subject, workstation_ip } = req.body;
+
+        if (!student_id || !subject) {
+            return res.status(400).json({
+                success: false,
+                message: "student_id and subject are required."
+            });
+        }
+
+        const clientIp = workstation_ip || req.ip || '127.0.0.1';
+        const normalizedSubject = String(subject).trim();
+
+        // Check if student already submitted this specific subject
+        const checkSubmittedSql = `
+            SELECT id FROM exam_sessions 
+            WHERE student_id = ? AND LOWER(subject) = LOWER(?) AND status = 'submitted'
+        `;
+        const alreadySubmitted = await dbGet(checkSubmittedSql, [student_id, normalizedSubject]);
+
+        if (alreadySubmitted) {
+            return res.status(403).json({
+                success: false,
+                message: `You have already completed the exam paper for ${normalizedSubject}.`
+            });
+        }
+
+        // Check if active session exists for this subject
+        const checkActiveSql = `
+            SELECT id FROM exam_sessions 
+            WHERE student_id = ? AND LOWER(subject) = LOWER(?) AND status = 'active' AND is_locked = 0
+            ORDER BY id DESC LIMIT 1
+        `;
+        const activeSession = await dbGet(checkActiveSql, [student_id, normalizedSubject]);
+
+        let sessionId;
+        if (activeSession) {
+            sessionId = activeSession.id;
+            await dbRun(
+                `UPDATE exam_sessions SET workstation_ip = ?, login_time = CURRENT_TIMESTAMP WHERE id = ?`,
+                [clientIp, sessionId]
+            );
+        } else {
+            const insertResult = await dbRun(
+                `INSERT INTO exam_sessions (student_id, workstation_ip, login_time, status, is_locked, subject) VALUES (?, ?, CURRENT_TIMESTAMP, 'active', 0, ?)`,
+                [student_id, clientIp, normalizedSubject]
+            );
+            sessionId = insertResult.lastID;
+        }
+
+        return res.status(200).json({
+            success: true,
+            session_id: sessionId,
+            subject: normalizedSubject
+        });
+
+    } catch (error) {
+        console.error('❌ [Start Session Error]:', error);
+        next(error);
+    }
+});
+
 module.exports = router;

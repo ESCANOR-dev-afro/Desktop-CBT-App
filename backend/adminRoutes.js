@@ -46,6 +46,79 @@ function dbRun(sql, params = []) {
     });
 }
 
+/**
+ * Normalizes and standardizes subject names:
+ * - Trims leading/trailing whitespace and compresses multiple spaces.
+ * - Converts canonical aliases (e.g. "English" -> "English Language", "Maths" -> "Mathematics").
+ * - Capitalizes each word strictly into Title Case format.
+ */
+function normalizeSubjectName(rawSubject) {
+    if (!rawSubject || typeof rawSubject !== 'string') return '';
+    let trimmed = rawSubject.trim().replace(/\s+/g, ' ');
+    if (!trimmed) return '';
+
+    const lower = trimmed.toLowerCase();
+    if (lower === 'english' || lower === 'eng') return 'English Language';
+    if (lower === 'math' || lower === 'maths') return 'Mathematics';
+    if (lower === 'comp sci' || lower === 'computer' || lower === 'computer science') return 'Computer Studies';
+    if (lower === 'civics') return 'Civic Education';
+
+    return trimmed.split(' ')
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join(' ');
+}
+
+// --------------------------------------------------------------------------
+// 0. GET /api/admin/subjects
+// Returns dynamic list of subjects from questions, student roster & defaults
+// --------------------------------------------------------------------------
+router.get('/subjects', async (req, res, next) => {
+    try {
+        const defaultSubjects = [
+            'Mathematics',
+            'English Language',
+            'Biology',
+            'Chemistry',
+            'Physics',
+            'Civic Education',
+            'Computer Studies',
+            'Economics',
+            'Government'
+        ];
+
+        const questionSubjects = await dbAll(`SELECT DISTINCT subject FROM questions WHERE subject IS NOT NULL AND TRIM(subject) != ''`);
+        const studentSubjects = await dbAll(`SELECT DISTINCT assigned_subject AS subject FROM students WHERE assigned_subject IS NOT NULL AND TRIM(assigned_subject) != ''`);
+
+        const subjectMap = new Map();
+
+        defaultSubjects.forEach(s => {
+            const norm = normalizeSubjectName(s);
+            if (norm) subjectMap.set(norm.toLowerCase(), norm);
+        });
+
+        questionSubjects.forEach(row => {
+            const norm = normalizeSubjectName(row.subject);
+            if (norm) subjectMap.set(norm.toLowerCase(), norm);
+        });
+
+        studentSubjects.forEach(row => {
+            const norm = normalizeSubjectName(row.subject);
+            if (norm) subjectMap.set(norm.toLowerCase(), norm);
+        });
+
+        const subjectsList = Array.from(subjectMap.values()).sort((a, b) => a.localeCompare(b));
+
+        return res.status(200).json({
+            success: true,
+            count: subjectsList.length,
+            subjects: subjectsList
+        });
+    } catch (error) {
+        console.error('❌ [Admin Subjects Error]:', error);
+        next(error);
+    }
+});
+
 // --------------------------------------------------------------------------
 // 1. GET /api/admin/overview
 // Returns summary statistics for admin overview cards
@@ -105,11 +178,13 @@ router.post('/students', async (req, res, next) => {
         }
 
         const formattedSurname = String(surname).trim().toUpperCase();
+        const normalizedSubject = normalizeSubjectName(assigned_subject);
+
         const insertSql = `
             INSERT INTO students (reg_number, surname, class, assigned_subject)
             VALUES (?, ?, ?, ?)
         `;
-        const result = await dbRun(insertSql, [String(reg_number).trim(), formattedSurname, studentClass.trim(), assigned_subject.trim()]);
+        const result = await dbRun(insertSql, [String(reg_number).trim(), formattedSurname, studentClass.trim(), normalizedSubject]);
 
         return res.status(201).json({
             success: true,
@@ -254,7 +329,7 @@ router.get('/export-excel', async (req, res, next) => {
                 surname: row.surname,
                 reg_number: row.reg_number,
                 class: row.class,
-                assigned_subject: row.assigned_subject ? row.assigned_subject.toUpperCase() : '',
+                assigned_subject: row.assigned_subject ? normalizeSubjectName(row.assigned_subject) : '',
                 workstation_ip: row.workstation_ip,
                 status: row.status ? row.status.toUpperCase() : 'ACTIVE',
                 score: row.score !== null ? row.score : 'In Progress',
@@ -290,21 +365,21 @@ router.get('/export-excel', async (req, res, next) => {
  * Parses raw text extracted from a Word document (.docx) to extract
  * questions, options A-D, and correct answers.
  */
-function parseDocxText(rawText, defaultSubject = 'mathematics') {
+function parseDocxText(rawText, defaultSubject = 'Mathematics') {
     const lines = rawText
         .split(/\r?\n/)
         .map(line => line.trim())
         .filter(line => line.length > 0);
 
     const questions = [];
-    let currentSubject = defaultSubject;
+    let currentSubject = normalizeSubjectName(defaultSubject);
     let currentQuestion = null;
 
     lines.forEach(line => {
         // Detect Subject header line e.g., "Subject: Mathematics"
         const subjectMatch = line.match(/^(?:SUBJECT|Subject)[:\s]+(.+)/i);
         if (subjectMatch) {
-            currentSubject = subjectMatch[1].trim();
+            currentSubject = normalizeSubjectName(subjectMatch[1]);
             return;
         }
 
@@ -389,14 +464,15 @@ router.post('/upload-questions', upload.single('file'), async (req, res, next) =
             });
         }
 
-        const defaultSubject = req.body.subject || 'mathematics';
+        const rawTargetSubject = req.body.subject || 'Mathematics';
+        const normalizedSubject = normalizeSubjectName(rawTargetSubject);
 
         // Extract raw text from uploaded .docx buffer using Mammoth
         const result = await mammoth.extractRawText({ buffer: req.file.buffer });
         const rawText = result.value || '';
 
         // Parse extracted text into structured question objects
-        const parsedQuestions = parseDocxText(rawText, defaultSubject);
+        const parsedQuestions = parseDocxText(rawText, normalizedSubject);
 
         if (parsedQuestions.length === 0) {
             return res.status(400).json({
@@ -414,7 +490,7 @@ router.post('/upload-questions', upload.single('file'), async (req, res, next) =
         let insertedCount = 0;
         for (const q of parsedQuestions) {
             await dbRun(insertSql, [
-                q.subject,
+                normalizeSubjectName(q.subject || normalizedSubject),
                 q.question_text,
                 q.option_a,
                 q.option_b,
@@ -425,11 +501,11 @@ router.post('/upload-questions', upload.single('file'), async (req, res, next) =
             insertedCount++;
         }
 
-        console.log(`📄 [Word Doc Upload] Successfully parsed and inserted ${insertedCount} questions into SQLite question bank.`);
+        console.log(`📄 [Word Doc Upload] Successfully parsed and inserted ${insertedCount} questions into SQLite question bank for "${normalizedSubject}".`);
 
         return res.status(200).json({
             success: true,
-            message: "Questions uploaded and parsed successfully",
+            message: `Questions uploaded and parsed successfully for ${normalizedSubject}`,
             count: insertedCount
         });
 

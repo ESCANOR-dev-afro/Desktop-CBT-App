@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import 'login_screen.dart';
+import 'student_dashboard_screen.dart';
 
 class ExamScreen extends StatefulWidget {
   final Map<String, dynamic> studentData;
@@ -482,10 +483,30 @@ class _ExamScreenState extends State<ExamScreen> {
           _resetCountdownSeconds--;
         } else {
           timer.cancel();
-          _resetSessionAndReturnToLogin();
+          _returnToPortalHub();
         }
       });
     });
+  }
+
+  Future<void> _returnToPortalHub() async {
+    _autoResetTimer?.cancel();
+    _examTimer?.cancel();
+
+    if (!mounted) return;
+
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    } else {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => StudentDashboardScreen(
+            studentData: widget.studentData,
+            initialSessionId: widget.sessionId,
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _resetSessionAndReturnToLogin() async {
@@ -1437,7 +1458,7 @@ class _ExamScreenState extends State<ExamScreen> {
                         const Icon(Icons.timer_outlined, size: 16, color: AppTheme.textSecondary),
                         const SizedBox(width: 6),
                         Text(
-                          'Auto-resetting for next student in $_resetCountdownSeconds seconds...',
+                          'Returning to Exam Portal Hub in $_resetCountdownSeconds seconds...',
                           style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
                         ),
                       ],
@@ -1445,24 +1466,46 @@ class _ExamScreenState extends State<ExamScreen> {
 
                     const SizedBox(height: 20),
 
-                    // Manual Supervisor Reset Button
-                    SizedBox(
-                      width: double.infinity,
-                      height: 54,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryOrange,
-                          foregroundColor: Colors.white,
-                          elevation: 3,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    // Action Buttons (Return to Portal Hub / Log Out)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 52,
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.primaryOrange,
+                                foregroundColor: Colors.white,
+                                elevation: 3,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              onPressed: _returnToPortalHub,
+                              icon: const Icon(Icons.dashboard_rounded, size: 20),
+                              label: const Text(
+                                'RETURN TO EXAM PORTAL HUB',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 0.5),
+                              ),
+                            ),
+                          ),
                         ),
-                        onPressed: _resetSessionAndReturnToLogin,
-                        icon: const Icon(Icons.logout_rounded, size: 20),
-                        label: const Text(
-                          'RETURN TO LOGIN FOR NEXT STUDENT',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, letterSpacing: 0.5),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          height: 52,
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.textSecondary,
+                              side: const BorderSide(color: AppTheme.borderGrey),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: _resetSessionAndReturnToLogin,
+                            icon: const Icon(Icons.logout_rounded, size: 18),
+                            label: const Text(
+                              'LOG OUT',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ],
                 ),

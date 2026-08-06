@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -129,6 +130,36 @@ class AuthService {
     }
   }
 
+  /// Dynamically fetches available exam subjects from backend GET /api/subjects
+  static Future<List<String>> fetchSubjects({required String serverIp}) async {
+    try {
+      final formattedIp = serverIp.trim().isEmpty ? '127.0.0.1' : serverIp.trim();
+      final url = Uri.parse('http://$formattedIp:3000/api/subjects');
+      final response = await http.get(url).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        if (data['success'] == true && data['subjects'] != null) {
+          final List rawList = data['subjects'];
+          return rawList.map((s) => s.toString()).toList();
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to fetch subjects dynamically: $e');
+    }
+    return [
+      'Mathematics',
+      'English Language',
+      'Biology',
+      'Chemistry',
+      'Physics',
+      'Civic Education',
+      'Computer Studies',
+      'Economics',
+      'Government'
+    ];
+  }
+
   /// Clears active stored student session
   static Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
@@ -138,7 +169,7 @@ class AuthService {
   /// Retrieves stored session details
   static Future<Map<String, dynamic>?> getStoredSession() async {
     final prefs = await SharedPreferences.getInstance();
-    if (!prefs.containsKey('session_id')) return null;
+    if (!prefs.containsKey('session_id') && !prefs.containsKey('student_id')) return null;
 
     return {
       'session_id': prefs.getInt('session_id'),
@@ -149,5 +180,66 @@ class AuthService {
       'assigned_subject': prefs.getString('assigned_subject'),
       'server_ip': prefs.getString('server_ip'),
     };
+  }
+
+  /// Fetches real-time student profile and subject status list for Student Exam Portal Hub
+  static Future<Map<String, dynamic>?> fetchStudentDashboard({
+    required int studentId,
+    required String serverIp,
+  }) async {
+    try {
+      final formattedIp = serverIp.trim().isEmpty ? '127.0.0.1' : serverIp.trim();
+      final url = Uri.parse('http://$formattedIp:3000/api/student/$studentId/dashboard');
+      final response = await http.get(url).timeout(const Duration(seconds: 6));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        if (data['success'] == true) {
+          return data;
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to fetch student dashboard: $e');
+    }
+    return null;
+  }
+
+  /// Initializes or resumes an active exam session for a specific subject paper
+  static Future<int?> startSubjectSession({
+    required int studentId,
+    required String subject,
+    required String serverIp,
+  }) async {
+    try {
+      final formattedIp = serverIp.trim().isEmpty ? '127.0.0.1' : serverIp.trim();
+      final url = Uri.parse('http://$formattedIp:3000/api/exam/start-session');
+
+      String workstationIdentifier = '127.0.0.1';
+      try {
+        workstationIdentifier = Platform.localHostname;
+      } catch (_) {}
+
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'student_id': studentId,
+              'subject': subject,
+              'workstation_ip': workstationIdentifier,
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        if (data['success'] == true && data['session_id'] != null) {
+          return data['session_id'] as int;
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to start subject session: $e');
+    }
+    return null;
   }
 }

@@ -92,8 +92,9 @@ function initDatabase() {
                 console.error('❌ [Database Error] Error creating "exam_sessions" table:', err.message);
             } else {
                 console.log('📋 [Table Created] "exam_sessions" table is ready.');
-                // Add score column if it doesn't exist in existing database schema
+                // Add score and subject columns if they don't exist in existing database schema
                 db.run(`ALTER TABLE exam_sessions ADD COLUMN score INTEGER DEFAULT NULL;`, () => {});
+                db.run(`ALTER TABLE exam_sessions ADD COLUMN subject TEXT DEFAULT NULL;`, () => {});
             }
         });
 
