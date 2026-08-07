@@ -1,9 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'dart:io' show Platform;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'api_config.dart';
 
 enum AuthErrorType {
   networkError,
@@ -36,14 +37,15 @@ class AuthService {
     required String surname,
   }) async {
     try {
-      final formattedIp = serverIp.trim().isEmpty ? '127.0.0.1' : serverIp.trim();
-      final url = Uri.parse('http://$formattedIp:3000/api/login');
+      final url = ApiConfig.getUri(serverIp, '/login');
 
-      // Attempt to get workstation hostname / IP
-      String workstationIdentifier = '127.0.0.1';
-      try {
-        workstationIdentifier = Platform.localHostname;
-      } catch (_) {}
+      // Attempt to get workstation hostname / IP (web safe)
+      String workstationIdentifier = 'Web Workstation';
+      if (!kIsWeb) {
+        try {
+          workstationIdentifier = Platform.localHostname;
+        } catch (_) {}
+      }
 
       final response = await http
           .post(
@@ -71,7 +73,7 @@ class AuthService {
         await prefs.setString('surname', student['surname']);
         await prefs.setString('student_class', student['class']);
         await prefs.setString('assigned_subject', student['assigned_subject']);
-        await prefs.setString('server_ip', formattedIp);
+        await prefs.setString('server_ip', serverIp);
 
         return AuthResult(
           success: true,
@@ -97,35 +99,11 @@ class AuthService {
           errorMessage: data['message'] ?? 'Authentication failed.',
         );
       }
-    } on SocketException {
-      return AuthResult(
-        success: false,
-        errorType: AuthErrorType.networkError,
-        errorMessage: 'Network Error: Cannot connect to CBT Server.',
-      );
-    } on TimeoutException {
-      return AuthResult(
-        success: false,
-        errorType: AuthErrorType.networkError,
-        errorMessage: 'Connection timed out.',
-      );
-    } on HttpException {
-      return AuthResult(
-        success: false,
-        errorType: AuthErrorType.networkError,
-        errorMessage: 'HTTP response error.',
-      );
-    } on FormatException {
-      return AuthResult(
-        success: false,
-        errorType: AuthErrorType.networkError,
-        errorMessage: 'Data format error.',
-      );
     } catch (e) {
       return AuthResult(
         success: false,
         errorType: AuthErrorType.networkError,
-        errorMessage: e.toString(),
+        errorMessage: 'Network Error: Cannot connect to CBT Server (${e.toString().replaceAll("Exception: ", "")}).',
       );
     }
   }
@@ -133,8 +111,7 @@ class AuthService {
   /// Dynamically fetches available exam subjects from backend GET /api/subjects
   static Future<List<String>> fetchSubjects({required String serverIp}) async {
     try {
-      final formattedIp = serverIp.trim().isEmpty ? '127.0.0.1' : serverIp.trim();
-      final url = Uri.parse('http://$formattedIp:3000/api/subjects');
+      final url = ApiConfig.getUri(serverIp, '/subjects');
       final response = await http.get(url).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
@@ -188,8 +165,7 @@ class AuthService {
     required String serverIp,
   }) async {
     try {
-      final formattedIp = serverIp.trim().isEmpty ? '127.0.0.1' : serverIp.trim();
-      final url = Uri.parse('http://$formattedIp:3000/api/student/$studentId/dashboard');
+      final url = ApiConfig.getUri(serverIp, '/student/$studentId/dashboard');
       final response = await http.get(url).timeout(const Duration(seconds: 6));
 
       if (response.statusCode == 200) {
@@ -211,13 +187,14 @@ class AuthService {
     required String serverIp,
   }) async {
     try {
-      final formattedIp = serverIp.trim().isEmpty ? '127.0.0.1' : serverIp.trim();
-      final url = Uri.parse('http://$formattedIp:3000/api/exam/start-session');
+      final url = ApiConfig.getUri(serverIp, '/exam/start-session');
 
-      String workstationIdentifier = '127.0.0.1';
-      try {
-        workstationIdentifier = Platform.localHostname;
-      } catch (_) {}
+      String workstationIdentifier = 'Web Workstation';
+      if (!kIsWeb) {
+        try {
+          workstationIdentifier = Platform.localHostname;
+        } catch (_) {}
+      }
 
       final response = await http
           .post(

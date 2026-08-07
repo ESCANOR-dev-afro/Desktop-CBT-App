@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/auth_service.dart';
+import '../services/api_config.dart';
 import '../theme/app_theme.dart';
 import '../utils/uppercase_formatter.dart';
 import 'student_dashboard_screen.dart';
@@ -601,7 +602,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     LengthLimitingTextInputFormatter(7),
                   ],
                   decoration: const InputDecoration(
-                    hintText: 'Enter 7-digit Reg Number (e.g. 1009001)',
+                    hintText: 'Enter 7-digit Reg Number (e.g. 1234567)',
                     prefixIcon: Icon(Icons.badge_outlined, color: AppTheme.primaryOrange),
                     counterText: '',
                   ),
@@ -641,7 +642,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     UpperCaseTextFormatter(), // Forces typed input into UPPERCASE
                   ],
                   decoration: const InputDecoration(
-                    hintText: 'Enter Surname (e.g. OKONKWO)',
+                    hintText: 'Enter Surname (e.g. SAMUEL)',
                     prefixIcon: Icon(Icons.person_outline, color: AppTheme.primaryOrange),
                   ),
                   validator: (value) {
@@ -683,7 +684,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             Expanded(
                               child: Text(
                                 _showServerIpConfig
-                                    ? 'Server: ${_serverIpController.text}:3000'
+                                    ? 'API Base: ${ApiConfig.getBaseUrl(_serverIpController.text)}'
                                     : 'Server Configuration (Locked)',
                                 style: const TextStyle(
                                   fontSize: 12,

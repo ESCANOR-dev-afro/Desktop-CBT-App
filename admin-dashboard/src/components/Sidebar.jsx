@@ -9,7 +9,8 @@ import {
   ShieldCheck,
   BookOpen,
   Award,
-  Layers
+  Layers,
+  FileText
 } from 'lucide-react';
 
 export default function Sidebar({
@@ -33,7 +34,7 @@ export default function Sidebar({
       <div className="p-4 border-b border-darkBorder flex items-center space-x-3 bg-slate-950/90">
         <div className="w-12 h-12 rounded-xl bg-slate-900 border border-brand/40 p-1 flex items-center justify-center shrink-0 shadow-md shadow-brand/10 group overflow-hidden">
           <img
-            src="/school_logo.jpg"
+            src="school_logo.jpg"
             alt="Anthony White Bridge Academy Logo"
             className="w-full h-full object-contain rounded-lg transform group-hover:scale-105 transition-transform duration-200"
           />
@@ -87,6 +88,21 @@ export default function Sidebar({
             >
               <BarChart3 className="w-4 h-4 shrink-0" />
               <span className="truncate">Live Results & Analytics</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setActiveView('question-bank');
+                setSelectedClass(null);
+              }}
+              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
+                activeView === 'question-bank'
+                  ? 'bg-brand text-white shadow-md shadow-brand/25 font-bold'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/80'
+              }`}
+            >
+              <FileText className="w-4 h-4 shrink-0" />
+              <span className="truncate">Question Bank Hub</span>
             </button>
           </div>
         </div>
@@ -169,7 +185,7 @@ export default function Sidebar({
       <div className="p-4 border-t border-darkBorder bg-slate-950">
         <div className="flex items-center space-x-3 p-2 rounded-xl bg-slate-900/80 border border-darkBorder">
           <img
-            src="/school_logo.jpg"
+            src="school_logo.jpg"
             alt="School Crest"
             className="w-8 h-8 rounded-lg border border-brand/30 p-0.5 bg-slate-950 object-contain shrink-0"
           />

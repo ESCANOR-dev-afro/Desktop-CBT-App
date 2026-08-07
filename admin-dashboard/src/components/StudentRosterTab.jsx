@@ -19,6 +19,7 @@ export default function StudentRosterTab({
   currentClass,
   subjectsByClass,
   onOpenAddStudent,
+  onOpenUploadRoster,
   onDeleteStudent,
   onShowToast,
 }) {
@@ -31,11 +32,13 @@ export default function StudentRosterTab({
 
   const filteredStudents = classStudents.filter((s) => {
     const matchesSearch =
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.regNo.toLowerCase().includes(searchTerm.toLowerCase());
+      (s.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.surname || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.regNo || s.reg_number || '').toLowerCase().includes(searchTerm.toLowerCase());
 
+    const assigned = s.assignedSubjects || (s.assigned_subject ? s.assigned_subject.split(/[,;]/).map(x => x.trim()) : []);
     const matchesSubject =
-      subjectFilter === 'ALL' || s.assignedSubjects.includes(subjectFilter);
+      subjectFilter === 'ALL' || assigned.includes(subjectFilter);
 
     const matchesStatus = statusFilter === 'ALL' || s.status === statusFilter;
 
@@ -77,7 +80,7 @@ export default function StudentRosterTab({
             >
               <option value="ALL">All {currentClass} Subjects</option>
               {availableSubjectsForClass.map((sub) => (
-                <option key={sub.id} value={sub.name}>
+                <option key={sub.id || sub.name} value={sub.name}>
                   {sub.name}
                 </option>
               ))}
@@ -97,6 +100,15 @@ export default function StudentRosterTab({
               <option value="Suspended">Suspended</option>
             </select>
           </div>
+
+          {/* Excel Roster Upload Button */}
+          <button
+            onClick={onOpenUploadRoster}
+            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-bold transition-all border border-darkBorder flex items-center space-x-2 shrink-0"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+            <span>Upload Class List</span>
+          </button>
 
           {/* Primary Action Button */}
           <button
@@ -128,7 +140,7 @@ export default function StudentRosterTab({
                 <tr>
                   <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
                     <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-brand/30 p-1 mx-auto mb-3 opacity-60 flex items-center justify-center">
-                      <img src="/school_logo.jpg" alt="AWBA Crest" className="w-full h-full object-contain rounded-xl" />
+                      <img src="school_logo.jpg" alt="AWBA Crest" className="w-full h-full object-contain rounded-xl" />
                     </div>
                     <p className="text-sm font-semibold text-slate-400">No candidates found for {currentClass}</p>
                     <p className="text-xs text-slate-500 mt-1">
@@ -137,22 +149,27 @@ export default function StudentRosterTab({
                   </td>
                 </tr>
               ) : (
-                filteredStudents.map((s) => (
-                  <tr key={s.id} className="hover:bg-slate-800/40 transition-colors group">
+                filteredStudents.map((s) => {
+                  const surnameUpper = (s.surname || s.name || 'STUDENT').toUpperCase();
+                  const firstNameStr = s.firstName || s.first_name || '';
+                  const displayName = firstNameStr ? `${surnameUpper}, ${firstNameStr}` : surnameUpper;
+                  const regId = s.regNo || s.reg_number || '1009000';
+                  const subjectList = s.assignedSubjects || (s.assigned_subject ? s.assigned_subject.split(/[,;]/).map(x => x.trim()) : ['Mathematics']);
+
+                  return (
+                  <tr key={s.id || s.reg_number} className="hover:bg-slate-800/40 transition-colors group">
                     {/* Student Info */}
                     <td className="px-5 py-3.5">
                       <div className="flex items-center space-x-3 min-w-[200px]">
-                        <img
-                          src={s.avatar}
-                          alt={s.name}
-                          className="w-9 h-9 rounded-full object-cover border border-darkBorder shrink-0"
-                        />
+                        <div className="w-8 h-8 rounded-xl bg-brand/15 border border-brand/30 text-brand font-bold text-xs flex items-center justify-center shrink-0">
+                          {surnameUpper[0]}
+                        </div>
                         <div className="min-w-0">
                           <p className="font-bold text-slate-100 truncate group-hover:text-brand transition-colors">
-                            {s.name}
+                            {displayName}
                           </p>
                           <p className="text-[10px] text-slate-400 truncate">
-                            {s.gender} • Parent: {s.parentContact}
+                            {s.gender || 'Verified'} Candidate
                           </p>
                         </div>
                       </div>
@@ -160,13 +177,13 @@ export default function StudentRosterTab({
 
                     {/* Reg Number */}
                     <td className="px-4 py-3.5 font-mono font-bold text-slate-200 whitespace-nowrap">
-                      {s.regNo}
+                      {regId}
                     </td>
 
                     {/* Isolated Subjects Allocated */}
                     <td className="px-4 py-3.5">
                       <div className="flex flex-wrap gap-1 max-w-xs">
-                        {s.assignedSubjects.map((subName, i) => (
+                        {subjectList.map((subName, i) => (
                           <span
                             key={i}
                             className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-950 text-brand border border-brand/20 whitespace-nowrap"
@@ -179,22 +196,20 @@ export default function StudentRosterTab({
 
                     {/* Status */}
                     <td className="px-4 py-3.5 whitespace-nowrap">
-                      {s.status === 'Exam Ready' && (
-                        <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                          <CheckCircle className="w-3 h-3" />
-                          <span>Exam Ready</span>
+                      {s.status === 'Suspended' ? (
+                        <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                          <Ban className="w-3 h-3" />
+                          <span>Suspended</span>
                         </span>
-                      )}
-                      {s.status === 'Active' && (
+                      ) : s.status === 'Active' ? (
                         <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
                           <Clock className="w-3 h-3" />
                           <span>Active Session</span>
                         </span>
-                      )}
-                      {s.status === 'Suspended' && (
-                        <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                          <Ban className="w-3 h-3" />
-                          <span>Suspended</span>
+                      ) : (
+                        <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          <CheckCircle className="w-3 h-3" />
+                          <span>Exam Ready</span>
                         </span>
                       )}
                     </td>
@@ -224,8 +239,8 @@ export default function StudentRosterTab({
                       </div>
                     </td>
                   </tr>
-                ))
-              )}
+                );
+              }))}
             </tbody>
           </table>
         </div>

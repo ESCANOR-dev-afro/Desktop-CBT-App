@@ -23,7 +23,7 @@ export default function Header({
       <div className="flex items-center space-x-3 truncate">
         <div className="w-7 h-7 rounded-lg bg-slate-900 border border-brand/30 p-0.5 shadow-sm flex items-center justify-center shrink-0">
           <img
-            src="/school_logo.jpg"
+            src="school_logo.jpg"
             alt="AWBA Crest"
             className="w-full h-full object-contain rounded"
           />

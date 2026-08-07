@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
+import '../services/api_config.dart';
 import '../theme/app_theme.dart';
 import 'login_screen.dart';
 import 'student_dashboard_screen.dart';
@@ -48,6 +49,8 @@ class _ExamScreenState extends State<ExamScreen> {
   late int _studentId;
   late String _assignedSubject;
   late String _studentSurname;
+  late String _studentFirstName;
+  late String _studentDisplayName;
   late String _regNumber;
   late String _studentClass;
 
@@ -68,6 +71,8 @@ class _ExamScreenState extends State<ExamScreen> {
 
     _assignedSubject = (widget.studentData['assigned_subject'] ?? 'Mathematics').toString();
     _studentSurname = (widget.studentData['surname'] ?? '').toString().toUpperCase();
+    _studentFirstName = (widget.studentData['first_name'] ?? '').toString();
+    _studentDisplayName = _studentFirstName.isNotEmpty ? '$_studentSurname, $_studentFirstName' : _studentSurname;
     _regNumber = (widget.studentData['reg_number'] ?? '').toString();
     _studentClass = (widget.studentData['class'] ?? '').toString();
   }
@@ -90,7 +95,7 @@ class _ExamScreenState extends State<ExamScreen> {
 
     try {
       final encodedSubject = Uri.encodeComponent(_assignedSubject.trim());
-      final url = Uri.parse('http://$_serverIp:3000/api/exam/questions/$encodedSubject');
+      final url = ApiConfig.getUri(_serverIp, '/exam/questions/$encodedSubject');
 
       final response = await http.get(url).timeout(const Duration(seconds: 10));
 
@@ -119,25 +124,11 @@ class _ExamScreenState extends State<ExamScreen> {
           _questionsErrorMessage = 'Failed to retrieve examination paper from server. (HTTP ${response.statusCode})';
         });
       }
-    } on SocketException {
-      if (mounted) {
-        setState(() {
-          _isLoadingQuestions = false;
-          _questionsErrorMessage = 'Network Error: Unable to connect to CBT Server at http://$_serverIp:3000.\nPlease verify network connection or server status.';
-        });
-      }
-    } on TimeoutException {
-      if (mounted) {
-        setState(() {
-          _isLoadingQuestions = false;
-          _questionsErrorMessage = 'Connection Timeout: CBT server response delayed. Please try again.';
-        });
-      }
     } catch (e) {
       if (mounted) {
         setState(() {
           _isLoadingQuestions = false;
-          _questionsErrorMessage = 'Unexpected Error: ${e.toString().replaceAll("Exception: ", "")}';
+          _questionsErrorMessage = 'Network Error: Unable to connect to CBT Server at ${ApiConfig.getBaseUrl(_serverIp)}.\nPlease verify network connection or server status.';
         });
       }
     }
@@ -146,8 +137,34 @@ class _ExamScreenState extends State<ExamScreen> {
   // ===========================================================================
   // 2. 60-MINUTE COUNTDOWN TIMER & AUTO SUBMISSION
   // ===========================================================================
-  void _start60MinuteTimer() {
+  Future<void> _start60MinuteTimer() async {
     _examTimer?.cancel();
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final timerKey = 'cbt_timer_end_session_${widget.sessionId}_student_$_studentId';
+      final savedEndTime = prefs.getInt(timerKey);
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      if (savedEndTime != null) {
+        final remainingMs = savedEndTime - now;
+        if (remainingMs <= 0) {
+          _secondsRemaining = 0;
+          _handleTimeExpiredAutoSubmit();
+          return;
+        } else {
+          _secondsRemaining = (remainingMs / 1000).ceil();
+        }
+      } else {
+        // Set new end timestamp 60 minutes (3600 seconds) from now
+        final endTime = now + (3600 * 1000);
+        await prefs.setInt(timerKey, endTime);
+        _secondsRemaining = 3600;
+      }
+    } catch (e) {
+      debugPrint('Timer persistence error: $e');
+    }
+
     _examTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
         timer.cancel();
@@ -262,7 +279,7 @@ class _ExamScreenState extends State<ExamScreen> {
 
   Future<void> _sendBackgroundAutosave(int questionId, String option) async {
     try {
-      final url = Uri.parse('http://$_serverIp:3000/api/exam/autosave');
+      final url = ApiConfig.getUri(_serverIp, '/exam/autosave');
       await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
@@ -390,7 +407,7 @@ class _ExamScreenState extends State<ExamScreen> {
     });
 
     try {
-      final url = Uri.parse('http://$_serverIp:3000/api/exam/submit');
+      final url = ApiConfig.getUri(_serverIp, '/exam/submit');
       final response = await http
           .post(
             url,
@@ -1000,7 +1017,7 @@ class _ExamScreenState extends State<ExamScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _studentSurname,
+                            _studentDisplayName,
                             style: const TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
@@ -1434,7 +1451,7 @@ class _ExamScreenState extends State<ExamScreen> {
                       ),
                       child: Column(
                         children: [
-                          _buildSubmittedDetailRow('Student Name:', _studentSurname),
+                          _buildSubmittedDetailRow('Student Name:', _studentDisplayName),
                           const Divider(height: 16),
                           _buildSubmittedDetailRow('Registration Number:', _regNumber),
                           const Divider(height: 16),

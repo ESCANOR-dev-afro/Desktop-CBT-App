@@ -83,28 +83,24 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     return [
       {
         'name': assigned.isNotEmpty ? assigned : 'Mathematics',
-        'code': 'MTH101',
         'schedule': 'Now Available',
         'status': 'available',
         'message': 'Ready to Start',
       },
       {
         'name': 'English Language',
-        'code': 'ENG101',
         'schedule': 'Now Available',
         'status': 'available',
         'message': 'Ready to Start',
       },
       {
         'name': 'Computer Studies',
-        'code': 'CSC101',
         'schedule': 'Now Available',
         'status': 'available',
         'message': 'Ready to Start',
       },
       {
         'name': 'Further Mathematics',
-        'code': 'MTH102',
         'schedule': 'Scheduled for 2:00 PM - 3:00 PM',
         'status': 'not_scheduled',
         'message': 'Scheduled for 2:00 PM - 3:00 PM. Sorry, you are not scheduled for this exam yet.',
@@ -205,6 +201,8 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final surname = (_currentStudentData['surname'] ?? '').toString().toUpperCase();
+    final firstName = (_currentStudentData['first_name'] ?? '').toString();
+    final displayName = firstName.isNotEmpty ? '$surname, $firstName' : surname;
     final regNumber = (_currentStudentData['reg_number'] ?? '').toString();
     final studentClass = (_currentStudentData['class'] ?? 'SS3').toString();
 
@@ -229,7 +227,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           child: Column(
             children: [
               // Top Bar Header
-              _buildTopHeader(surname, regNumber, studentClass),
+              _buildTopHeader(displayName, regNumber, studentClass),
 
               // Main Body Content
               Expanded(
@@ -250,7 +248,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   // Welcome Banner & Profile Card
-                                  _buildProfileHeaderCard(surname, regNumber, studentClass),
+                                  _buildProfileHeaderCard(displayName, regNumber, studentClass),
 
                                   const SizedBox(height: 28),
 
@@ -532,7 +530,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   /// Individual Subject Card with 3 Explicit Status States
   Widget _buildSubjectCard(Map<String, dynamic> item) {
     final name = (item['name'] ?? 'Subject').toString();
-    final code = (item['code'] ?? 'SUB101').toString();
     final status = (item['status'] ?? 'available').toString(); // 'available', 'not_scheduled', 'completed'
     final message = (item['message'] ?? '').toString();
 
@@ -598,14 +595,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                           color: AppTheme.darkCharcoal,
                         ),
                         overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        code,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.textSecondary,
-                          fontWeight: FontWeight.w500,
-                        ),
                       ),
                     ],
                   ),

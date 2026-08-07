@@ -254,11 +254,9 @@ export default function WorkstationMonitorTab({
               {ws.studentName !== 'Unassigned Node' ? (
                 <div className="space-y-3">
                   <div className="flex items-center space-x-3">
-                    <img
-                      src={ws.avatar}
-                      alt={ws.studentName}
-                      className="w-10 h-10 rounded-xl object-cover border border-darkBorder shrink-0"
-                    />
+                    <div className="w-9 h-9 rounded-xl bg-brand/15 border border-brand/30 text-brand font-bold text-xs flex items-center justify-center shrink-0">
+                      {ws.studentName ? ws.studentName[0] : 'S'}
+                    </div>
                     <div className="min-w-0 flex-1">
                       <h5 className="font-bold text-xs text-slate-100 truncate">
                         {ws.studentName}

@@ -33,7 +33,7 @@ export default function LiveResults({ students, classesList, onShowToast }) {
       <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-darkBorder p-6 rounded-2xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative overflow-hidden">
         {/* Watermark Logo */}
         <img
-          src="/school_logo.jpg"
+          src="school_logo.jpg"
           alt=""
           className="absolute right-4 top-1/2 -translate-y-1/2 w-48 h-48 opacity-[0.06] object-contain pointer-events-none filter drop-shadow-md"
         />
@@ -41,7 +41,7 @@ export default function LiveResults({ students, classesList, onShowToast }) {
         <div className="flex items-center space-x-4 min-w-0 z-10">
           <div className="w-14 h-14 rounded-2xl bg-slate-950 border-2 border-brand/40 p-1 shadow-lg shadow-brand/10 flex items-center justify-center shrink-0">
             <img
-              src="/school_logo.jpg"
+              src="school_logo.jpg"
               alt="Anthony White Bridge Academy Logo"
               className="w-full h-full object-contain rounded-xl"
             />
@@ -151,11 +151,9 @@ export default function LiveResults({ students, classesList, onShowToast }) {
                 <tr key={s.id} className="hover:bg-slate-800/40 transition-colors">
                   <td className="px-5 py-3.5 font-bold text-slate-100">
                     <div className="flex items-center space-x-3">
-                      <img
-                        src={s.avatar}
-                        alt={s.name}
-                        className="w-8 h-8 rounded-full object-cover border border-darkBorder shrink-0"
-                      />
+                      <div className="w-8 h-8 rounded-xl bg-brand/15 border border-brand/30 text-brand font-bold text-xs flex items-center justify-center shrink-0">
+                        {s.name ? s.name[0] : 'S'}
+                      </div>
                       <span>{s.name}</span>
                     </div>
                   </td>

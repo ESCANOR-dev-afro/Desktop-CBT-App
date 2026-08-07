@@ -32,7 +32,7 @@ export default function DashboardOverview({
       <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-darkBorder p-6 rounded-2xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative overflow-hidden">
         {/* Subtle Watermark School Logo in Background */}
         <img
-          src="/school_logo.jpg"
+          src="school_logo.jpg"
           alt=""
           className="absolute right-4 top-1/2 -translate-y-1/2 w-48 h-48 opacity-[0.06] object-contain pointer-events-none filter drop-shadow-lg"
         />
@@ -40,7 +40,7 @@ export default function DashboardOverview({
         <div className="flex items-center space-x-4 min-w-0 z-10">
           <div className="w-16 h-16 rounded-2xl bg-slate-950 border-2 border-brand/40 p-1.5 shadow-xl shadow-brand/10 shrink-0 flex items-center justify-center">
             <img
-              src="/school_logo.jpg"
+              src="school_logo.jpg"
               alt="Anthony White Bridge Academy Logo"
               className="w-full h-full object-contain rounded-xl"
             />
@@ -163,7 +163,7 @@ export default function DashboardOverview({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2.5">
                       <img
-                        src="/school_logo.jpg"
+                        src="school_logo.jpg"
                         alt=""
                         className="w-8 h-8 rounded-lg border border-brand/30 p-0.5 bg-slate-900 object-contain shrink-0"
                       />

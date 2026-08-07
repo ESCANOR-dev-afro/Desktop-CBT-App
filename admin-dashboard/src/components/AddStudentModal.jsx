@@ -12,17 +12,16 @@ export default function AddStudentModal({
   if (!isOpen) return null;
 
   const [studentClass, setStudentClass] = useState(currentClass || 'SS 3');
-  const [fullName, setFullName] = useState('');
+  const [surname, setSurname] = useState('');
+  const [firstName, setFirstName] = useState('');
   const [regNo, setRegNo] = useState('');
   const [gender, setGender] = useState('Male');
-  const [parentContact, setParentContact] = useState('');
   const [selectedSubjects, setSelectedSubjects] = useState([]);
 
-  // Auto-generate RegNo recommendation when class changes
+  // Auto-generate clean 7-digit RegNo recommendation when class changes
   useEffect(() => {
-    const classNum = studentClass.replace(/\s+/g, '');
-    const randomNum = Math.floor(100 + Math.random() * 900);
-    setRegNo(`AWBA/2026/${classNum}/${randomNum}`);
+    const randomNum = Math.floor(1000000 + Math.random() * 9000000);
+    setRegNo(String(randomNum));
 
     // Preselect all subjects belonging to this class
     const available = subjectsByClass[studentClass] || [];
@@ -39,23 +38,28 @@ export default function AddStudentModal({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!fullName.trim() || !regNo.trim()) return;
+    if (!surname.trim() || !firstName.trim() || !regNo.trim()) return;
+
+    const sName = surname.trim();
+    const fName = firstName.trim();
+    const displayName = `${sName}, ${fName}`;
 
     const newStudent = {
       id: `STU-${Date.now()}`,
       regNo: regNo.trim(),
-      name: fullName.trim(),
+      surname: sName,
+      firstName: fName,
+      name: displayName,
       class: studentClass,
       gender,
-      parentContact: parentContact.trim() || '+234 800 000 0000',
       assignedSubjects: selectedSubjects,
       status: 'Exam Ready',
-      avatar: `https://images.unsplash.com/photo-${1534528741775 + Math.floor(Math.random()*1000)}?w=150&auto=format&fit=crop&q=80`,
       recentScore: 'N/A',
     };
 
     onAddStudent(newStudent);
-    setFullName('');
+    setSurname('');
+    setFirstName('');
     onClose();
   };
 
@@ -69,7 +73,7 @@ export default function AddStudentModal({
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-slate-950 border border-brand/40 p-0.5 shadow-md shadow-brand/10 shrink-0 flex items-center justify-center">
               <img
-                src="/school_logo.jpg"
+                src="school_logo.jpg"
                 alt="AWBA Crest"
                 className="w-full h-full object-contain rounded-lg"
               />
@@ -110,11 +114,12 @@ export default function AddStudentModal({
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                CBT Registration Number *
+                CBT Registration Number (7-Digit) *
               </label>
               <input
                 type="text"
                 required
+                placeholder="e.g. 1009001"
                 value={regNo}
                 onChange={(e) => setRegNo(e.target.value)}
                 className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-mono font-bold text-brand"
@@ -122,47 +127,49 @@ export default function AddStudentModal({
             </div>
           </div>
 
+          {/* Strict Two-Field Name Schema: Surname & First Name Only */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Student Full Name *
+                Surname *
               </label>
               <input
                 type="text"
                 required
-                placeholder="e.g. Chidi Obi"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-medium"
+                placeholder="e.g. Samuel"
+                value={surname}
+                onChange={(e) => setSurname(e.target.value)}
+                className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-semibold"
               />
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Gender *
+                First Name *
               </label>
-              <select
-                value={gender}
-                onChange={(e) => setGender(e.target.value)}
-                className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-              >
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-              </select>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Patrick"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-semibold"
+              />
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Parent / Guardian Phone Contact
+              Gender *
             </label>
-            <input
-              type="text"
-              placeholder="+234 803 000 0000"
-              value={parentContact}
-              onChange={(e) => setParentContact(e.target.value)}
+            <select
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
               className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-            />
+            >
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+            </select>
           </div>
 
           {/* DYNAMIC SUBJECT ISOLATION SECTION */}
@@ -202,7 +209,6 @@ export default function AddStudentModal({
                     >
                       <div className="truncate">
                         <span className="block font-bold text-slate-200 truncate">{sub.name}</span>
-                        <span className="text-[10px] text-slate-500 font-mono">{sub.code}</span>
                       </div>
                       <div
                         className={`w-4 h-4 rounded-md flex items-center justify-center border transition-colors shrink-0 ml-2 ${
@@ -239,3 +245,4 @@ export default function AddStudentModal({
     </div>
   );
 }
+

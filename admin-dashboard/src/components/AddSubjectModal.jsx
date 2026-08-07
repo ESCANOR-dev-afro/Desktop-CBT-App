@@ -12,17 +12,15 @@ export default function AddSubjectModal({
 
   const [targetClass, setTargetClass] = useState(currentClass || 'SS 3');
   const [subjectName, setSubjectName] = useState('');
-  const [subjectCode, setSubjectCode] = useState('');
   const [teacher, setTeacher] = useState('');
   const [category, setCategory] = useState('Sciences');
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!subjectName.trim() || !subjectCode.trim()) return;
+    if (!subjectName.trim()) return;
 
     const newSub = {
       id: `${targetClass.toLowerCase().replace(/\s+/g, '')}-${Date.now()}`,
-      code: subjectCode.trim().toUpperCase(),
       name: subjectName.trim(),
       teacher: teacher.trim() || 'Unassigned Instructor',
       questionsCount: 0,
@@ -31,7 +29,6 @@ export default function AddSubjectModal({
 
     onAddSubject(targetClass, newSub);
     setSubjectName('');
-    setSubjectCode('');
     setTeacher('');
     onClose();
   };
@@ -44,7 +41,7 @@ export default function AddSubjectModal({
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-slate-950 border border-brand/40 p-0.5 shadow-md shadow-brand/10 shrink-0 flex items-center justify-center">
               <img
-                src="/school_logo.jpg"
+                src="school_logo.jpg"
                 alt="AWBA Crest"
                 className="w-full h-full object-contain rounded-lg"
               />
@@ -109,34 +106,18 @@ export default function AddSubjectModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Subject Code *
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. PHY301 or MTH101"
-                required
-                value={subjectCode}
-                onChange={(e) => setSubjectCode(e.target.value)}
-                className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-mono uppercase"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Subject Name *
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. Further Mathematics"
-                required
-                value={subjectName}
-                onChange={(e) => setSubjectName(e.target.value)}
-                className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-              />
-            </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Subject Name *
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Mathematics or Physics"
+              required
+              value={subjectName}
+              onChange={(e) => setSubjectName(e.target.value)}
+              className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+            />
           </div>
 
           <div>
@@ -174,3 +155,4 @@ export default function AddSubjectModal({
     </div>
   );
 }
+

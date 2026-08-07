@@ -107,7 +107,7 @@ export default function QuestionBankTab({
             >
               {availableSubjects.map((sub) => (
                 <option key={sub.id} value={sub.name}>
-                  {sub.name} ({sub.code})
+                  {sub.name}
                 </option>
               ))}
             </select>
@@ -200,7 +200,7 @@ export default function QuestionBankTab({
         {filteredQuestions.length === 0 ? (
           <div className="p-12 text-center text-slate-500 space-y-2">
             <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-brand/30 p-1 mx-auto mb-3 opacity-60 flex items-center justify-center">
-              <img src="/school_logo.jpg" alt="AWBA Crest" className="w-full h-full object-contain rounded-xl" />
+              <img src="school_logo.jpg" alt="AWBA Crest" className="w-full h-full object-contain rounded-xl" />
             </div>
             <p className="text-sm font-semibold text-slate-400">No questions found</p>
             <p className="text-xs text-slate-500">

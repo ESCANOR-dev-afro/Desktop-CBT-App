@@ -8,7 +8,8 @@ import {
   GraduationCap,
   ShieldCheck,
   CheckCircle2,
-  FileCheck2
+  FileCheck2,
+  FileSpreadsheet
 } from 'lucide-react';
 import StudentRosterTab from './StudentRosterTab';
 import QuestionBankTab from './QuestionBankTab';
@@ -22,6 +23,7 @@ export default function ClassWorkspace({
   workstations,
   onOpenAddSubject,
   onOpenAddStudent,
+  onOpenUploadRoster,
   onAddQuestion,
   onDeleteStudent,
   onUpdateWorkstations,
@@ -38,7 +40,7 @@ export default function ClassWorkspace({
       <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-darkBorder p-6 rounded-2xl shadow-xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative overflow-hidden">
         {/* Subtle Watermark School Logo in Background */}
         <img
-          src="/school_logo.jpg"
+          src="school_logo.jpg"
           alt=""
           className="absolute right-4 top-1/2 -translate-y-1/2 w-44 h-44 opacity-[0.06] object-contain pointer-events-none filter drop-shadow-md"
         />
@@ -46,7 +48,7 @@ export default function ClassWorkspace({
         <div className="flex items-center space-x-4 min-w-0 z-10">
           <div className="w-14 h-14 rounded-2xl bg-slate-950 border-2 border-brand/40 p-1 shadow-lg shadow-brand/10 flex items-center justify-center shrink-0">
             <img
-              src="/school_logo.jpg"
+              src="school_logo.jpg"
               alt="Anthony White Bridge Academy Logo"
               className="w-full h-full object-contain rounded-xl"
             />
@@ -85,6 +87,14 @@ export default function ClassWorkspace({
           </div>
 
           <button
+            onClick={onOpenUploadRoster}
+            className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-bold transition-all border border-darkBorder flex items-center space-x-2"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+            <span>Upload Class List</span>
+          </button>
+
+          <button
             onClick={onOpenAddSubject}
             className="px-4 py-3 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-lg shadow-brand/25 flex items-center space-x-2 brand-glow-sm"
           >
@@ -103,14 +113,11 @@ export default function ClassWorkspace({
         <div className="flex items-center space-x-2">
           {classSubjects.map((sub) => (
             <div
-              key={sub.id}
+              key={sub.id || sub.name}
               className="bg-slate-950 border border-darkBorder hover:border-brand/40 px-3 py-1.5 rounded-xl flex items-center space-x-2 shrink-0 transition-colors"
             >
               <span className="w-2 h-2 rounded-full bg-brand" />
               <span className="text-xs font-bold text-slate-200">{sub.name}</span>
-              <span className="text-[10px] font-mono text-slate-500 bg-slate-900 px-1.5 py-0.5 rounded border border-darkBorder">
-                {sub.code}
-              </span>
             </div>
           ))}
         </div>
@@ -170,6 +177,7 @@ export default function ClassWorkspace({
             currentClass={currentClass}
             subjectsByClass={subjectsByClass}
             onOpenAddStudent={onOpenAddStudent}
+            onOpenUploadRoster={onOpenUploadRoster}
             onDeleteStudent={onDeleteStudent}
             onShowToast={onShowToast}
           />
