@@ -26,6 +26,23 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
  */
 function initDatabase() {
     db.serialize(() => {
+        // High-Concurrency Optimization for 90+ Workstations
+        db.run('PRAGMA journal_mode = WAL;', (err) => {
+            if (err) {
+                console.error('❌ [Database Error] Failed to enable WAL mode:', err.message);
+            } else {
+                console.log('⚡ [Database Performance] SQLite WAL (Write-Ahead Logging) mode enabled for high-concurrency.');
+            }
+        });
+
+        db.run('PRAGMA busy_timeout = 10000;', (err) => {
+            if (err) {
+                console.error('❌ [Database Error] Failed to set busy timeout:', err.message);
+            } else {
+                console.log('⏱️ [Database Performance] 10,000ms busy timeout configured to prevent lock contention.');
+            }
+        });
+
         // 1. Enable Foreign Key Constraints
         db.run('PRAGMA foreign_keys = ON;', (err) => {
             if (err) {
@@ -41,6 +58,7 @@ function initDatabase() {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 reg_number TEXT UNIQUE NOT NULL,
                 surname TEXT NOT NULL,
+                first_name TEXT NOT NULL DEFAULT '',
                 class TEXT NOT NULL,
                 assigned_subject TEXT NOT NULL
             );
@@ -50,6 +68,7 @@ function initDatabase() {
                 console.error('❌ [Database Error] Error creating "students" table:', err.message);
             } else {
                 console.log('📋 [Table Created] "students" table is ready.');
+                db.run(`ALTER TABLE students ADD COLUMN first_name TEXT DEFAULT '';`, () => {});
             }
         });
 
@@ -57,6 +76,7 @@ function initDatabase() {
         const createQuestionsTable = `
             CREATE TABLE IF NOT EXISTS questions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                class TEXT,
                 subject TEXT NOT NULL,
                 question_text TEXT NOT NULL,
                 option_a TEXT NOT NULL,
@@ -71,6 +91,7 @@ function initDatabase() {
                 console.error('❌ [Database Error] Error creating "questions" table:', err.message);
             } else {
                 console.log('📋 [Table Created] "questions" table is ready.');
+                db.run(`ALTER TABLE questions ADD COLUMN class TEXT;`, () => {});
             }
         });
 
@@ -130,24 +151,24 @@ function initDatabase() {
 function seedDatabase() {
     // Seed Mock Students
     const mockStudents = [
-        { reg_number: '1009001', surname: 'okonkwo', class: 'SS3', assigned_subject: 'mathematics' },
-        { reg_number: '1009002', surname: 'adebayo', class: 'SS3', assigned_subject: 'mathematics' }
+        { reg_number: '1009001', surname: 'okonkwo', first_name: 'Chidi', class: 'SS3', assigned_subject: 'mathematics' },
+        { reg_number: '1009002', surname: 'adebayo', first_name: 'Amina', class: 'SS3', assigned_subject: 'mathematics' }
     ];
 
     const studentInsertSql = `
-        INSERT OR IGNORE INTO students (reg_number, surname, class, assigned_subject)
-        VALUES (?, ?, ?, ?);
+        INSERT OR IGNORE INTO students (reg_number, surname, first_name, class, assigned_subject)
+        VALUES (?, ?, ?, ?, ?);
     `;
 
     const studentStmt = db.prepare(studentInsertSql);
     mockStudents.forEach(student => {
         // Enforce UPPERCASE surname strictly before persisting
         const formattedSurname = student.surname.trim().toUpperCase();
-        studentStmt.run([student.reg_number, formattedSurname, student.class, student.assigned_subject], function(err) {
+        studentStmt.run([student.reg_number, formattedSurname, student.first_name.trim(), student.class, student.assigned_subject], function(err) {
             if (err) {
                 console.error(`❌ [Seed Error] Failed to insert student ${student.reg_number}:`, err.message);
             } else if (this.changes > 0) {
-                console.log(`🌱 [Seed Data] Inserted mock student: Reg #${student.reg_number} (${formattedSurname})`);
+                console.log(`🌱 [Seed Data] Inserted mock student: Reg #${student.reg_number} (${formattedSurname}, ${student.first_name})`);
             }
         });
     });
@@ -156,6 +177,7 @@ function seedDatabase() {
     // Seed Mock Objective Questions (Mathematics)
     const mockQuestions = [
         {
+            class: 'SS3',
             subject: 'mathematics',
             question_text: 'Solve for x: 2x + 5 = 15.',
             option_a: '3',
@@ -165,6 +187,7 @@ function seedDatabase() {
             correct_answer: 'B'
         },
         {
+            class: 'SS3',
             subject: 'mathematics',
             question_text: 'What is the square root of 144?',
             option_a: '10',
@@ -174,6 +197,7 @@ function seedDatabase() {
             correct_answer: 'C'
         },
         {
+            class: 'SS3',
             subject: 'mathematics',
             question_text: 'Calculate the area of a circle with radius 7 cm. (Use π = 22/7)',
             option_a: '154 cm²',
@@ -183,6 +207,7 @@ function seedDatabase() {
             correct_answer: 'A'
         },
         {
+            class: 'SS3',
             subject: 'mathematics',
             question_text: 'If a right-angled triangle has sides of length 3 cm and 4 cm, what is the length of the hypotenuse?',
             option_a: '6 cm',
@@ -192,6 +217,7 @@ function seedDatabase() {
             correct_answer: 'B'
         },
         {
+            class: 'SS3',
             subject: 'mathematics',
             question_text: 'What is the value of 3^4 (3 to the 4th power)?',
             option_a: '12',
@@ -211,12 +237,12 @@ function seedDatabase() {
 
         if (row.count === 0) {
             const questionInsertSql = `
-                INSERT INTO questions (subject, question_text, option_a, option_b, option_c, option_d, correct_answer)
-                VALUES (?, ?, ?, ?, ?, ?, ?);
+                INSERT INTO questions (class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
             `;
             const questionStmt = db.prepare(questionInsertSql);
             mockQuestions.forEach(q => {
-                questionStmt.run([q.subject, q.question_text, q.option_a, q.option_b, q.option_c, q.option_d, q.correct_answer], function(err) {
+                questionStmt.run([q.class, q.subject, q.question_text, q.option_a, q.option_b, q.option_c, q.option_d, q.correct_answer], function(err) {
                     if (err) {
                         console.error('❌ [Seed Error] Failed to insert question:', err.message);
                     } else if (this.changes > 0) {

@@ -61,16 +61,20 @@ router.get('/questions/:subject', async (req, res, next) => {
             });
         }
 
-        // Query questions without exposing correct_answer to client side
-        const fetchQuestionsSql = `
-            SELECT id, subject, question_text, option_a, option_b, option_c, option_d
+        const classScope = req.query.class ? req.query.class.trim() : null;
+        let fetchQuestionsSql = `
+            SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d
             FROM questions
             WHERE LOWER(subject) = LOWER(?)
-            ORDER BY RANDOM()
-            LIMIT 50;
         `;
+        const params = [subject.trim()];
+        if (classScope) {
+            fetchQuestionsSql += ` AND (class IS NULL OR LOWER(class) = LOWER(?))`;
+            params.push(classScope);
+        }
+        fetchQuestionsSql += ` ORDER BY RANDOM() LIMIT 50;`;
 
-        const questions = await dbAll(fetchQuestionsSql, [subject.trim()]);
+        const questions = await dbAll(fetchQuestionsSql, params);
 
         return res.status(200).json({
             success: true,

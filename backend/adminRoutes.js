@@ -163,33 +163,59 @@ router.get('/students', async (req, res, next) => {
 });
 
 // --------------------------------------------------------------------------
-// POST /api/admin/students
-// Add a single student or batch of students
+// POST /api/admin/students (Alias: /api/admin/candidates)
+// Add a single candidate / student to SQLite database
 // --------------------------------------------------------------------------
-router.post('/students', async (req, res, next) => {
+const handleAddCandidate = async (req, res, next) => {
     try {
-        const { reg_number, surname, class: studentClass, assigned_subject } = req.body;
+        const { reg_number, regNo, surname, first_name, firstName, class: studentClass, assigned_subject, assignedSubjects } = req.body;
 
-        if (!reg_number || !surname || !studentClass || !assigned_subject) {
+        const targetRegNo = String(reg_number || regNo || '').trim();
+        const targetSurname = String(surname || '').trim().toUpperCase();
+        const targetFirstName = String(first_name || firstName || '').trim();
+        const targetClass = String(studentClass || 'SS 3').trim();
+        
+        let targetSubject = assigned_subject;
+        if (!targetSubject && Array.isArray(assignedSubjects)) {
+            targetSubject = assignedSubjects.join(', ');
+        }
+        if (!targetSubject) {
+            targetSubject = 'Mathematics';
+        }
+
+        if (!targetRegNo || !targetSurname) {
             return res.status(400).json({
                 success: false,
-                message: "reg_number, surname, class, and assigned_subject are required."
+                message: "Registration number and surname are required."
             });
         }
 
-        const formattedSurname = String(surname).trim().toUpperCase();
-        const normalizedSubject = normalizeSubjectName(assigned_subject);
+        const normalizedSubject = normalizeSubjectName(String(targetSubject));
 
         const insertSql = `
-            INSERT INTO students (reg_number, surname, class, assigned_subject)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO students (reg_number, surname, first_name, class, assigned_subject)
+            VALUES (?, ?, ?, ?, ?)
         `;
-        const result = await dbRun(insertSql, [String(reg_number).trim(), formattedSurname, studentClass.trim(), normalizedSubject]);
+        const result = await dbRun(insertSql, [
+            targetRegNo,
+            targetSurname,
+            targetFirstName,
+            targetClass,
+            normalizedSubject || 'Mathematics'
+        ]);
 
         return res.status(201).json({
             success: true,
-            message: "Student added successfully",
-            student_id: result.lastID
+            message: "Student candidate registered successfully in database",
+            student_id: result.lastID,
+            student: {
+                id: result.lastID,
+                reg_number: targetRegNo,
+                surname: targetSurname,
+                first_name: targetFirstName,
+                class: targetClass,
+                assigned_subject: normalizedSubject || 'Mathematics'
+            }
         });
     } catch (error) {
         if (error.message && error.message.includes('UNIQUE constraint failed')) {
@@ -201,21 +227,29 @@ router.post('/students', async (req, res, next) => {
         console.error('❌ [Add Student Error]:', error);
         next(error);
     }
-});
+};
+
+router.post('/students', handleAddCandidate);
+router.post('/candidates', handleAddCandidate);
 
 // --------------------------------------------------------------------------
 // 3. GET /api/admin/questions
-// Fetch question bank questions
+// Fetch question bank questions filtered by class and/or subject
 // --------------------------------------------------------------------------
 router.get('/questions', async (req, res, next) => {
     try {
-        const subject = req.query.subject;
-        let sql = `SELECT * FROM questions`;
+        const { subject, class: classScope } = req.query;
+        let sql = `SELECT * FROM questions WHERE 1=1`;
         let params = [];
 
         if (subject && subject !== 'all') {
-            sql += ` WHERE LOWER(subject) = LOWER(?)`;
-            params.push(subject);
+            sql += ` AND LOWER(subject) = LOWER(?)`;
+            params.push(subject.trim());
+        }
+
+        if (classScope && classScope !== 'all') {
+            sql += ` AND (class IS NULL OR LOWER(class) = LOWER(?))`;
+            params.push(classScope.trim());
         }
 
         sql += ` ORDER BY id DESC`;
@@ -223,10 +257,62 @@ router.get('/questions', async (req, res, next) => {
 
         return res.status(200).json({
             success: true,
+            count: questions.length,
             questions: questions
         });
     } catch (error) {
         console.error('❌ [Admin Questions Error]:', error);
+        next(error);
+    }
+});
+
+// --------------------------------------------------------------------------
+// POST /api/admin/questions
+// Add a single question manually to the question bank
+// --------------------------------------------------------------------------
+router.post('/questions', async (req, res, next) => {
+    try {
+        const { class: questionClass, subject, question_text, option_a, option_b, option_c, option_d, correct_answer } = req.body;
+
+        if (!subject || !question_text || !option_a || !option_b || !option_c || !option_d || !correct_answer) {
+            return res.status(400).json({
+                success: false,
+                message: "subject, question_text, option_a, option_b, option_c, option_d, and correct_answer are required."
+            });
+        }
+
+        const normalizedSubject = normalizeSubjectName(subject);
+        const normalizedAnswer = String(correct_answer).trim().toUpperCase();
+
+        if (!['A', 'B', 'C', 'D'].includes(normalizedAnswer)) {
+            return res.status(400).json({
+                success: false,
+                message: "correct_answer must be 'A', 'B', 'C', or 'D'."
+            });
+        }
+
+        const insertSql = `
+            INSERT INTO questions (class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+        const result = await dbRun(insertSql, [
+            questionClass ? String(questionClass).trim() : null,
+            normalizedSubject,
+            String(question_text).trim(),
+            String(option_a).trim(),
+            String(option_b).trim(),
+            String(option_c).trim(),
+            String(option_d).trim(),
+            normalizedAnswer
+        ]);
+
+        return res.status(201).json({
+            success: true,
+            message: "Question added successfully",
+            question_id: result.lastID
+        });
+    } catch (error) {
+        console.error('❌ [Add Question Error]:', error);
         next(error);
     }
 });
@@ -452,44 +538,86 @@ function isQuestionValid(q) {
 }
 
 // --------------------------------------------------------------------------
-// 5. POST /api/admin/upload-questions
-// Upload and parse Word document (.docx) into the SQLite questions table
+// 6. POST /api/admin/upload-questions
+// Upload and parse document (.docx, .xlsx, .csv) into SQLite questions table
+// Isolated strictly per class and subject
 // --------------------------------------------------------------------------
 router.post('/upload-questions', upload.single('file'), async (req, res, next) => {
     try {
         if (!req.file) {
             return res.status(400).json({
                 success: false,
-                message: "No Word document (.docx) file uploaded."
+                message: "No document file uploaded."
             });
         }
 
         const rawTargetSubject = req.body.subject || 'Mathematics';
+        const targetClass = req.body.class || 'SS 3';
         const normalizedSubject = normalizeSubjectName(rawTargetSubject);
+        const fileName = (req.file.originalname || '').toLowerCase();
 
-        // Extract raw text from uploaded .docx buffer using Mammoth
-        const result = await mammoth.extractRawText({ buffer: req.file.buffer });
-        const rawText = result.value || '';
+        let parsedQuestions = [];
 
-        // Parse extracted text into structured question objects
-        const parsedQuestions = parseDocxText(rawText, normalizedSubject);
+        if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+            // Parse Excel Question File using ExcelJS
+            const workbook = new ExcelJS.Workbook();
+            await workbook.xlsx.load(req.file.buffer);
+            const worksheet = workbook.worksheets[0];
+
+            worksheet.eachRow((row, rowNumber) => {
+                if (rowNumber === 1) return; // Skip Header row
+                const qText = row.getCell(1).value ? String(row.getCell(1).value).trim() : '';
+                const optA = row.getCell(2).value ? String(row.getCell(2).value).trim() : '';
+                const optB = row.getCell(3).value ? String(row.getCell(3).value).trim() : '';
+                const optC = row.getCell(4).value ? String(row.getCell(4).value).trim() : '';
+                const optD = row.getCell(5).value ? String(row.getCell(5).value).trim() : '';
+                let ans = row.getCell(6).value ? String(row.getCell(6).value).trim().toUpperCase() : 'A';
+                if (ans.startsWith('OPTION')) ans = ans.replace('OPTION', '').trim();
+                if (ans.length > 1) ans = ans[0];
+
+                if (qText && optA && optB && optC && optD) {
+                    parsedQuestions.push({
+                        class: targetClass,
+                        subject: normalizedSubject,
+                        question_text: qText,
+                        option_a: optA,
+                        option_b: optB,
+                        option_c: optC,
+                        option_d: optD,
+                        correct_answer: ['A', 'B', 'C', 'D'].includes(ans) ? ans : 'A'
+                    });
+                }
+            });
+        } else {
+            // Parse Word Document (.docx) or Text using Mammoth
+            let rawText = '';
+            if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
+                const result = await mammoth.extractRawText({ buffer: req.file.buffer });
+                rawText = result.value || '';
+            } else {
+                rawText = req.file.buffer.toString('utf8');
+            }
+
+            parsedQuestions = parseDocxText(rawText, normalizedSubject, targetClass);
+        }
 
         if (parsedQuestions.length === 0) {
             return res.status(400).json({
                 success: false,
-                message: "Could not parse any valid questions from the uploaded Word document. Ensure standard formatting (Question text, Options A-D, Answer: X)."
+                message: "Could not parse any valid questions from the uploaded file. Ensure standard formatting (Question text, Options A-D, Answer: X)."
             });
         }
 
         // Insert parsed questions into SQLite database
         const insertSql = `
-            INSERT INTO questions (subject, question_text, option_a, option_b, option_c, option_d, correct_answer)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO questions (class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
         let insertedCount = 0;
         for (const q of parsedQuestions) {
             await dbRun(insertSql, [
+                q.class || targetClass,
                 normalizeSubjectName(q.subject || normalizedSubject),
                 q.question_text,
                 q.option_a,
@@ -501,16 +629,134 @@ router.post('/upload-questions', upload.single('file'), async (req, res, next) =
             insertedCount++;
         }
 
-        console.log(`📄 [Word Doc Upload] Successfully parsed and inserted ${insertedCount} questions into SQLite question bank for "${normalizedSubject}".`);
+        console.log(`📄 [Question Bank Upload] Successfully parsed & inserted ${insertedCount} questions into SQLite for class "${targetClass}" and subject "${normalizedSubject}".`);
 
         return res.status(200).json({
             success: true,
-            message: `Questions uploaded and parsed successfully for ${normalizedSubject}`,
-            count: insertedCount
+            message: `Questions uploaded and parsed successfully for ${targetClass} - ${normalizedSubject}`,
+            count: insertedCount,
+            questions: parsedQuestions
         });
 
     } catch (error) {
-        console.error('❌ [Docx Upload Error]:', error);
+        console.error('❌ [Question Bank Upload Error]:', error);
+        next(error);
+    }
+});
+
+// --------------------------------------------------------------------------
+// 7. POST /api/admin/upload-roster
+// Bulk upload class student roster using MS Excel (.xlsx / .csv)
+// Standardizes Surname strictly to UPPERCASE
+// --------------------------------------------------------------------------
+router.post('/upload-roster', upload.single('file'), async (req, res, next) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: "No Excel or CSV file uploaded."
+            });
+        }
+
+        const targetClass = req.body.class || 'SS 3';
+        const defaultSubject = req.body.assigned_subject || 'Mathematics';
+        const fileName = (req.file.originalname || '').toLowerCase();
+
+        const parsedStudents = [];
+
+        if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+            const workbook = new ExcelJS.Workbook();
+            await workbook.xlsx.load(req.file.buffer);
+            const worksheet = workbook.worksheets[0];
+
+            worksheet.eachRow((row, rowNumber) => {
+                if (rowNumber === 1) return; // Skip Header row
+
+                // Columns: Surname | First Name | Reg Number | Class (optional) | Allocated Subjects (optional)
+                const surname = row.getCell(1).value ? String(row.getCell(1).value).trim() : '';
+                const firstName = row.getCell(2).value ? String(row.getCell(2).value).trim() : '';
+                const regNo = row.getCell(3).value ? String(row.getCell(3).value).trim() : '';
+                const studentClass = row.getCell(4).value ? String(row.getCell(4).value).trim() : targetClass;
+                const subjects = row.getCell(5).value ? String(row.getCell(5).value).trim() : defaultSubject;
+
+                if (surname && regNo) {
+                    parsedStudents.push({
+                        surname: surname.toUpperCase(),
+                        first_name: firstName,
+                        reg_number: regNo,
+                        class: studentClass || targetClass,
+                        assigned_subject: subjects || defaultSubject
+                    });
+                }
+            });
+        } else {
+            // Parse CSV text
+            const csvText = req.file.buffer.toString('utf8');
+            const lines = csvText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+
+            lines.forEach((line, idx) => {
+                if (idx === 0 && line.toLowerCase().includes('surname')) return; // Skip header
+                const parts = line.split(',').map(p => p.trim());
+                if (parts.length >= 2) {
+                    const surname = parts[0];
+                    const firstName = parts[1] || '';
+                    const regNo = parts[2] || `REG-${Date.now()}-${idx}`;
+                    const studentClass = parts[3] || targetClass;
+                    const subjects = parts[4] || defaultSubject;
+
+                    if (surname && regNo) {
+                        parsedStudents.push({
+                            surname: surname.toUpperCase(),
+                            first_name: firstName,
+                            reg_number: regNo,
+                            class: studentClass || targetClass,
+                            assigned_subject: subjects || defaultSubject
+                        });
+                    }
+                }
+            });
+        }
+
+        if (parsedStudents.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Could not parse any student records. Ensure columns: Surname, First Name, Reg Number, Class, Subjects."
+            });
+        }
+
+        const insertSql = `
+            INSERT INTO students (reg_number, surname, first_name, class, assigned_subject)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(reg_number) DO UPDATE SET
+                surname = excluded.surname,
+                first_name = excluded.first_name,
+                class = excluded.class,
+                assigned_subject = excluded.assigned_subject
+        `;
+
+        let insertedCount = 0;
+        for (const s of parsedStudents) {
+            await dbRun(insertSql, [
+                s.reg_number,
+                s.surname,
+                s.first_name,
+                s.class,
+                s.assigned_subject
+            ]);
+            insertedCount++;
+        }
+
+        console.log(`📊 [Roster Bulk Upload] Successfully uploaded & updated ${insertedCount} students for class "${targetClass}".`);
+
+        return res.status(200).json({
+            success: true,
+            message: `Successfully populated roster for ${targetClass} with ${insertedCount} student records.`,
+            count: insertedCount,
+            students: parsedStudents
+        });
+
+    } catch (error) {
+        console.error('❌ [Roster Bulk Upload Error]:', error);
         next(error);
     }
 });

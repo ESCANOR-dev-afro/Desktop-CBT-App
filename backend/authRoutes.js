@@ -148,24 +148,33 @@ router.post('/login', async (req, res, next) => {
             });
         }
 
-        // Step b: Convert surname to UPPERCASE strictly & trim inputs
+        // Step b: Convert surname & reg number with strict whitespace trimming & UPPERCASE normalization
         const formattedRegNumber = String(reg_number).trim();
         const formattedSurname = String(surname).trim().toUpperCase();
         const clientIp = workstation_ip || req.ip || '127.0.0.1';
 
-        // Step c: Query matching student record
+        // Step c: Query matching student record with TRIM & UPPERCASE normalization
         const studentSql = `
-            SELECT id, reg_number, surname, class, assigned_subject 
+            SELECT id, reg_number, surname, first_name, class, assigned_subject 
             FROM students 
-            WHERE reg_number = ? AND surname = ?
+            WHERE TRIM(UPPER(reg_number)) = TRIM(UPPER(?)) AND TRIM(UPPER(surname)) = TRIM(UPPER(?))
         `;
-        const student = await dbGet(studentSql, [formattedRegNumber, formattedSurname]);
+        let student = await dbGet(studentSql, [formattedRegNumber, formattedSurname]);
 
-        // Step d: If no student matches
+        // Step d: If no student matches directly, run diagnostic check for admin logging
         if (!student) {
+            const regCheckSql = `SELECT id, reg_number, surname FROM students WHERE TRIM(UPPER(reg_number)) = TRIM(UPPER(?))`;
+            const regMatch = await dbGet(regCheckSql, [formattedRegNumber]);
+            
+            if (regMatch) {
+                console.log(`⚠️ [Login Surname Mismatch]: Candidate Reg Number "${formattedRegNumber}" exists, but entered surname "${formattedSurname}" did not match DB surname "${regMatch.surname}".`);
+            } else {
+                console.log(`⚠️ [Login Unknown Reg Number]: Registration Number "${formattedRegNumber}" not found in database.`);
+            }
+
             return res.status(401).json({
                 success: false,
-                message: "Invalid Registration Number or Surname."
+                message: "Invalid Registration Number or Surname. Please check your details and try again."
             });
         }
 
@@ -221,6 +230,7 @@ router.post('/login', async (req, res, next) => {
                 id: student.id,
                 reg_number: student.reg_number,
                 surname: student.surname,
+                first_name: student.first_name || '',
                 class: student.class,
                 assigned_subject: student.assigned_subject
             },
@@ -242,16 +252,16 @@ router.get('/student/:student_id/dashboard', async (req, res, next) => {
     try {
         const { student_id } = req.params;
 
-        const studentSql = `SELECT id, reg_number, surname, class, assigned_subject FROM students WHERE id = ?`;
+        const studentSql = `SELECT id, reg_number, surname, first_name, class, assigned_subject FROM students WHERE id = ?`;
         const student = await dbGet(studentSql, [student_id]);
 
         if (!student) {
             return res.status(404).json({ success: false, message: "Student not found." });
         }
 
-        // Fetch completed sessions for this student
+        // Fetch completed sessions for this student (CRITICAL: score is strictly omitted for student privacy)
         const completedSessionsSql = `
-            SELECT id, subject, status, score, login_time 
+            SELECT id, subject, status, login_time 
             FROM exam_sessions 
             WHERE student_id = ? AND status = 'submitted'
         `;
@@ -260,37 +270,57 @@ router.get('/student/:student_id/dashboard', async (req, res, next) => {
             completedSessions.map(s => s.subject ? s.subject.trim().toLowerCase() : '')
         );
 
+        // Fetch active sessions for this student
+        const activeSessionsSql = `
+            SELECT id, subject 
+            FROM exam_sessions 
+            WHERE student_id = ? AND status = 'active' AND is_locked = 0
+        `;
+        const activeSessions = await dbAll(activeSessionsSql, [student_id]);
+        const activeSubjects = new Set(
+            activeSessions.map(s => s.subject ? s.subject.trim().toLowerCase() : '')
+        );
+
+        // Parse student assigned subjects (supports comma or semicolon delimited list)
+        const rawAssigned = (student.assigned_subject || 'Mathematics').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+
         // Standard default subjects list for CBT Portal Hub
-        const allSubjects = [
-            { name: 'Mathematics', code: 'MTH101', schedule: 'Now Available' },
-            { name: 'English Language', code: 'ENG101', schedule: 'Now Available' },
-            { name: 'Biology', code: 'BIO101', schedule: 'Now Available' },
-            { name: 'Chemistry', code: 'CHM101', schedule: 'Now Available' },
-            { name: 'Physics', code: 'PHY101', schedule: 'Now Available' },
-            { name: 'Computer Studies', code: 'CSC101', schedule: 'Now Available' },
-            { name: 'Civic Education', code: 'CVE101', schedule: 'Now Available' },
-            { name: 'Further Mathematics', code: 'MTH102', schedule: 'Scheduled for 2:00 PM - 3:00 PM', forced_status: 'not_scheduled' }
+        const baseSubjects = [
+            'Mathematics',
+            'English Language',
+            'Biology',
+            'Chemistry',
+            'Physics',
+            'Computer Studies',
+            'Civic Education'
         ];
 
+        // Merge student specific assigned subjects with base subjects
+        const subjectSet = new Set();
+        rawAssigned.forEach(s => subjectSet.add(s));
+        baseSubjects.forEach(s => subjectSet.add(s));
+
         // Format subjects with real-time status
-        const formattedSubjects = allSubjects.map(sub => {
-            const isCompleted = completedSubjects.has(sub.name.toLowerCase());
+        const formattedSubjects = Array.from(subjectSet).map(subName => {
+            const lowerName = subName.toLowerCase();
+            const isCompleted = completedSubjects.has(lowerName);
+            const isActive = activeSubjects.has(lowerName);
+
             let status = 'available';
             let message = 'Ready to Start';
 
             if (isCompleted) {
                 status = 'completed';
                 message = 'Exam Completed';
-            } else if (sub.forced_status === 'not_scheduled') {
-                status = 'not_scheduled';
-                message = `Scheduled for 2:00 PM - 3:00 PM. Sorry, you are not scheduled for this exam yet.`;
+            } else if (isActive) {
+                status = 'active';
+                message = 'Session Active (In Progress)';
             }
 
             return {
-                name: sub.name,
-                code: sub.code,
-                schedule: sub.schedule,
-                status: status, // 'available', 'not_scheduled', 'completed'
+                name: subName,
+                schedule: isCompleted ? 'Submitted' : 'Now Available',
+                status: status, // 'available', 'active', 'completed', 'not_scheduled'
                 message: message
             };
         });
@@ -301,6 +331,7 @@ router.get('/student/:student_id/dashboard', async (req, res, next) => {
                 id: student.id,
                 reg_number: student.reg_number,
                 surname: student.surname,
+                first_name: student.first_name || '',
                 class: student.class,
                 assigned_subject: student.assigned_subject
             },
