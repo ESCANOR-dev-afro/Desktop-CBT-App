@@ -151,7 +151,16 @@ router.get('/overview', async (req, res, next) => {
 // --------------------------------------------------------------------------
 router.get('/students', async (req, res, next) => {
     try {
-        const students = await dbAll(`SELECT * FROM students ORDER BY id DESC`);
+        const { class: classScope } = req.query;
+        let sql = `SELECT * FROM students`;
+        let params = [];
+        if (classScope && classScope !== 'all') {
+            const trimmedClass = classScope.trim();
+            sql += ` WHERE LOWER(class) = LOWER(?) OR LOWER(class) LIKE LOWER(?)`;
+            params.push(trimmedClass, `${trimmedClass} %`);
+        }
+        sql += ` ORDER BY id DESC`;
+        const students = await dbAll(sql, params);
         return res.status(200).json({
             success: true,
             students: students

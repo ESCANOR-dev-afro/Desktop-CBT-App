@@ -22,6 +22,7 @@ export default function Sidebar({
   subjectsByClass,
 }) {
   const [classesOpen, setClassesOpen] = useState(true);
+  const [expandedTiers, setExpandedTiers] = useState({ 'SS 3': true, 'SS 1': true, 'JSS 1': true });
 
   const handleSelectClass = (cls) => {
     setSelectedClass(cls);
@@ -107,7 +108,7 @@ export default function Sidebar({
           </div>
         </div>
 
-        {/* School Classes Accordion Section */}
+        {/* School Classes Accordion Section with Dynamic Tier & Arm Dropdowns */}
         <div>
           <button
             onClick={() => setClassesOpen(!classesOpen)}
@@ -115,7 +116,7 @@ export default function Sidebar({
           >
             <span className="flex items-center space-x-1.5">
               <Layers className="w-3.5 h-3.5 text-brand" />
-              <span>School Classes Allocation</span>
+              <span>School Classes & Arm Streams</span>
             </span>
             {classesOpen ? (
               <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
@@ -125,39 +126,109 @@ export default function Sidebar({
           </button>
 
           {classesOpen && (
-            <div className="mt-1.5 pl-2 space-y-1">
-              {classesList.map((cls) => {
-                const isSelected = activeView === 'class-workspace' && selectedClass === cls;
-                const subjectCount = subjectsByClass[cls]?.length || 0;
+            <div className="mt-1.5 space-y-1">
+              {['JSS 1', 'JSS 2', 'JSS 3', 'SS 1', 'SS 2', 'SS 3'].map((mainTier) => {
+                const arms = {
+                  'JSS 1': ['JSS 1 Gold', 'JSS 1 Diamond'],
+                  'JSS 2': ['JSS 2 Gold', 'JSS 2 Diamond'],
+                  'JSS 3': ['JSS 3 Gold', 'JSS 3 Diamond'],
+                  'SS 1': ['SS 1 Science', 'SS 1 Art', 'SS 1 Commercial'],
+                  'SS 2': ['SS 2 Science', 'SS 2 Art', 'SS 2 Commercial'],
+                  'SS 3': ['SS 3 Science', 'SS 3 Art', 'SS 3 Commercial'],
+                }[mainTier] || [];
+
+                const isTierExpanded = !!expandedTiers?.[mainTier];
+                const isTierActive = activeView === 'class-workspace' && (selectedClass === mainTier || arms.includes(selectedClass));
+                const mainSubjectCount = subjectsByClass[mainTier]?.length || 0;
 
                 return (
-                  <button
-                    key={cls}
-                    onClick={() => handleSelectClass(cls)}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all duration-150 group ${
-                      isSelected
-                        ? 'bg-slate-900 text-brand border border-brand/40 shadow-sm font-semibold'
-                        : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/50'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-2.5 truncate">
-                      <div
-                        className={`w-2 h-2 rounded-full transition-colors ${
-                          isSelected ? 'bg-brand brand-glow-sm' : 'bg-slate-700 group-hover:bg-slate-500'
-                        }`}
-                      />
-                      <span className="truncate">{cls} Class Workspace</span>
-                    </div>
-                    <span
-                      className={`text-[10px] px-2 py-0.5 rounded-full font-bold transition-colors ${
-                        isSelected
-                          ? 'bg-brand/20 text-brand border border-brand/30'
-                          : 'bg-slate-900 text-slate-500 group-hover:text-slate-400'
+                  <div key={mainTier} className="space-y-1">
+                    <div
+                      onClick={() => handleSelectClass(mainTier)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 cursor-pointer group ${
+                        isTierActive
+                          ? 'bg-slate-900 text-brand border border-brand/40 shadow-sm font-semibold'
+                          : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/50'
                       }`}
                     >
-                      {subjectCount} Subj
-                    </span>
-                  </button>
+                      <div className="flex items-center space-x-2 truncate">
+                        <div
+                          className={`w-2 h-2 rounded-full transition-colors ${
+                            isTierActive ? 'bg-brand brand-glow-sm' : 'bg-slate-700 group-hover:bg-slate-500'
+                          }`}
+                        />
+                        <span className="truncate">{mainTier} Tier</span>
+                      </div>
+
+                      <div className="flex items-center space-x-1 shrink-0">
+                        <span
+                          className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold transition-colors ${
+                            isTierActive
+                              ? 'bg-brand/20 text-brand border border-brand/30'
+                              : 'bg-slate-900 text-slate-500 group-hover:text-slate-400'
+                          }`}
+                        >
+                          {arms.length} Arms
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedTiers((prev) => ({ ...prev, [mainTier]: !prev[mainTier] }));
+                          }}
+                          className="p-1 text-slate-500 hover:text-slate-200 rounded-md transition-colors"
+                        >
+                          {isTierExpanded ? (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Sub-menu Arm Streams List */}
+                    {isTierExpanded && (
+                      <div className="pl-4 space-y-1 border-l-2 border-slate-800 ml-3.5 my-1">
+                        {arms.map((arm) => {
+                          const isArmSelected = activeView === 'class-workspace' && selectedClass === arm;
+                          const armSubjectsCount = subjectsByClass[arm]?.length || mainSubjectCount;
+                          const isGold = arm.includes('Gold');
+                          const isDiamond = arm.includes('Diamond');
+                          const isScience = arm.includes('Science');
+                          const isArt = arm.includes('Art');
+                          const isComm = arm.includes('Commercial');
+
+                          let badgeStyle = 'bg-slate-900 text-slate-400 border-darkBorder';
+                          if (isGold) badgeStyle = 'bg-amber-500/10 text-amber-400 border-amber-500/30';
+                          if (isDiamond) badgeStyle = 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30';
+                          if (isScience) badgeStyle = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
+                          if (isArt) badgeStyle = 'bg-purple-500/10 text-purple-400 border-purple-500/30';
+                          if (isComm) badgeStyle = 'bg-blue-500/10 text-blue-400 border-blue-500/30';
+
+                          return (
+                            <button
+                              key={arm}
+                              onClick={() => handleSelectClass(arm)}
+                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] transition-all group ${
+                                isArmSelected
+                                  ? 'bg-brand/20 text-white font-bold border border-brand/40 shadow-sm'
+                                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                              }`}
+                            >
+                              <span className="truncate flex items-center space-x-1.5">
+                                <span className={`w-1.5 h-1.5 rounded-full ${isArmSelected ? 'bg-brand' : 'bg-slate-600'}`} />
+                                <span>{arm}</span>
+                              </span>
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold border ${badgeStyle}`}>
+                                {armSubjectsCount} Subj
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>

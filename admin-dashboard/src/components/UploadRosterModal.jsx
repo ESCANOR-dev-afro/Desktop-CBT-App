@@ -146,11 +146,25 @@ export default function UploadRosterModal({
               }}
               className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-4 py-2.5 focus:border-brand focus:outline-none font-bold"
             >
-              {classesList.map((cls) => (
-                <option key={cls} value={cls}>
-                  {cls} Workspace Roster
-                </option>
-              ))}
+              <optgroup label="Junior Secondary Arms">
+                <option value="JSS 1 Gold">JSS 1 Gold</option>
+                <option value="JSS 1 Diamond">JSS 1 Diamond</option>
+                <option value="JSS 2 Gold">JSS 2 Gold</option>
+                <option value="JSS 2 Diamond">JSS 2 Diamond</option>
+                <option value="JSS 3 Gold">JSS 3 Gold</option>
+                <option value="JSS 3 Diamond">JSS 3 Diamond</option>
+              </optgroup>
+              <optgroup label="Senior Secondary Streams">
+                <option value="SS 1 Science">SS 1 Science</option>
+                <option value="SS 1 Art">SS 1 Art</option>
+                <option value="SS 1 Commercial">SS 1 Commercial</option>
+                <option value="SS 2 Science">SS 2 Science</option>
+                <option value="SS 2 Art">SS 2 Art</option>
+                <option value="SS 2 Commercial">SS 2 Commercial</option>
+                <option value="SS 3 Science">SS 3 Science</option>
+                <option value="SS 3 Art">SS 3 Art</option>
+                <option value="SS 3 Commercial">SS 3 Commercial</option>
+              </optgroup>
             </select>
           </div>
 

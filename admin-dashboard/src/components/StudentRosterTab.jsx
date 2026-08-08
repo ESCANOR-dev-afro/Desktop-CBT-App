@@ -27,8 +27,14 @@ export default function StudentRosterTab({
   const [subjectFilter, setSubjectFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
-  // Filter students by current class first, then by search & filters
-  const classStudents = students.filter((s) => s.class === currentClass);
+  const matchesClassScope = (studentClass, targetScope) => {
+    if (!studentClass || !targetScope) return false;
+    if (studentClass.toLowerCase() === targetScope.toLowerCase()) return true;
+    return studentClass.toLowerCase().startsWith(`${targetScope.toLowerCase()} `);
+  };
+
+  // Filter students by current class/arm tier first, then by search & filters
+  const classStudents = students.filter((s) => matchesClassScope(s.class, currentClass));
 
   const filteredStudents = classStudents.filter((s) => {
     const matchesSearch =
@@ -45,7 +51,8 @@ export default function StudentRosterTab({
     return matchesSearch && matchesSubject && matchesStatus;
   });
 
-  const availableSubjectsForClass = subjectsByClass[currentClass] || [];
+  const baseTier = currentClass.replace(/\s+(Science|Art|Commercial|Gold|Diamond)$/i, '').trim();
+  const availableSubjectsForClass = subjectsByClass[currentClass] || subjectsByClass[baseTier] || [];
 
   const handleGeneratePasscode = (studentName) => {
     const pass = Math.floor(100000 + Math.random() * 900000);

@@ -23,8 +23,9 @@ export default function AddStudentModal({
     const randomNum = Math.floor(1000000 + Math.random() * 9000000);
     setRegNo(String(randomNum));
 
-    // Preselect all subjects belonging to this class
-    const available = subjectsByClass[studentClass] || [];
+    // Preselect all subjects belonging to this class or base tier
+    const baseTier = studentClass.replace(/\s+(Science|Art|Commercial|Gold|Diamond)$/i, '').trim();
+    const available = subjectsByClass[studentClass] || subjectsByClass[baseTier] || [];
     setSelectedSubjects(available.map((s) => s.name));
   }, [studentClass, subjectsByClass]);
 
@@ -63,7 +64,8 @@ export default function AddStudentModal({
     onClose();
   };
 
-  const currentAvailableSubjects = subjectsByClass[studentClass] || [];
+  const baseTier = studentClass.replace(/\s+(Science|Art|Commercial|Gold|Diamond)$/i, '').trim();
+  const currentAvailableSubjects = subjectsByClass[studentClass] || subjectsByClass[baseTier] || [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
@@ -104,11 +106,25 @@ export default function AddStudentModal({
                 onChange={(e) => setStudentClass(e.target.value)}
                 className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-bold"
               >
-                {classesList.map((cls) => (
-                  <option key={cls} value={cls}>
-                    {cls} Class
-                  </option>
-                ))}
+                <optgroup label="Junior Secondary Arms">
+                  <option value="JSS 1 Gold">JSS 1 Gold</option>
+                  <option value="JSS 1 Diamond">JSS 1 Diamond</option>
+                  <option value="JSS 2 Gold">JSS 2 Gold</option>
+                  <option value="JSS 2 Diamond">JSS 2 Diamond</option>
+                  <option value="JSS 3 Gold">JSS 3 Gold</option>
+                  <option value="JSS 3 Diamond">JSS 3 Diamond</option>
+                </optgroup>
+                <optgroup label="Senior Secondary Streams">
+                  <option value="SS 1 Science">SS 1 Science</option>
+                  <option value="SS 1 Art">SS 1 Art</option>
+                  <option value="SS 1 Commercial">SS 1 Commercial</option>
+                  <option value="SS 2 Science">SS 2 Science</option>
+                  <option value="SS 2 Art">SS 2 Art</option>
+                  <option value="SS 2 Commercial">SS 2 Commercial</option>
+                  <option value="SS 3 Science">SS 3 Science</option>
+                  <option value="SS 3 Art">SS 3 Art</option>
+                  <option value="SS 3 Commercial">SS 3 Commercial</option>
+                </optgroup>
               </select>
             </div>
 

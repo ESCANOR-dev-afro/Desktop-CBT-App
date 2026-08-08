@@ -15,11 +15,18 @@ export default function LiveResults({ students, classesList, onShowToast }) {
   const [selectedClass, setSelectedClass] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
+  const matchesClassScope = (studentClass, targetScope) => {
+    if (targetScope === 'ALL') return true;
+    if (!studentClass || !targetScope) return false;
+    if (studentClass.toLowerCase() === targetScope.toLowerCase()) return true;
+    return studentClass.toLowerCase().startsWith(`${targetScope.toLowerCase()} `);
+  };
+
   const filteredStudents = students.filter((s) => {
-    const matchesClass = selectedClass === 'ALL' || s.class === selectedClass;
+    const matchesClass = matchesClassScope(s.class, selectedClass);
     const matchesSearch =
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.regNo.toLowerCase().includes(searchTerm.toLowerCase());
+      (s.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.regNo || s.reg_number || '').toLowerCase().includes(searchTerm.toLowerCase());
     return matchesClass && matchesSearch;
   });
 
@@ -125,12 +132,34 @@ export default function LiveResults({ students, classesList, onShowToast }) {
               onChange={(e) => setSelectedClass(e.target.value)}
               className="bg-transparent text-xs font-semibold text-slate-300 focus:outline-none cursor-pointer"
             >
-              <option value="ALL">All School Classes</option>
-              {classesList.map((cls) => (
-                <option key={cls} value={cls}>
-                  {cls}
-                </option>
-              ))}
+              <option value="ALL">All School Classes & Arms</option>
+              <optgroup label="Main Class Tiers">
+                <option value="JSS 1">JSS 1 (All Arms)</option>
+                <option value="JSS 2">JSS 2 (All Arms)</option>
+                <option value="JSS 3">JSS 3 (All Arms)</option>
+                <option value="SS 1">SS 1 (All Streams)</option>
+                <option value="SS 2">SS 2 (All Streams)</option>
+                <option value="SS 3">SS 3 (All Streams)</option>
+              </optgroup>
+              <optgroup label="Junior Secondary Arms">
+                <option value="JSS 1 Gold">JSS 1 Gold</option>
+                <option value="JSS 1 Diamond">JSS 1 Diamond</option>
+                <option value="JSS 2 Gold">JSS 2 Gold</option>
+                <option value="JSS 2 Diamond">JSS 2 Diamond</option>
+                <option value="JSS 3 Gold">JSS 3 Gold</option>
+                <option value="JSS 3 Diamond">JSS 3 Diamond</option>
+              </optgroup>
+              <optgroup label="Senior Secondary Streams">
+                <option value="SS 1 Science">SS 1 Science</option>
+                <option value="SS 1 Art">SS 1 Art</option>
+                <option value="SS 1 Commercial">SS 1 Commercial</option>
+                <option value="SS 2 Science">SS 2 Science</option>
+                <option value="SS 2 Art">SS 2 Art</option>
+                <option value="SS 2 Commercial">SS 2 Commercial</option>
+                <option value="SS 3 Science">SS 3 Science</option>
+                <option value="SS 3 Art">SS 3 Art</option>
+                <option value="SS 3 Commercial">SS 3 Commercial</option>
+              </optgroup>
             </select>
           </div>
         </div>

@@ -1,4 +1,16 @@
-// Initial isolated subjects per class for Anthony White Bridge Academy
+// Granular Class Hierarchy & Arm Mapping Definition
+export const classHierarchy = {
+  'JSS 1': ['JSS 1 Gold', 'JSS 1 Diamond'],
+  'JSS 2': ['JSS 2 Gold', 'JSS 2 Diamond'],
+  'JSS 3': ['JSS 3 Gold', 'JSS 3 Diamond'],
+  'SS 1': ['SS 1 Science', 'SS 1 Art', 'SS 1 Commercial'],
+  'SS 2': ['SS 2 Science', 'SS 2 Art', 'SS 2 Commercial'],
+  'SS 3': ['SS 3 Science', 'SS 3 Art', 'SS 3 Commercial'],
+};
+
+export const allClassArms = Object.values(classHierarchy).flat();
+
+// Initial isolated subjects per class and arm stream
 export const initialSubjectsByClass = {
   'JSS 1': [
     { id: 'j1-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 45, category: 'Core' },
@@ -6,17 +18,47 @@ export const initialSubjectsByClass = {
     { id: 'j1-sci', name: 'Basic Science', teacher: 'Dr. E. Okafor', questionsCount: 40, category: 'Sciences' },
     { id: 'j1-soc', name: 'Social Studies', teacher: 'Mr. K. Ibrahim', questionsCount: 35, category: 'Humanities' },
   ],
+  'JSS 1 Gold': [
+    { id: 'j1g-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 45, category: 'Core' },
+    { id: 'j1g-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 50, category: 'Core' },
+    { id: 'j1g-sci', name: 'Basic Science', teacher: 'Dr. E. Okafor', questionsCount: 40, category: 'Sciences' },
+  ],
+  'JSS 1 Diamond': [
+    { id: 'j1d-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 45, category: 'Core' },
+    { id: 'j1d-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 50, category: 'Core' },
+    { id: 'j1d-soc', name: 'Social Studies', teacher: 'Mr. K. Ibrahim', questionsCount: 35, category: 'Humanities' },
+  ],
   'JSS 2': [
     { id: 'j2-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 40, category: 'Core' },
     { id: 'j2-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 45, category: 'Core' },
     { id: 'j2-sci', name: 'Basic Science', teacher: 'Dr. E. Okafor', questionsCount: 38, category: 'Sciences' },
     { id: 'j2-bus', name: 'Business Studies', teacher: 'Mrs. A. Balogun', questionsCount: 30, category: 'Commercial' },
   ],
+  'JSS 2 Gold': [
+    { id: 'j2g-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 40, category: 'Core' },
+    { id: 'j2g-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 45, category: 'Core' },
+    { id: 'j2g-sci', name: 'Basic Science', teacher: 'Dr. E. Okafor', questionsCount: 38, category: 'Sciences' },
+  ],
+  'JSS 2 Diamond': [
+    { id: 'j2d-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 40, category: 'Core' },
+    { id: 'j2d-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 45, category: 'Core' },
+    { id: 'j2d-bus', name: 'Business Studies', teacher: 'Mrs. A. Balogun', questionsCount: 30, category: 'Commercial' },
+  ],
   'JSS 3': [
     { id: 'j3-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 50, category: 'Core' },
     { id: 'j3-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 50, category: 'Core' },
     { id: 'j3-tech', name: 'Basic Technology', teacher: 'Engr. T. Benson', questionsCount: 42, category: 'Technical' },
     { id: 'j3-agri', name: 'Agricultural Science', teacher: 'Mr. D. Alabi', questionsCount: 35, category: 'Sciences' },
+  ],
+  'JSS 3 Gold': [
+    { id: 'j3g-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 50, category: 'Core' },
+    { id: 'j3g-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 50, category: 'Core' },
+    { id: 'j3g-tech', name: 'Basic Technology', teacher: 'Engr. T. Benson', questionsCount: 42, category: 'Technical' },
+  ],
+  'JSS 3 Diamond': [
+    { id: 'j3d-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 50, category: 'Core' },
+    { id: 'j3d-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 50, category: 'Core' },
+    { id: 'j3d-agri', name: 'Agricultural Science', teacher: 'Mr. D. Alabi', questionsCount: 35, category: 'Sciences' },
   ],
   'SS 1': [
     { id: 's1-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 60, category: 'Core' },
@@ -25,12 +67,47 @@ export const initialSubjectsByClass = {
     { id: 's1-che', name: 'Chemistry', teacher: 'Dr. S. Chukwu', questionsCount: 40, category: 'Sciences' },
     { id: 's1-eco', name: 'Economics', teacher: 'Mrs. A. Balogun', questionsCount: 40, category: 'Commercial' },
   ],
+  'SS 1 Science': [
+    { id: 's1sc-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 60, category: 'Core' },
+    { id: 's1sc-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 60, category: 'Core' },
+    { id: 's1sc-phy', name: 'Physics', teacher: 'Dr. E. Okafor', questionsCount: 45, category: 'Sciences' },
+    { id: 's1sc-che', name: 'Chemistry', teacher: 'Dr. S. Chukwu', questionsCount: 40, category: 'Sciences' },
+  ],
+  'SS 1 Art': [
+    { id: 's1ar-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 60, category: 'Core' },
+    { id: 's1ar-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 60, category: 'Core' },
+    { id: 's1ar-lit', name: 'Literature in English', teacher: 'Mrs. F. Nwosu', questionsCount: 40, category: 'Arts' },
+    { id: 's1ar-gov', name: 'Government', teacher: 'Mr. K. Ibrahim', questionsCount: 45, category: 'Arts' },
+  ],
+  'SS 1 Commercial': [
+    { id: 's1cm-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 60, category: 'Core' },
+    { id: 's1cm-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 60, category: 'Core' },
+    { id: 's1cm-eco', name: 'Economics', teacher: 'Mrs. A. Balogun', questionsCount: 40, category: 'Commercial' },
+    { id: 's1cm-acc', name: 'Financial Accounting', teacher: 'Mrs. A. Balogun', questionsCount: 35, category: 'Commercial' },
+  ],
   'SS 2': [
     { id: 's2-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 65, category: 'Core' },
     { id: 's2-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 60, category: 'Core' },
     { id: 's2-phy', name: 'Physics', teacher: 'Dr. E. Okafor', questionsCount: 50, category: 'Sciences' },
     { id: 's2-bio', name: 'Biology', teacher: 'Dr. H. Lawal', questionsCount: 55, category: 'Sciences' },
     { id: 's2-lit', name: 'Literature in English', teacher: 'Mrs. F. Nwosu', questionsCount: 35, category: 'Arts' },
+  ],
+  'SS 2 Science': [
+    { id: 's2sc-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 65, category: 'Core' },
+    { id: 's2sc-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 60, category: 'Core' },
+    { id: 's2sc-phy', name: 'Physics', teacher: 'Dr. E. Okafor', questionsCount: 50, category: 'Sciences' },
+    { id: 's2sc-bio', name: 'Biology', teacher: 'Dr. H. Lawal', questionsCount: 55, category: 'Sciences' },
+  ],
+  'SS 2 Art': [
+    { id: 's2ar-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 65, category: 'Core' },
+    { id: 's2ar-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 60, category: 'Core' },
+    { id: 's2ar-lit', name: 'Literature in English', teacher: 'Mrs. F. Nwosu', questionsCount: 35, category: 'Arts' },
+    { id: 's2ar-gov', name: 'Government', teacher: 'Mr. K. Ibrahim', questionsCount: 45, category: 'Arts' },
+  ],
+  'SS 2 Commercial': [
+    { id: 's2cm-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 65, category: 'Core' },
+    { id: 's2cm-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 60, category: 'Core' },
+    { id: 's2cm-eco', name: 'Economics', teacher: 'Mrs. A. Balogun', questionsCount: 45, category: 'Commercial' },
   ],
   'SS 3': [
     { id: 's3-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 100, category: 'Core' },
@@ -41,18 +118,37 @@ export const initialSubjectsByClass = {
     { id: 's3-fma', name: 'Further Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 60, category: 'Sciences' },
     { id: 's3-gov', name: 'Government', teacher: 'Mr. K. Ibrahim', questionsCount: 50, category: 'Arts' },
   ],
+  'SS 3 Science': [
+    { id: 's3sc-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 100, category: 'Core' },
+    { id: 's3sc-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 100, category: 'Core' },
+    { id: 's3sc-phy', name: 'Physics', teacher: 'Dr. E. Okafor', questionsCount: 80, category: 'Sciences' },
+    { id: 's3sc-che', name: 'Chemistry', teacher: 'Dr. S. Chukwu', questionsCount: 80, category: 'Sciences' },
+    { id: 's3sc-fma', name: 'Further Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 60, category: 'Sciences' },
+  ],
+  'SS 3 Art': [
+    { id: 's3ar-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 100, category: 'Core' },
+    { id: 's3ar-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 100, category: 'Core' },
+    { id: 's3ar-gov', name: 'Government', teacher: 'Mr. K. Ibrahim', questionsCount: 50, category: 'Arts' },
+    { id: 's3ar-lit', name: 'Literature in English', teacher: 'Mrs. F. Nwosu', questionsCount: 45, category: 'Arts' },
+  ],
+  'SS 3 Commercial': [
+    { id: 's3cm-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 100, category: 'Core' },
+    { id: 's3cm-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 100, category: 'Core' },
+    { id: 's3cm-eco', name: 'Economics', teacher: 'Mrs. A. Balogun', questionsCount: 60, category: 'Commercial' },
+    { id: 's3cm-acc', name: 'Financial Accounting', teacher: 'Mrs. A. Balogun', questionsCount: 50, category: 'Commercial' },
+  ],
 };
 
-// Initial student roster per class
+// Initial student roster per class & arm stream
 export const initialStudents = [
-  // SS 3 Students
+  // SS 3 Science Students
   {
     id: 'STU-SS3-001',
     regNo: '1009001',
     surname: 'Obi',
     firstName: 'Chidi',
     name: 'Obi, Chidi',
-    class: 'SS 3',
+    class: 'SS 3 Science',
     gender: 'Male',
     assignedSubjects: ['Mathematics', 'Physics', 'Chemistry', 'English Language', 'Further Mathematics'],
     status: 'Exam Ready',
@@ -64,47 +160,37 @@ export const initialStudents = [
     surname: 'Usman',
     firstName: 'Amina',
     name: 'Usman, Amina',
-    class: 'SS 3',
+    class: 'SS 3 Science',
     gender: 'Female',
     assignedSubjects: ['Mathematics', 'English Language', 'Biology', 'Chemistry'],
     status: 'Exam Ready',
     recentScore: '94%',
   },
+  // SS 3 Art
   {
     id: 'STU-SS3-003',
     regNo: '1009003',
     surname: 'Folorunsho',
     firstName: 'Babatunde',
     name: 'Folorunsho, Babatunde',
-    class: 'SS 3',
+    class: 'SS 3 Art',
     gender: 'Male',
-    assignedSubjects: ['Mathematics', 'English Language', 'Government', 'Economics'],
+    assignedSubjects: ['Mathematics', 'English Language', 'Government', 'Literature in English'],
     status: 'Active',
     recentScore: '79%',
   },
+  // SS 3 Commercial
   {
     id: 'STU-SS3-004',
     regNo: '1009004',
-    surname: 'Ahmed',
-    firstName: 'Zainab',
-    name: 'Ahmed, Zainab',
-    class: 'SS 3',
+    surname: 'Eze',
+    firstName: 'Grace',
+    name: 'Eze, Grace',
+    class: 'SS 3 Commercial',
     gender: 'Female',
-    assignedSubjects: ['Mathematics', 'English Language', 'Physics', 'Further Mathematics'],
+    assignedSubjects: ['Mathematics', 'English Language', 'Economics', 'Financial Accounting'],
     status: 'Exam Ready',
     recentScore: '91%',
-  },
-  {
-    id: 'STU-SS3-005',
-    regNo: '1009005',
-    surname: 'Nwankwo',
-    firstName: 'Emeka',
-    name: 'Nwankwo, Emeka',
-    class: 'SS 3',
-    gender: 'Male',
-    assignedSubjects: ['Mathematics', 'English Language', 'Chemistry', 'Biology'],
-    status: 'Suspended',
-    recentScore: '65%',
   },
 
   // JSS 1 Students
@@ -114,7 +200,7 @@ export const initialStudents = [
     surname: 'Kalu',
     firstName: 'David',
     name: 'Kalu, David',
-    class: 'JSS 1',
+    class: 'JSS 1 Gold',
     gender: 'Male',
     assignedSubjects: ['Mathematics', 'English Language', 'Basic Science', 'Social Studies'],
     status: 'Exam Ready',
@@ -126,7 +212,7 @@ export const initialStudents = [
     surname: 'Okon',
     firstName: 'Blessing',
     name: 'Okon, Blessing',
-    class: 'JSS 1',
+    class: 'JSS 1 Diamond',
     gender: 'Female',
     assignedSubjects: ['Mathematics', 'English Language', 'Basic Science'],
     status: 'Active',
@@ -140,11 +226,35 @@ export const initialStudents = [
     surname: 'Adebayo',
     firstName: 'Kemi',
     name: 'Adebayo, Kemi',
-    class: 'SS 1',
+    class: 'SS 1 Science',
     gender: 'Female',
-    assignedSubjects: ['Mathematics', 'English Language', 'Physics', 'Economics'],
+    assignedSubjects: ['Mathematics', 'English Language', 'Physics', 'Chemistry'],
     status: 'Exam Ready',
     recentScore: '87%',
+  },
+  {
+    id: 'STU-SS1-002',
+    regNo: '1009046',
+    surname: 'Obasi',
+    firstName: 'Emeka',
+    name: 'Obasi, Emeka',
+    class: 'SS 1 Art',
+    gender: 'Male',
+    assignedSubjects: ['Mathematics', 'English Language', 'Government', 'Literature in English'],
+    status: 'Exam Ready',
+    recentScore: '81%',
+  },
+  {
+    id: 'STU-SS1-003',
+    regNo: '1009047',
+    surname: 'Bakare',
+    firstName: 'Tayo',
+    name: 'Bakare, Tayo',
+    class: 'SS 1 Commercial',
+    gender: 'Male',
+    assignedSubjects: ['Mathematics', 'English Language', 'Economics', 'Financial Accounting'],
+    status: 'Active',
+    recentScore: '78%',
   },
 ];
 

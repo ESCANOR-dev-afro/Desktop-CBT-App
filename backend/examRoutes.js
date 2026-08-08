@@ -69,8 +69,10 @@ router.get('/questions/:subject', async (req, res, next) => {
         `;
         const params = [subject.trim()];
         if (classScope) {
-            fetchQuestionsSql += ` AND (class IS NULL OR LOWER(class) = LOWER(?))`;
-            params.push(classScope);
+            // Extract base class tier (e.g., "SS 1 Science" -> "SS 1")
+            const baseTier = classScope.replace(/\s+(Science|Art|Commercial|Gold|Diamond)$/i, '').trim();
+            fetchQuestionsSql += ` AND (class IS NULL OR LOWER(class) = LOWER(?) OR LOWER(class) = LOWER(?))`;
+            params.push(classScope, baseTier);
         }
         fetchQuestionsSql += ` ORDER BY RANDOM() LIMIT 50;`;
 
@@ -91,7 +93,7 @@ router.get('/questions/:subject', async (req, res, next) => {
 
 // --------------------------------------------------------------------------
 // 2. POST /api/exam/autosave
-// Idempotent background save of a student's selected answer choice
+// Atomic UPSERT background save for 90 concurrent lab workstations
 // --------------------------------------------------------------------------
 router.post('/autosave', async (req, res, next) => {
     try {
@@ -129,32 +131,50 @@ router.post('/autosave', async (req, res, next) => {
             });
         }
 
-        // Check if answer record already exists for this student & question
-        const checkAnswerSql = `SELECT id FROM answers WHERE student_id = ? AND question_id = ?`;
-        const existingAnswer = await dbGet(checkAnswerSql, [student_id, question_id]);
-
-        if (existingAnswer) {
-            // Update existing answer
-            const updateSql = `
-                UPDATE answers 
-                SET selected_option = ?, updated_at = CURRENT_TIMESTAMP 
-                WHERE student_id = ? AND question_id = ?
-            `;
-            await dbRun(updateSql, [normalizedOption, student_id, question_id]);
-        } else {
-            // Insert new answer
-            const insertSql = `
-                INSERT INTO answers (student_id, question_id, selected_option, updated_at)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-            `;
-            await dbRun(insertSql, [student_id, question_id, normalizedOption]);
-        }
+        // High-Speed Atomic UPSERT to prevent DB locking under 90 active workstations
+        const upsertSql = `
+            INSERT INTO answers (student_id, question_id, selected_option, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(student_id, question_id) DO UPDATE SET
+                selected_option = excluded.selected_option,
+                updated_at = CURRENT_TIMESTAMP
+        `;
+        await dbRun(upsertSql, [student_id, question_id, normalizedOption]);
 
         // Silent success response for real-time background saving
         return res.status(200).json({ success: true });
 
     } catch (error) {
         console.error('❌ [Autosave Error]:', error);
+        next(error);
+    }
+});
+
+// --------------------------------------------------------------------------
+// POST /api/exam/heartbeat
+// Live heartbeat update for active client workstations (90 concurrent labs)
+// --------------------------------------------------------------------------
+router.post('/heartbeat', async (req, res, next) => {
+    try {
+        const { student_id, session_id } = req.body;
+
+        if (!student_id || !session_id) {
+            return res.status(400).json({
+                success: false,
+                message: "student_id and session_id are required."
+            });
+        }
+
+        const updateHeartbeatSql = `
+            UPDATE exam_sessions 
+            SET last_heartbeat = CURRENT_TIMESTAMP 
+            WHERE id = ? AND student_id = ? AND status = 'active' AND is_locked = 0
+        `;
+        await dbRun(updateHeartbeatSql, [session_id, student_id]);
+
+        return res.status(200).json({ success: true, timestamp: new Date().toISOString() });
+    } catch (error) {
+        console.error('❌ [Heartbeat Error]:', error);
         next(error);
     }
 });

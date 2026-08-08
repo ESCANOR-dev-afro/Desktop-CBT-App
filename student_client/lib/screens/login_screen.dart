@@ -18,7 +18,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   final TextEditingController _regNumberController = TextEditingController();
   final TextEditingController _surnameController = TextEditingController();
-  final TextEditingController _serverIpController = TextEditingController(text: '127.0.0.1');
+  final TextEditingController _serverIpController = TextEditingController(
+    text: '127.0.0.1',
+  );
 
   bool _isLoading = false;
   bool _showServerIpConfig = false;
@@ -64,7 +66,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (!mounted) return;
 
-    if (result.success && result.studentData != null && result.sessionId != null) {
+    if (result.success &&
+        result.studentData != null &&
+        result.sessionId != null) {
       // Smooth navigation to Student Subject Dashboard / Exam Portal Hub
       final studentDataWithIp = Map<String, dynamic>.from(result.studentData!);
       studentDataWithIp['server_ip'] = _serverIpController.text.trim();
@@ -92,20 +96,23 @@ class _LoginScreenState extends State<LoginScreen> {
     switch (result.errorType) {
       case AuthErrorType.networkError:
         title = "Server Connection Problem";
-        message = "Oops! We can't connect to the exam server right now. Please raise your hand and call your teacher for help.";
+        message =
+            "Oops! We can't connect to the exam server right now. Please raise your hand and call your teacher for help.";
         icon = Icons.wifi_off_rounded;
         break;
 
       case AuthErrorType.alreadySubmitted:
         title = "Exam Already Completed";
-        message = "It looks like you have already completed this exam. Please notify your supervisor.";
+        message =
+            "It looks like you have already completed this exam. Please notify your supervisor.";
         icon = Icons.lock_clock_rounded;
         break;
 
       case AuthErrorType.invalidCredentials:
       default:
         title = "Check Your Details";
-        message = "Hmm, that Registration Number or Surname doesn't look quite right. Please check your slip and try again!";
+        message =
+            "Hmm, that Registration Number or Surname doesn't look quite right. Please check your slip and try again!";
         icon = Icons.person_search_rounded;
         break;
     }
@@ -115,7 +122,9 @@ class _LoginScreenState extends State<LoginScreen> {
       barrierDismissible: false,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           backgroundColor: Colors.white,
           surfaceTintColor: Colors.white,
           title: Row(
@@ -207,7 +216,9 @@ class _LoginScreenState extends State<LoginScreen> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
               title: Row(
                 children: [
                   Container(
@@ -216,12 +227,20 @@ class _LoginScreenState extends State<LoginScreen> {
                       color: AppTheme.errorRed.withValues(alpha: 0.12),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.shield_outlined, color: AppTheme.errorRed, size: 24),
+                    child: const Icon(
+                      Icons.shield_outlined,
+                      color: AppTheme.errorRed,
+                      size: 24,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   const Text(
                     'Admin Security Access',
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: AppTheme.darkCharcoal),
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.darkCharcoal,
+                    ),
                   ),
                 ],
               ),
@@ -231,7 +250,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   const Text(
                     'Enter Administrator Security PIN to unlock server IP configuration settings.',
-                    style: TextStyle(fontSize: 13, color: AppTheme.darkCharcoal, height: 1.4),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppTheme.darkCharcoal,
+                      height: 1.4,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   TextField(
@@ -242,7 +265,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     decoration: InputDecoration(
                       hintText: 'Enter 4-digit Admin PIN (Default: 1234)',
-                      prefixIcon: const Icon(Icons.lock_rounded, color: AppTheme.primaryOrange),
+                      prefixIcon: const Icon(
+                        Icons.lock_rounded,
+                        color: AppTheme.primaryOrange,
+                      ),
                       counterText: '',
                       errorText: pinError,
                     ),
@@ -252,23 +278,36 @@ class _LoginScreenState extends State<LoginScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('CANCEL', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
+                  child: const Text(
+                    'CANCEL',
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.primaryOrange,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 10,
+                    ),
                   ),
                   onPressed: () {
                     final enteredPin = pinController.text.trim();
-                    if (enteredPin == '1234' || enteredPin == '9999' || enteredPin == '0000') {
+                    if (enteredPin == '1234' ||
+                        enteredPin == '9999' ||
+                        enteredPin == '0000') {
                       Navigator.of(dialogContext).pop();
                       setState(() {
                         _showServerIpConfig = true;
                       });
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('✅ Admin Access Granted. Server Config Unlocked.'),
+                          content: Text(
+                            '✅ Admin Access Granted. Server Config Unlocked.',
+                          ),
                           backgroundColor: Colors.green,
                         ),
                       );
@@ -348,24 +387,15 @@ class _LoginScreenState extends State<LoginScreen> {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               // LEFT HALF: Brand Panel
-                              Expanded(
-                                flex: 5,
-                                child: _buildBrandPanel(),
-                              ),
+                              Expanded(flex: 5, child: _buildBrandPanel()),
                               // RIGHT HALF: Action Panel
-                              Expanded(
-                                flex: 6,
-                                child: _buildActionPanel(),
-                              ),
+                              Expanded(flex: 6, child: _buildActionPanel()),
                             ],
                           ),
                         )
                       : Column(
                           mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildBrandPanel(),
-                            _buildActionPanel(),
-                          ],
+                          children: [_buildBrandPanel(), _buildActionPanel()],
                         ),
                 ),
               ),
@@ -492,7 +522,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
               // CBT Portal Pill Tag
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(20),
@@ -531,7 +564,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    'Official Student Portal',
+                    'Official Student Exam Portal',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.white.withValues(alpha: 0.8),
@@ -603,7 +636,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   ],
                   decoration: const InputDecoration(
                     hintText: 'Enter 7-digit Reg Number (e.g. 1234567)',
-                    prefixIcon: Icon(Icons.badge_outlined, color: AppTheme.primaryOrange),
+                    prefixIcon: Icon(
+                      Icons.badge_outlined,
+                      color: AppTheme.primaryOrange,
+                    ),
                     counterText: '',
                   ),
                   validator: (value) {
@@ -643,7 +679,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   ],
                   decoration: const InputDecoration(
                     hintText: 'Enter Surname (e.g. SAMUEL)',
-                    prefixIcon: Icon(Icons.person_outline, color: AppTheme.primaryOrange),
+                    prefixIcon: Icon(
+                      Icons.person_outline,
+                      color: AppTheme.primaryOrange,
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
@@ -663,9 +702,7 @@ class _LoginScreenState extends State<LoginScreen> {
               decoration: BoxDecoration(
                 color: AppTheme.backgroundGrey,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: Colors.grey.withValues(alpha: 0.25),
-                ),
+                border: Border.all(color: Colors.grey.withValues(alpha: 0.25)),
               ),
               child: Column(
                 children: [
@@ -676,7 +713,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Row(
                           children: [
                             Icon(
-                              _showServerIpConfig ? Icons.lan_rounded : Icons.security_rounded,
+                              _showServerIpConfig
+                                  ? Icons.lan_rounded
+                                  : Icons.security_rounded,
                               size: 16,
                               color: AppTheme.textSecondary,
                             ),
@@ -703,17 +742,24 @@ class _LoginScreenState extends State<LoginScreen> {
                           onTap: _promptAdminPinAuthentication,
                           borderRadius: BorderRadius.circular(8),
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
                             child: Row(
                               children: [
                                 Icon(
-                                  _showServerIpConfig ? Icons.lock_open_rounded : Icons.lock_outline_rounded,
+                                  _showServerIpConfig
+                                      ? Icons.lock_open_rounded
+                                      : Icons.lock_outline_rounded,
                                   size: 15,
                                   color: AppTheme.primaryOrange,
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
-                                  _showServerIpConfig ? 'Lock Config' : 'Server Config',
+                                  _showServerIpConfig
+                                      ? 'Lock Config'
+                                      : 'Server Config',
                                   style: const TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
@@ -734,7 +780,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       decoration: const InputDecoration(
                         labelText: 'CBT Server IP Address',
                         hintText: 'e.g. 192.168.1.100 or 127.0.0.1',
-                        prefixIcon: Icon(Icons.wifi_outlined, color: AppTheme.primaryOrange),
+                        prefixIcon: Icon(
+                          Icons.wifi_outlined,
+                          color: AppTheme.primaryOrange,
+                        ),
                       ),
                     ),
                   ],
@@ -753,7 +802,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.primaryOrange,
                   foregroundColor: Colors.white,
-                  disabledBackgroundColor: AppTheme.primaryOrange.withValues(alpha: 0.6),
+                  disabledBackgroundColor: AppTheme.primaryOrange.withValues(
+                    alpha: 0.6,
+                  ),
                   elevation: 4,
                   shadowColor: AppTheme.primaryOrange.withValues(alpha: 0.35),
                   shape: RoundedRectangleBorder(
