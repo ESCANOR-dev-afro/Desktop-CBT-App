@@ -48,11 +48,18 @@ const flutterBuildPath = path.join(__dirname, '../student_client/build/web');
 const adminDistPath = path.join(__dirname, 'public/admin');
 const adminFallbackPath = path.join(__dirname, '../admin-dashboard/dist');
 
-// 1. API Endpoints
-app.use('/api', authRoutes);
+// Ensure upload directory exists for question diagrams
+const uploadsDir = path.join(__dirname, 'uploads/diagrams');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// 1. API Endpoints & Static Uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/exam', examRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/questions', questionRoutes);
+app.use('/api', authRoutes);
 
 /**
  * Health Check Endpoint

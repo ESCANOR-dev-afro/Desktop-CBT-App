@@ -221,6 +221,66 @@ router.post('/login', async (req, res, next) => {
 });
 
 /**
+ * POST /api/student/verify-session
+ * 
+ * Verifies if a stored student session token (student_id + session_id) is valid, active, and unlocked.
+ */
+router.post('/student/verify-session', async (req, res, next) => {
+    try {
+        const { student_id, session_id } = req.body;
+
+        if (!student_id || !session_id) {
+            return res.status(400).json({
+                success: false,
+                valid: false,
+                message: "student_id and session_id are required for verification."
+            });
+        }
+
+        // Verify student exists
+        const student = await dbGet(`SELECT id, reg_number, surname, first_name, class FROM students WHERE id = ?`, [student_id]);
+        if (!student) {
+            return res.status(401).json({
+                success: false,
+                valid: false,
+                message: "Student candidate record not found."
+            });
+        }
+
+        // Verify session status
+        const session = await dbGet(`SELECT id, status, is_locked FROM exam_sessions WHERE id = ? AND student_id = ?`, [session_id, student_id]);
+
+        if (!session) {
+            return res.status(401).json({
+                success: false,
+                valid: false,
+                message: "Exam session not found or invalidated."
+            });
+        }
+
+        if (session.status === 'submitted' || session.is_locked === 1) {
+            return res.status(401).json({
+                success: false,
+                valid: false,
+                message: session.status === 'submitted'
+                    ? "Exam session has already been completed and submitted."
+                    : "Exam session has been locked by administrator."
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            valid: true,
+            message: "Session is active and valid",
+            student: student
+        });
+    } catch (error) {
+        console.error('❌ [Verify Session Route Error]:', error);
+        next(error);
+    }
+});
+
+/**
  * GET /api/student/:student_id/dashboard
  * 
  * Retrieves student profile metadata, assigned subjects, and completion/scheduled status.
@@ -228,12 +288,27 @@ router.post('/login', async (req, res, next) => {
 router.get('/student/:student_id/dashboard', async (req, res, next) => {
     try {
         const { student_id } = req.params;
+        const sessionId = req.query.session_id || req.query.sessionId || null;
 
         const studentSql = `SELECT id, reg_number, surname, first_name, class, assigned_subject FROM students WHERE id = ?`;
         const student = await dbGet(studentSql, [student_id]);
 
         if (!student) {
             return res.status(404).json({ success: false, message: "Student not found." });
+        }
+
+        // If session_id is provided, verify session status
+        if (sessionId) {
+            const checkSess = await dbGet(`SELECT status, is_locked FROM exam_sessions WHERE id = ? AND student_id = ?`, [sessionId, student_id]);
+            if (checkSess) {
+                if (checkSess.status === 'submitted' || checkSess.is_locked === 1) {
+                    return res.status(401).json({
+                        success: false,
+                        valid: false,
+                        message: "Exam session is locked or already submitted."
+                    });
+                }
+            }
         }
 
         // Fetch completed sessions for this student (CRITICAL: score is strictly omitted for student privacy)

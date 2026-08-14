@@ -2,19 +2,23 @@
  * questionRoutes.js
  * 
  * Express routes for Question Management, including Bulk Question Upload
- * via spreadsheet parsing (.xlsx, .xls, .csv) and SQLite transactions.
+ * via spreadsheet parsing (.xlsx, .xls, .csv), diagram image file binding,
+ * option normalization, and SQLite transactions.
  */
 
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const XLSX = require('xlsx');
+const path = require('path');
+const fs = require('fs');
 const db = require('./database');
+const { logAuditAction } = require('./services/auditLogger');
 
-// Configure Multer in-memory storage for uploaded spreadsheets
+// Configure Multer storage for uploaded files and diagram images
 const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 20 * 1024 * 1024 } // 20MB limit
+    limits: { fileSize: 25 * 1024 * 1024 } // 25MB limit
 });
 
 /**
@@ -88,30 +92,45 @@ function runTransaction(callback) {
 
 // --------------------------------------------------------------------------
 // POST /api/questions/upload
-// Bulk Question Upload Endpoint accepting .csv, .xlsx, .xls
+// Bulk Question Upload Endpoint accepting .csv, .xlsx, .xls and optional diagram files
 // --------------------------------------------------------------------------
-router.post('/upload', upload.single('file'), async (req, res, next) => {
+router.post('/upload', upload.any(), async (req, res, next) => {
     try {
-        if (!req.file) {
+        const files = req.files || [];
+        const spreadsheetFile = files.find(f => f.fieldname === 'file') || files.find(f => {
+            const name = (f.originalname || '').toLowerCase();
+            return name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.csv');
+        });
+
+        if (!spreadsheetFile) {
             return res.status(400).json({
                 success: false,
                 message: "No spreadsheet file uploaded. Please upload a .csv, .xlsx, or .xls file."
             });
         }
 
-        const fileName = (req.file.originalname || '').toLowerCase();
-        const isAllowedType = fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv');
-        if (!isAllowedType) {
-            return res.status(400).json({
-                success: false,
-                message: "Invalid file format. Only .xlsx, .xls, and .csv files are allowed."
-            });
+        // Process attached diagram images if provided
+        const imageFilesMap = new Map();
+        const diagramUploadsDir = path.join(__dirname, 'uploads/diagrams');
+        if (!fs.existsSync(diagramUploadsDir)) {
+            fs.mkdirSync(diagramUploadsDir, { recursive: true });
         }
+
+        files.forEach(f => {
+            if (f !== spreadsheetFile && f.mimetype && f.mimetype.startsWith('image/')) {
+                const safeName = Date.now() + '_' + path.basename(f.originalname).replace(/[^a-zA-Z0-9_\.-]/g, '_');
+                const destPath = path.join(diagramUploadsDir, safeName);
+                fs.writeFileSync(destPath, f.buffer);
+                const publicUrl = `/uploads/diagrams/${safeName}`;
+                imageFilesMap.set(f.originalname.toLowerCase(), publicUrl);
+                imageFilesMap.set(path.basename(f.originalname).toLowerCase(), publicUrl);
+            }
+        });
 
         // Parse buffer into XLSX workbook
         let workbook;
         try {
-            workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+            workbook = XLSX.read(spreadsheetFile.buffer, { type: 'buffer' });
         } catch (parseError) {
             return res.status(400).json({
                 success: false,
@@ -153,11 +172,25 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
             const optionB = getRowValue(row, ['option_b', 'option b', 'b', 'optb', 'opt_b', 'option2']);
             const optionC = getRowValue(row, ['option_c', 'option c', 'c', 'optc', 'opt_c', 'option3']);
             const optionD = getRowValue(row, ['option_d', 'option d', 'd', 'optd', 'opt_d', 'option4']);
+            let diagramRef = getRowValue(row, ['diagram_image_url', 'diagram_image', 'diagram', 'image_url', 'image', 'figure', 'img', 'diagram_file', 'diagram_path']);
 
             let rawAnswer = getRowValue(row, ['correct_answer', 'correct answer', 'answer', 'correct', 'ans', 'correctanswer']);
             let marksRaw = getRowValue(row, ['marks', 'mark', 'score', 'points']);
             let rowSubject = getRowValue(row, ['subject', 'subject_id', 'subject_name', 'subjectname']) || fallbackSubject;
             let rowClass = getRowValue(row, ['class', 'exam_id', 'class_id', 'grade']) || fallbackClass;
+
+            // Resolve diagram URL if mapped from uploaded images or formatted path
+            let diagramUrl = null;
+            if (diagramRef) {
+                const lowerRef = diagramRef.toLowerCase();
+                if (imageFilesMap.has(lowerRef)) {
+                    diagramUrl = imageFilesMap.get(lowerRef);
+                } else if (diagramRef.startsWith('http://') || diagramRef.startsWith('https://') || diagramRef.startsWith('/')) {
+                    diagramUrl = diagramRef;
+                } else {
+                    diagramUrl = `/uploads/diagrams/${diagramRef}`;
+                }
+            }
 
             // Normalize answer key (A, B, C, D)
             let correctAnswer = '';
@@ -200,7 +233,8 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
                     option_c: optionC,
                     option_d: optionD,
                     correct_answer: correctAnswer,
-                    marks: marks
+                    marks: marks,
+                    diagram_image_url: diagramUrl
                 });
             }
         });
@@ -214,14 +248,21 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
             });
         }
 
-        // Execute bulk insertion in SQLite transaction
+        // Execute bulk insertion in SQLite transaction & populate `question_options`
         const insertedCount = await runTransaction(() => {
             return new Promise((resolve, reject) => {
                 const insertSql = `
-                    INSERT INTO questions (class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    INSERT INTO questions (class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                `;
+                const optionInsertSql = `
+                    INSERT INTO question_options (question_id, option_key, option_text, is_correct)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(question_id, option_key) DO UPDATE SET option_text = excluded.option_text, is_correct = excluded.is_correct;
                 `;
                 const stmt = db.prepare(insertSql);
+                const optStmt = db.prepare(optionInsertSql);
+
                 let count = 0;
                 let hasError = false;
 
@@ -236,16 +277,32 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
                         q.option_c,
                         q.option_d,
                         q.correct_answer,
-                        q.marks
+                        q.marks,
+                        q.diagram_image_url
                     ], function (err) {
                         if (err) {
                             hasError = true;
                             stmt.finalize();
+                            optStmt.finalize();
                             return reject(err);
                         }
+
+                        const qId = this.lastID;
+                        const opts = [
+                            { key: 'A', text: q.option_a, is_correct: q.correct_answer === 'A' ? 1 : 0 },
+                            { key: 'B', text: q.option_b, is_correct: q.correct_answer === 'B' ? 1 : 0 },
+                            { key: 'C', text: q.option_c, is_correct: q.correct_answer === 'C' ? 1 : 0 },
+                            { key: 'D', text: q.option_d, is_correct: q.correct_answer === 'D' ? 1 : 0 }
+                        ];
+
+                        opts.forEach(opt => {
+                            optStmt.run([qId, opt.key, opt.text, opt.is_correct]);
+                        });
+
                         count++;
                         if (count === validQuestions.length) {
-                            stmt.finalize((finalizeErr) => {
+                            stmt.finalize();
+                            optStmt.finalize((finalizeErr) => {
                                 if (finalizeErr) return reject(finalizeErr);
                                 resolve(count);
                             });
@@ -255,9 +312,9 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
             });
         });
 
-        console.log(`📦 [Bulk Upload Success] Transaction committed. Imported ${insertedCount} questions into SQLite database.`);
+        console.log(`📦 [Bulk Upload Success] Transaction committed. Imported ${insertedCount} questions with options & diagram image URLs into SQLite.`);
 
-        // Persist exam duration if provided in request body
+        // Persist exam duration if provided
         const durationMinutes = parseInt(req.body.duration_minutes || req.body.duration, 10);
         if (!isNaN(durationMinutes) && durationMinutes > 0) {
             const targetClass = fallbackClass ? String(fallbackClass).trim() : null;
@@ -265,13 +322,23 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
             db.run(
                 `INSERT INTO exam_configs (class, subject, duration_minutes) VALUES (?, ?, ?)
                  ON CONFLICT(class, subject) DO UPDATE SET duration_minutes = excluded.duration_minutes`,
-                [targetClass, normSubject, durationMinutes],
-                (cfgErr) => {
-                    if (cfgErr) console.warn('⚠️ [Exam Config Notice in questionRoutes]:', cfgErr.message);
-                    else console.log(`⏱️ [Exam Config] Duration set to ${durationMinutes} mins for ${targetClass || 'All Classes'} - ${normSubject}.`);
-                }
+                [targetClass, normSubject, durationMinutes]
             );
         }
+
+        // Record Audit Log
+        await logAuditAction({
+            action: 'UPLOAD_QUESTIONS',
+            entity_type: 'questions',
+            entity_id: `${insertedCount}_items`,
+            details: {
+                subject: normalizeSubjectName(fallbackSubject),
+                class: fallbackClass,
+                importedCount: insertedCount,
+                filename: spreadsheetFile.originalname
+            },
+            ip_address: req.ip || '127.0.0.1'
+        });
 
         return res.status(201).json({
             success: true,

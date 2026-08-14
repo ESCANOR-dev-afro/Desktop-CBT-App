@@ -223,7 +223,7 @@ router.get('/questions/:subject', async (req, res, next) => {
                 if (Array.isArray(questionIds) && questionIds.length > 0) {
                     const placeholders = questionIds.map(() => '?').join(',');
                     const fetchSql = `
-                        SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, marks
+                        SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, marks, diagram_image_url
                         FROM questions
                         WHERE id IN (${placeholders})
                     `;
@@ -256,7 +256,7 @@ router.get('/questions/:subject', async (req, res, next) => {
 
         // 4. Query eligible question pool matching subject and class
         let fetchQuestionsSql = `
-            SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, marks
+            SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, marks, diagram_image_url
             FROM questions
             WHERE LOWER(subject) = LOWER(?)
         `;
@@ -272,7 +272,7 @@ router.get('/questions/:subject', async (req, res, next) => {
         // Fallback if class filter yielded no questions: load general subject question pool
         if (rawQuestions.length === 0 && targetClass) {
             rawQuestions = await dbAll(
-                `SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, marks FROM questions WHERE LOWER(subject) = LOWER(?)`,
+                `SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, marks, diagram_image_url FROM questions WHERE LOWER(subject) = LOWER(?)`,
                 [normalizedSubject]
             );
         }

@@ -12,11 +12,12 @@ const multer = require('multer');
 const mammoth = require('mammoth');
 const ExcelJS = require('exceljs');
 const db = require('./database');
+const { logAuditAction } = require('./services/auditLogger');
 
-// Configure Multer memory storage for uploaded Word documents
+// Configure Multer memory storage for uploaded documents
 const upload = multer({ 
     storage: multer.memoryStorage(),
-    limits: { fileSize: 15 * 1024 * 1024 } // 15MB max file size
+    limits: { fileSize: 25 * 1024 * 1024 } // 25MB max file size
 });
 
 function dbAll(sql, params = []) {
@@ -67,6 +68,112 @@ function normalizeSubjectName(rawSubject) {
         .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
         .join(' ');
 }
+
+// --------------------------------------------------------------------------
+// Academic Terms Endpoints
+// --------------------------------------------------------------------------
+
+/**
+ * GET /api/admin/academic-terms
+ * Returns list of academic terms and current active term from database.
+ */
+router.get('/academic-terms', async (req, res, next) => {
+    try {
+        let terms = await dbAll(`SELECT id, name, session, is_current FROM academic_terms ORDER BY id ASC`);
+        
+        if (!terms || terms.length === 0) {
+            // Seed defaults if empty
+            await dbRun(`INSERT OR IGNORE INTO academic_terms (name, session, is_current) VALUES ('1st Term', '2025/2026', 0)`);
+            await dbRun(`INSERT OR IGNORE INTO academic_terms (name, session, is_current) VALUES ('2nd Term', '2025/2026', 1)`);
+            await dbRun(`INSERT OR IGNORE INTO academic_terms (name, session, is_current) VALUES ('3rd Term', '2025/2026', 0)`);
+            terms = await dbAll(`SELECT id, name, session, is_current FROM academic_terms ORDER BY id ASC`);
+        }
+
+        const activeTerm = terms.find(t => t.is_current === 1) || terms[0] || { name: '2nd Term', session: '2025/2026' };
+
+        return res.status(200).json({
+            success: true,
+            active_term: activeTerm.name,
+            session: activeTerm.session,
+            terms: terms
+        });
+    } catch (error) {
+        console.error('❌ [Get Academic Terms Error]:', error);
+        next(error);
+    }
+});
+
+/**
+ * POST /api/admin/academic-terms/active
+ * Sets the active academic term in the database and records an audit log.
+ */
+router.post('/academic-terms/active', async (req, res, next) => {
+    try {
+        const { term, name, session } = req.body;
+        const targetTerm = String(term || name || '').trim();
+        const targetSession = String(session || '2025/2026').trim();
+
+        if (!targetTerm) {
+            return res.status(400).json({
+                success: false,
+                message: "Academic term name is required (e.g., '1st Term', '2nd Term', '3rd Term')."
+            });
+        }
+
+        // Ensure term exists
+        await dbRun(
+            `INSERT INTO academic_terms (name, session, is_current) VALUES (?, ?, 0)
+             ON CONFLICT(name, session) DO NOTHING`,
+            [targetTerm, targetSession]
+        );
+
+        // Deactivate all terms and activate selected term
+        await dbRun(`UPDATE academic_terms SET is_current = 0`);
+        await dbRun(
+            `UPDATE academic_terms SET is_current = 1 WHERE LOWER(name) = LOWER(?) AND session = ?`,
+            [targetTerm, targetSession]
+        );
+
+        console.log(`📅 [Academic Term Updated] Active term set to "${targetTerm}" (${targetSession}).`);
+
+        // Record Audit Log
+        await logAuditAction({
+            action: 'SWITCH_ACADEMIC_TERM',
+            entity_type: 'academic_terms',
+            entity_id: targetTerm,
+            details: { term: targetTerm, session: targetSession },
+            ip_address: req.ip || '127.0.0.1'
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: `Active academic term updated to ${targetTerm} (${targetSession})`,
+            active_term: targetTerm,
+            session: targetSession
+        });
+    } catch (error) {
+        console.error('❌ [Set Active Academic Term Error]:', error);
+        next(error);
+    }
+});
+
+/**
+ * GET /api/admin/audit-logs
+ * Retrieves administrative audit logs.
+ */
+router.get('/audit-logs', async (req, res, next) => {
+    try {
+        const logs = await dbAll(`SELECT * FROM audit_logs ORDER BY id DESC LIMIT 100`);
+        return res.status(200).json({
+            success: true,
+            count: logs.length,
+            logs: logs
+        });
+    } catch (error) {
+        console.error('❌ [Get Audit Logs Error]:', error);
+        next(error);
+    }
+});
 
 // --------------------------------------------------------------------------
 // 0. GET /api/admin/subjects
