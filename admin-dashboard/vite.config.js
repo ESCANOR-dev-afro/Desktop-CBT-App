@@ -5,6 +5,10 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   base: '/admin/',
   plugins: [react()],
+  build: {
+    outDir: '../backend/public/admin',
+    emptyOutDir: true,
+  },
   server: {
     host: '0.0.0.0',
     port: 5173,

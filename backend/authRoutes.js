@@ -77,46 +77,23 @@ function normalizeSubjectName(rawSubject) {
  */
 router.get('/subjects', async (req, res, next) => {
     try {
-        const defaultSubjects = [
-            'Mathematics',
-            'English Language',
-            'Biology',
-            'Chemistry',
-            'Physics',
-            'Civic Education',
-            'Computer Studies',
-            'Economics',
-            'Government'
-        ];
+        const activeSubjects = await dbAll(`SELECT name FROM subjects WHERE is_active = 1 ORDER BY name ASC`);
+        let subjectsList = activeSubjects.map(s => s.name);
 
-        // 1. Fetch unique subjects in question bank
-        const questionSubjects = await dbAll(`SELECT DISTINCT subject FROM questions WHERE subject IS NOT NULL AND TRIM(subject) != ''`);
-
-        // 2. Fetch unique subjects assigned to students
-        const studentSubjects = await dbAll(`SELECT DISTINCT assigned_subject AS subject FROM students WHERE assigned_subject IS NOT NULL AND TRIM(assigned_subject) != ''`);
-
-        // Keyed Map for deduplication based on lowercased key
-        const subjectMap = new Map();
-
-        // Include master defaults
-        defaultSubjects.forEach(s => {
-            const norm = normalizeSubjectName(s);
-            if (norm) subjectMap.set(norm.toLowerCase(), norm);
-        });
-
-        // Merge question bank subjects
-        questionSubjects.forEach(row => {
-            const norm = normalizeSubjectName(row.subject);
-            if (norm) subjectMap.set(norm.toLowerCase(), norm);
-        });
-
-        // Merge student registration subjects
-        studentSubjects.forEach(row => {
-            const norm = normalizeSubjectName(row.subject);
-            if (norm) subjectMap.set(norm.toLowerCase(), norm);
-        });
-
-        const subjectsList = Array.from(subjectMap.values()).sort((a, b) => a.localeCompare(b));
+        if (subjectsList.length === 0) {
+            const defaultSubjects = [
+                'Mathematics',
+                'English Language',
+                'Biology',
+                'Chemistry',
+                'Physics',
+                'Civic Education',
+                'Computer Studies',
+                'Economics',
+                'Government'
+            ];
+            subjectsList = defaultSubjects;
+        }
 
         return res.status(200).json({
             success: true,
@@ -300,16 +277,25 @@ router.get('/student/:student_id/dashboard', async (req, res, next) => {
         rawAssigned.forEach(s => subjectSet.add(s));
         baseSubjects.forEach(s => subjectSet.add(s));
 
+        // Fetch subject activation states
+        const dbSubjects = await dbAll(`SELECT name, is_active FROM subjects`);
+        const activeSubjectMap = new Map();
+        dbSubjects.forEach(s => activeSubjectMap.set(s.name.toLowerCase(), s.is_active));
+
         // Format subjects with real-time status
         const formattedSubjects = Array.from(subjectSet).map(subName => {
             const lowerName = subName.toLowerCase();
             const isCompleted = completedSubjects.has(lowerName);
             const isActive = activeSubjects.has(lowerName);
+            const isSubjectConfigActive = activeSubjectMap.has(lowerName) ? activeSubjectMap.get(lowerName) === 1 : true;
 
             let status = 'available';
             let message = 'Ready to Start';
 
-            if (isCompleted) {
+            if (!isSubjectConfigActive) {
+                status = 'not_scheduled';
+                message = 'Exam paper is currently inactive / disabled by administrator.';
+            } else if (isCompleted) {
                 status = 'completed';
                 message = 'Exam Completed';
             } else if (isActive) {
@@ -319,7 +305,7 @@ router.get('/student/:student_id/dashboard', async (req, res, next) => {
 
             return {
                 name: subName,
-                schedule: isCompleted ? 'Submitted' : 'Now Available',
+                schedule: isCompleted ? 'Submitted' : (!isSubjectConfigActive ? 'Inactive' : 'Now Available'),
                 status: status, // 'available', 'active', 'completed', 'not_scheduled'
                 message: message
             };

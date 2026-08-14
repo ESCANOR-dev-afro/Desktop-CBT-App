@@ -37,9 +37,10 @@ export default function ClassWorkspace({
     return studentClass.toLowerCase().startsWith(`${targetScope.toLowerCase()} `);
   };
 
-  const baseTier = currentClass.replace(/\s+(Science|Art|Commercial|Gold|Diamond)$/i, '').trim();
-  const classSubjects = subjectsByClass[currentClass] || subjectsByClass[baseTier] || [];
-  const classStudents = students.filter((s) => matchesClassScope(s.class, currentClass));
+  const safeClass = currentClass || 'SS 3';
+  const baseTier = safeClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
+  const classSubjects = (subjectsByClass && subjectsByClass[safeClass]) || (subjectsByClass && subjectsByClass[baseTier]) || [];
+  const classStudents = (students || []).filter((s) => matchesClassScope(s.class, safeClass));
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -53,6 +52,7 @@ class _ExamScreenState extends State<ExamScreen> {
   late String _studentDisplayName;
   late String _regNumber;
   late String _studentClass;
+  int _durationMinutes = 45;
 
   @override
   void initState() {
@@ -75,6 +75,10 @@ class _ExamScreenState extends State<ExamScreen> {
     _studentDisplayName = _studentFirstName.isNotEmpty ? '$_studentSurname, $_studentFirstName' : _studentSurname;
     _regNumber = (widget.studentData['reg_number'] ?? '').toString();
     _studentClass = (widget.studentData['class'] ?? '').toString();
+    final rawDuration = widget.studentData['duration_minutes'] ?? widget.studentData['duration'];
+    if (rawDuration != null) {
+      _durationMinutes = (rawDuration is num) ? rawDuration.toInt() : int.tryParse(rawDuration.toString()) ?? 45;
+    }
   }
 
   @override
@@ -95,7 +99,9 @@ class _ExamScreenState extends State<ExamScreen> {
 
     try {
       final encodedSubject = Uri.encodeComponent(_assignedSubject.trim());
-      final url = ApiConfig.getUri(_serverIp, '/exam/questions/$encodedSubject');
+      final url = ApiConfig.getUri(_serverIp, '/exam/questions/$encodedSubject', queryParameters: {
+        if (_studentClass.isNotEmpty) 'class': _studentClass.trim(),
+      });
 
       final response = await http.get(url).timeout(const Duration(seconds: 10));
 
@@ -105,6 +111,10 @@ class _ExamScreenState extends State<ExamScreen> {
           final List rawQuestions = data['questions'];
           _questions = rawQuestions.map((q) => Map<String, dynamic>.from(q)).toList();
 
+          if (data['duration_minutes'] != null) {
+            _durationMinutes = (data['duration_minutes'] as num).toInt();
+          }
+
           // Restore locally cached answers if session was interrupted
           await _restoreCachedAnswers();
 
@@ -112,7 +122,7 @@ class _ExamScreenState extends State<ExamScreen> {
             setState(() {
               _isLoadingQuestions = false;
             });
-            _start60MinuteTimer();
+            _startExamTimer(_durationMinutes);
           }
           return;
         }
@@ -135,9 +145,9 @@ class _ExamScreenState extends State<ExamScreen> {
   }
 
   // ===========================================================================
-  // 2. 60-MINUTE COUNTDOWN TIMER & AUTO SUBMISSION
+  // 2. DYNAMIC EXAM DURATION COUNTDOWN TIMER & AUTO SUBMISSION
   // ===========================================================================
-  Future<void> _start60MinuteTimer() async {
+  Future<void> _startExamTimer(int durationMinutes) async {
     _examTimer?.cancel();
 
     try {
@@ -145,6 +155,8 @@ class _ExamScreenState extends State<ExamScreen> {
       final timerKey = 'cbt_timer_end_session_${widget.sessionId}_student_$_studentId';
       final savedEndTime = prefs.getInt(timerKey);
       final now = DateTime.now().millisecondsSinceEpoch;
+
+      final totalSeconds = durationMinutes * 60;
 
       if (savedEndTime != null) {
         final remainingMs = savedEndTime - now;
@@ -156,10 +168,10 @@ class _ExamScreenState extends State<ExamScreen> {
           _secondsRemaining = (remainingMs / 1000).ceil();
         }
       } else {
-        // Set new end timestamp 60 minutes (3600 seconds) from now
-        final endTime = now + (3600 * 1000);
+        // Set new end timestamp dynamically based on configured duration minutes
+        final endTime = now + (totalSeconds * 1000);
         await prefs.setInt(timerKey, endTime);
-        _secondsRemaining = 3600;
+        _secondsRemaining = totalSeconds;
       }
     } catch (e) {
       debugPrint('Timer persistence error: $e');

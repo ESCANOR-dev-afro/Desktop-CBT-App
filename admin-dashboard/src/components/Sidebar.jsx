@@ -129,9 +129,9 @@ export default function Sidebar({
             <div className="mt-1.5 space-y-1">
               {['JSS 1', 'JSS 2', 'JSS 3', 'SS 1', 'SS 2', 'SS 3'].map((mainTier) => {
                 const arms = {
-                  'JSS 1': ['JSS 1 Gold', 'JSS 1 Diamond'],
-                  'JSS 2': ['JSS 2 Gold', 'JSS 2 Diamond'],
-                  'JSS 3': ['JSS 3 Gold', 'JSS 3 Diamond'],
+                  'JSS 1': ['JSS 1 Gold', 'JSS 1 Silver', 'JSS 1 Diamond'],
+                  'JSS 2': ['JSS 2 Gold', 'JSS 2 Silver', 'JSS 2 Diamond'],
+                  'JSS 3': ['JSS 3 Gold', 'JSS 3 Silver', 'JSS 3 Diamond'],
                   'SS 1': ['SS 1 Science', 'SS 1 Art', 'SS 1 Commercial'],
                   'SS 2': ['SS 2 Science', 'SS 2 Art', 'SS 2 Commercial'],
                   'SS 3': ['SS 3 Science', 'SS 3 Art', 'SS 3 Commercial'],
@@ -194,6 +194,7 @@ export default function Sidebar({
                           const isArmSelected = activeView === 'class-workspace' && selectedClass === arm;
                           const armSubjectsCount = subjectsByClass[arm]?.length || mainSubjectCount;
                           const isGold = arm.includes('Gold');
+                          const isSilver = arm.includes('Silver');
                           const isDiamond = arm.includes('Diamond');
                           const isScience = arm.includes('Science');
                           const isArt = arm.includes('Art');
@@ -201,6 +202,7 @@ export default function Sidebar({
 
                           let badgeStyle = 'bg-slate-900 text-slate-400 border-darkBorder';
                           if (isGold) badgeStyle = 'bg-amber-500/10 text-amber-400 border-amber-500/30';
+                          if (isSilver) badgeStyle = 'bg-slate-400/15 text-slate-200 border-slate-400/40 shadow-sm';
                           if (isDiamond) badgeStyle = 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30';
                           if (isScience) badgeStyle = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
                           if (isArt) badgeStyle = 'bg-purple-500/10 text-purple-400 border-purple-500/30';

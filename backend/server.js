@@ -36,6 +36,7 @@ app.use((req, res, next) => {
 const authRoutes = require('./authRoutes');
 const examRoutes = require('./examRoutes');
 const adminRoutes = require('./adminRoutes');
+const questionRoutes = require('./questionRoutes');
 
 // ----------------------------------------------------
 // Routes & SPA Static Web Hosting
@@ -51,6 +52,7 @@ const adminFallbackPath = path.join(__dirname, '../admin-dashboard/dist');
 app.use('/api', authRoutes);
 app.use('/api/exam', examRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/questions', questionRoutes);
 
 /**
  * Health Check Endpoint
@@ -136,11 +138,12 @@ process.on('unhandledRejection', (reason, promise) => {
 // ----------------------------------------------------
 // Start Unified CBT Server
 // ----------------------------------------------------
-app.listen(PORT, HOST, () => {
+app.listen(3000, '0.0.0.0', () => {
     console.log('====================================================');
-    console.log(`🚀 CBT Server running locally on http://localhost:${PORT}`);
-    console.log(`🌐 LAN Network Student App: http://${HOST}:${PORT}/`);
-    console.log(`🛡️ LAN Network Admin Dashboard: http://${HOST}:${PORT}/admin/`);
-    console.log(`🏥 Health Check API: http://localhost:${PORT}/api/health`);
+    console.log('Server running on port 3000');
+    console.log('🚀 CBT Server running locally on http://localhost:3000');
+    console.log('🌐 LAN Network Student App: http://0.0.0.0:3000/');
+    console.log('🛡️ LAN Network Admin Dashboard: http://0.0.0.0:3000/admin/');
+    console.log('🏥 Health Check API: http://localhost:3000/api/health');
     console.log('====================================================');
 });

@@ -24,7 +24,7 @@ export default function AddStudentModal({
     setRegNo(String(randomNum));
 
     // Preselect all subjects belonging to this class or base tier
-    const baseTier = studentClass.replace(/\s+(Science|Art|Commercial|Gold|Diamond)$/i, '').trim();
+    const baseTier = studentClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
     const available = subjectsByClass[studentClass] || subjectsByClass[baseTier] || [];
     setSelectedSubjects(available.map((s) => s.name));
   }, [studentClass, subjectsByClass]);
@@ -64,7 +64,7 @@ export default function AddStudentModal({
     onClose();
   };
 
-  const baseTier = studentClass.replace(/\s+(Science|Art|Commercial|Gold|Diamond)$/i, '').trim();
+  const baseTier = studentClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
   const currentAvailableSubjects = subjectsByClass[studentClass] || subjectsByClass[baseTier] || [];
 
   return (
@@ -108,10 +108,13 @@ export default function AddStudentModal({
               >
                 <optgroup label="Junior Secondary Arms">
                   <option value="JSS 1 Gold">JSS 1 Gold</option>
+                  <option value="JSS 1 Silver">JSS 1 Silver</option>
                   <option value="JSS 1 Diamond">JSS 1 Diamond</option>
                   <option value="JSS 2 Gold">JSS 2 Gold</option>
+                  <option value="JSS 2 Silver">JSS 2 Silver</option>
                   <option value="JSS 2 Diamond">JSS 2 Diamond</option>
                   <option value="JSS 3 Gold">JSS 3 Gold</option>
+                  <option value="JSS 3 Silver">JSS 3 Silver</option>
                   <option value="JSS 3 Diamond">JSS 3 Diamond</option>
                 </optgroup>
                 <optgroup label="Senior Secondary Streams">

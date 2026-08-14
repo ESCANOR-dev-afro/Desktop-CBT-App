@@ -88,7 +88,8 @@ function initDatabase() {
                 option_b TEXT NOT NULL,
                 option_c TEXT NOT NULL,
                 option_d TEXT NOT NULL,
-                correct_answer TEXT NOT NULL CHECK(correct_answer IN ('A', 'B', 'C', 'D'))
+                correct_answer TEXT NOT NULL CHECK(correct_answer IN ('A', 'B', 'C', 'D')),
+                marks INTEGER DEFAULT 1
             );
         `;
         db.run(createQuestionsTable, (err) => {
@@ -97,6 +98,7 @@ function initDatabase() {
             } else {
                 console.log('📋 [Table Created] "questions" table is ready.');
                 db.run(`ALTER TABLE questions ADD COLUMN class TEXT;`, () => {});
+                db.run(`ALTER TABLE questions ADD COLUMN marks INTEGER DEFAULT 1;`, () => {});
                 db.run(`CREATE INDEX IF NOT EXISTS idx_questions_class_subject ON questions(class, subject);`, () => {});
             }
         });
@@ -113,6 +115,8 @@ function initDatabase() {
                 is_locked INTEGER NOT NULL CHECK(is_locked IN (0, 1)) DEFAULT 0,
                 score INTEGER DEFAULT NULL,
                 subject TEXT DEFAULT NULL,
+                question_order TEXT DEFAULT NULL,
+                duration_minutes INTEGER DEFAULT 45,
                 FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
             );
         `;
@@ -124,6 +128,8 @@ function initDatabase() {
                 db.run(`ALTER TABLE exam_sessions ADD COLUMN score INTEGER DEFAULT NULL;`, () => {});
                 db.run(`ALTER TABLE exam_sessions ADD COLUMN subject TEXT DEFAULT NULL;`, () => {});
                 db.run(`ALTER TABLE exam_sessions ADD COLUMN last_heartbeat DATETIME DEFAULT CURRENT_TIMESTAMP;`, () => {});
+                db.run(`ALTER TABLE exam_sessions ADD COLUMN question_order TEXT DEFAULT NULL;`, () => {});
+                db.run(`ALTER TABLE exam_sessions ADD COLUMN duration_minutes INTEGER DEFAULT 45;`, () => {});
                 db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_student_status ON exam_sessions(student_id, status);`, () => {});
             }
         });
@@ -150,16 +156,82 @@ function initDatabase() {
             }
         });
 
+        // 6. Create `subjects` table
+        const createSubjectsTable = `
+            CREATE TABLE IF NOT EXISTS subjects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                code TEXT,
+                duration_minutes INTEGER NOT NULL DEFAULT 45,
+                is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1))
+            );
+        `;
+        db.run(createSubjectsTable, (err) => {
+            if (err) {
+                console.error('❌ [Database Error] Error creating "subjects" table:', err.message);
+            } else {
+                console.log('📋 [Table Created] "subjects" table is ready.');
+                db.run(`ALTER TABLE subjects ADD COLUMN is_active INTEGER DEFAULT 1;`, () => {});
+                db.run(`ALTER TABLE subjects ADD COLUMN duration_minutes INTEGER DEFAULT 45;`, () => {});
+                db.run(`CREATE INDEX IF NOT EXISTS idx_subjects_name ON subjects(name);`, () => {});
+            }
+        });
+
+        // 7. Create `exam_configs` table for granular class/subject exam duration scheduling
+        const createExamConfigsTable = `
+            CREATE TABLE IF NOT EXISTS exam_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                class TEXT,
+                subject TEXT NOT NULL,
+                duration_minutes INTEGER NOT NULL DEFAULT 45,
+                is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(class, subject)
+            );
+        `;
+        db.run(createExamConfigsTable, (err) => {
+            if (err) {
+                console.error('❌ [Database Error] Error creating "exam_configs" table:', err.message);
+            } else {
+                console.log('📋 [Table Created] "exam_configs" table is ready.');
+                db.run(`ALTER TABLE exam_configs ADD COLUMN is_active INTEGER DEFAULT 1;`, () => {});
+                db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_configs_class_subject ON exam_configs(class, subject);`, () => {});
+            }
+        });
+
         // Seed data once tables are ready
         seedDatabase();
     });
 }
 
 /**
- * Helper function to seed mock students and questions.
+ * Helper function to seed mock students, subjects, and questions.
  * Ensures surnames are stored strictly in UPPERCASE and seeding is idempotent.
  */
 function seedDatabase() {
+    // Seed default subjects
+    const defaultSubjects = [
+        'Mathematics',
+        'English Language',
+        'Biology',
+        'Chemistry',
+        'Physics',
+        'Civic Education',
+        'Computer Studies',
+        'Economics',
+        'Government'
+    ];
+
+    const subjectInsertSql = `INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1);`;
+    const subjectStmt = db.prepare(subjectInsertSql);
+    defaultSubjects.forEach(sub => {
+        subjectStmt.run([sub], (err) => {
+            if (err && !err.message.includes('UNIQUE constraint failed')) {
+                console.error(`❌ [Seed Error] Failed to insert subject ${sub}:`, err.message);
+            }
+        });
+    });
+    subjectStmt.finalize();
     // Seed Mock Students across all granular arms
     const mockStudents = [
         { reg_number: '1009001', surname: 'okonkwo', first_name: 'Chidi', class: 'SS 3 Science', assigned_subject: 'Mathematics' },
@@ -168,10 +240,13 @@ function seedDatabase() {
         { reg_number: '1009004', surname: 'eze', first_name: 'Grace', class: 'SS 3 Commercial', assigned_subject: 'Economics' },
         { reg_number: '1009011', surname: 'kalu', first_name: 'David', class: 'JSS 1 Gold', assigned_subject: 'Mathematics' },
         { reg_number: '1009012', surname: 'okon', first_name: 'Blessing', class: 'JSS 1 Diamond', assigned_subject: 'English Language' },
+        { reg_number: '1009013', surname: 'kanu', first_name: 'Nnamdi', class: 'JSS 1 Silver', assigned_subject: 'Mathematics' },
         { reg_number: '1009021', surname: 'bello', first_name: 'Zainab', class: 'JSS 2 Gold', assigned_subject: 'Basic Science' },
         { reg_number: '1009022', surname: 'lawal', first_name: 'Farouk', class: 'JSS 2 Diamond', assigned_subject: 'Mathematics' },
+        { reg_number: '1009023', surname: 'ajayi', first_name: 'Oluwaseun', class: 'JSS 2 Silver', assigned_subject: 'English Language' },
         { reg_number: '1009031', surname: 'daniels', first_name: 'Joy', class: 'JSS 3 Gold', assigned_subject: 'Basic Technology' },
         { reg_number: '1009032', surname: 'ahmed', first_name: 'Mustapha', class: 'JSS 3 Diamond', assigned_subject: 'English Language' },
+        { reg_number: '1009033', surname: 'williams', first_name: 'Grace', class: 'JSS 3 Silver', assigned_subject: 'Basic Technology' },
         { reg_number: '1009041', surname: 'sanusi', first_name: 'Kemi', class: 'SS 1 Science', assigned_subject: 'Physics' },
         { reg_number: '1009042', surname: 'obasi', first_name: 'Emeka', class: 'SS 1 Art', assigned_subject: 'Literature in English' },
         { reg_number: '1009043', surname: 'bakare', first_name: 'Tayo', class: 'SS 1 Commercial', assigned_subject: 'Financial Accounting' },

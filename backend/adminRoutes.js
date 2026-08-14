@@ -70,7 +70,7 @@ function normalizeSubjectName(rawSubject) {
 
 // --------------------------------------------------------------------------
 // 0. GET /api/admin/subjects
-// Returns dynamic list of subjects from questions, student roster & defaults
+// Returns dynamic list of subjects from database with is_active activation status
 // --------------------------------------------------------------------------
 router.get('/subjects', async (req, res, next) => {
     try {
@@ -86,35 +86,80 @@ router.get('/subjects', async (req, res, next) => {
             'Government'
         ];
 
+        // Ensure default subjects exist in subjects table
+        for (const sub of defaultSubjects) {
+            const norm = normalizeSubjectName(sub);
+            if (norm) {
+                await dbRun(`INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1)`, [norm]);
+            }
+        }
+
+        // Merge any additional subjects from questions or student rosters into subjects table
         const questionSubjects = await dbAll(`SELECT DISTINCT subject FROM questions WHERE subject IS NOT NULL AND TRIM(subject) != ''`);
+        for (const row of questionSubjects) {
+            const norm = normalizeSubjectName(row.subject);
+            if (norm) {
+                await dbRun(`INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1)`, [norm]);
+            }
+        }
+
         const studentSubjects = await dbAll(`SELECT DISTINCT assigned_subject AS subject FROM students WHERE assigned_subject IS NOT NULL AND TRIM(assigned_subject) != ''`);
-
-        const subjectMap = new Map();
-
-        defaultSubjects.forEach(s => {
-            const norm = normalizeSubjectName(s);
-            if (norm) subjectMap.set(norm.toLowerCase(), norm);
-        });
-
-        questionSubjects.forEach(row => {
+        for (const row of studentSubjects) {
             const norm = normalizeSubjectName(row.subject);
-            if (norm) subjectMap.set(norm.toLowerCase(), norm);
-        });
+            if (norm) {
+                await dbRun(`INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1)`, [norm]);
+            }
+        }
 
-        studentSubjects.forEach(row => {
-            const norm = normalizeSubjectName(row.subject);
-            if (norm) subjectMap.set(norm.toLowerCase(), norm);
-        });
-
-        const subjectsList = Array.from(subjectMap.values()).sort((a, b) => a.localeCompare(b));
+        const dbSubjects = await dbAll(`SELECT id, name, code, is_active FROM subjects ORDER BY name ASC`);
+        const subjectsList = dbSubjects.map(s => s.name);
 
         return res.status(200).json({
             success: true,
-            count: subjectsList.length,
-            subjects: subjectsList
+            count: dbSubjects.length,
+            subjects: subjectsList,
+            detailedSubjects: dbSubjects
         });
     } catch (error) {
         console.error('❌ [Admin Subjects Error]:', error);
+        next(error);
+    }
+});
+
+// --------------------------------------------------------------------------
+// POST /api/admin/subjects/toggle
+// Admin endpoint to toggle subject is_active active/inactive state
+// --------------------------------------------------------------------------
+router.post('/subjects/toggle', async (req, res, next) => {
+    try {
+        const { id, name, subject, is_active } = req.body;
+        let targetName = name || subject;
+        let newActiveState = (is_active === 1 || is_active === true || is_active === '1' || is_active === 'true') ? 1 : 0;
+
+        if (id) {
+            await dbRun(`UPDATE subjects SET is_active = ? WHERE id = ?`, [newActiveState, id]);
+        } else if (targetName) {
+            const norm = normalizeSubjectName(targetName);
+            await dbRun(
+                `INSERT INTO subjects (name, is_active) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET is_active = excluded.is_active`,
+                [norm, newActiveState]
+            );
+        } else {
+            return res.status(400).json({
+                success: false,
+                message: "Subject ID or name is required."
+            });
+        }
+
+        console.log(`⚙️ [Subject Activation Toggled] Subject "${targetName || id}" active status updated to ${newActiveState}.`);
+
+        return res.status(200).json({
+            success: true,
+            message: `Subject active status updated successfully.`,
+            is_active: newActiveState
+        });
+    } catch (error) {
+        console.error('❌ [Toggle Subject Error]:', error);
         next(error);
     }
 });
@@ -327,34 +372,105 @@ router.post('/questions', async (req, res, next) => {
 });
 
 // --------------------------------------------------------------------------
+// --------------------------------------------------------------------------
 // 4. GET /api/admin/results
-// Fetch all student results for dashboard with computed/saved scores
+// Fetch all student results & complete class rosters dynamically for all classes & subjects
 // --------------------------------------------------------------------------
 router.get('/results', async (req, res, next) => {
     try {
-        const sql = `
+        const { class: targetClass, subject: targetSubject } = req.query;
+
+        let sql = `
             SELECT 
                 es.id AS session_id,
                 es.student_id,
                 s.reg_number,
                 s.surname,
+                s.first_name,
                 s.class,
+                COALESCE(es.subject, s.assigned_subject) AS subject,
                 s.assigned_subject,
                 es.workstation_ip,
                 es.login_time,
                 es.status,
                 es.is_locked,
-                es.score
+                es.score,
+                COALESCE(es.duration_minutes, 45) AS duration_minutes
             FROM exam_sessions es
             JOIN students s ON es.student_id = s.id
-            ORDER BY es.id DESC
+            WHERE 1=1
         `;
-        const results = await dbAll(sql);
+        const params = [];
+        if (targetClass && targetClass !== 'ALL') {
+            sql += ` AND (LOWER(s.class) = LOWER(?) OR LOWER(s.class) LIKE LOWER(?))`;
+            params.push(targetClass.trim(), `${targetClass.trim()} %`);
+        }
+        if (targetSubject && targetSubject !== 'ALL') {
+            sql += ` AND (LOWER(COALESCE(es.subject, s.assigned_subject)) = LOWER(?) OR LOWER(s.assigned_subject) LIKE LOWER(?))`;
+            params.push(targetSubject.trim(), `%${targetSubject.trim()}%`);
+        }
+        sql += ` ORDER BY es.id DESC`;
+
+        const results = await dbAll(sql, params);
+
+        // Fetch dynamic list of all distinct classes in student roster
+        const distinctClassesRows = await dbAll(`SELECT DISTINCT class FROM students WHERE class IS NOT NULL AND TRIM(class) != '' ORDER BY class ASC`);
+        const allClasses = distinctClassesRows.map(r => r.class);
+
+        // Fetch dynamic list of all distinct subjects
+        const distinctSubjectsRows = await dbAll(`SELECT DISTINCT name FROM subjects WHERE name IS NOT NULL AND TRIM(name) != '' ORDER BY name ASC`);
+        const allSubjects = distinctSubjectsRows.map(r => r.name);
+
+        // Fetch complete student roster with latest session scores mapped
+        let studentRosterSql = `SELECT id, reg_number, surname, first_name, class, assigned_subject FROM students WHERE 1=1`;
+        let rosterParams = [];
+        if (targetClass && targetClass !== 'ALL') {
+            studentRosterSql += ` AND (LOWER(class) = LOWER(?) OR LOWER(class) LIKE LOWER(?))`;
+            rosterParams.push(targetClass.trim(), `${targetClass.trim()} %`);
+        }
+        if (targetSubject && targetSubject !== 'ALL') {
+            studentRosterSql += ` AND (LOWER(assigned_subject) LIKE LOWER(?) OR id IN (SELECT student_id FROM exam_sessions WHERE LOWER(subject) = LOWER(?)))`;
+            rosterParams.push(`%${targetSubject.trim()}%`, targetSubject.trim());
+        }
+        studentRosterSql += ` ORDER BY surname ASC, first_name ASC`;
+        const allStudents = await dbAll(studentRosterSql, rosterParams);
+        
+        // Map student ID to latest session
+        const latestSessionMap = new Map();
+        results.forEach(resRow => {
+            if (!latestSessionMap.has(resRow.student_id)) {
+                latestSessionMap.set(resRow.student_id, resRow);
+            }
+        });
+
+        const studentRosterWithScores = allStudents.map(s => {
+            const sess = latestSessionMap.get(s.id);
+            return {
+                id: s.id,
+                reg_number: s.reg_number,
+                regNo: s.reg_number,
+                surname: String(s.surname).toUpperCase(),
+                first_name: s.first_name || '',
+                firstName: s.first_name || '',
+                name: s.first_name ? `${String(s.surname).toUpperCase()}, ${s.first_name}` : String(s.surname).toUpperCase(),
+                class: s.class,
+                assigned_subject: s.assigned_subject,
+                subject: sess ? sess.subject : s.assigned_subject,
+                status: sess ? sess.status : 'not_taken',
+                score: sess ? sess.score : null,
+                session_id: sess ? sess.session_id : null,
+                duration_minutes: sess ? sess.duration_minutes : 45,
+                login_time: sess ? sess.login_time : null
+            };
+        });
 
         return res.status(200).json({
             success: true,
             count: results.length,
-            results: results
+            results: results,
+            classes: allClasses,
+            subjects: allSubjects,
+            studentRoster: studentRosterWithScores
         });
     } catch (error) {
         console.error('❌ [Admin Results Error]:', error);
@@ -363,32 +479,277 @@ router.get('/results', async (req, res, next) => {
 });
 
 // --------------------------------------------------------------------------
-// 5. GET /api/admin/export-excel
+// 5. GET /api/admin/export-csv (and /api/admin/results/export-csv)
+// Streams clean RFC-4180 standard CSV file filtered strictly by class and subject
+// --------------------------------------------------------------------------
+const handleExportCsv = async (req, res, next) => {
+    try {
+        const { class: targetClass, subject: targetSubject } = req.query;
+
+        let sql = `
+            SELECT 
+                es.id AS session_id,
+                es.student_id,
+                s.reg_number,
+                s.surname,
+                s.first_name,
+                s.class,
+                COALESCE(es.subject, s.assigned_subject) AS subject,
+                es.workstation_ip,
+                es.login_time,
+                es.status,
+                es.score,
+                COALESCE(es.duration_minutes, 45) AS duration_minutes
+            FROM exam_sessions es
+            JOIN students s ON es.student_id = s.id
+            WHERE 1=1
+        `;
+        const params = [];
+        if (targetClass && targetClass !== 'ALL') {
+            sql += ` AND (LOWER(s.class) = LOWER(?) OR LOWER(s.class) LIKE LOWER(?))`;
+            params.push(targetClass.trim(), `${targetClass.trim()} %`);
+        }
+        if (targetSubject && targetSubject !== 'ALL') {
+            sql += ` AND LOWER(COALESCE(es.subject, s.assigned_subject)) = LOWER(?)`;
+            params.push(targetSubject.trim());
+        }
+        sql += ` ORDER BY s.class ASC, s.surname ASC, s.first_name ASC`;
+
+        const results = await dbAll(sql, params);
+
+        // Helper to escape CSV cell value according to RFC-4180
+        const escapeCsv = (val) => {
+            if (val === null || val === undefined) return '""';
+            const str = String(val).trim();
+            if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+                return `"${str.replace(/"/g, '""')}"`;
+            }
+            return `"${str}"`;
+        };
+
+        // CSV Headers
+        const headers = [
+            'Session ID',
+            'Registration Number',
+            'Surname',
+            'First Name',
+            'Full Candidate Name',
+            'Class',
+            'Subject',
+            'Workstation IP',
+            'Status',
+            'Score (/50)',
+            'Percentage (%)',
+            'Duration (Minutes)',
+            'Examination Date & Time'
+        ];
+
+        const csvLines = [headers.join(',')];
+
+        results.forEach(row => {
+            const surnameUpper = String(row.surname || '').toUpperCase();
+            const firstName = row.first_name || '';
+            const fullName = firstName ? `${surnameUpper}, ${firstName}` : surnameUpper;
+            const scoreVal = row.score !== null && row.score !== undefined ? row.score : '';
+            const percentage = scoreVal !== '' ? `${Math.round((Number(scoreVal) / 50) * 100)}%` : '';
+            const statusUpper = row.status ? row.status.toUpperCase() : 'ACTIVE';
+            const dateStr = row.login_time ? new Date(row.login_time).toLocaleString() : '';
+
+            const line = [
+                escapeCsv(row.session_id),
+                escapeCsv(row.reg_number),
+                escapeCsv(surnameUpper),
+                escapeCsv(firstName),
+                escapeCsv(fullName),
+                escapeCsv(row.class),
+                escapeCsv(normalizeSubjectName(row.subject)),
+                escapeCsv(row.workstation_ip),
+                escapeCsv(statusUpper),
+                escapeCsv(scoreVal),
+                escapeCsv(percentage),
+                escapeCsv(row.duration_minutes || 45),
+                escapeCsv(dateStr)
+            ];
+
+            csvLines.push(line.join(','));
+        });
+
+        const csvContent = '\uFEFF' + csvLines.join('\r\n'); // Add UTF-8 BOM for Excel compatibility
+
+        const classLabel = (targetClass && targetClass !== 'ALL') ? targetClass.replace(/[^a-zA-Z0-9_\-]/g, '_') : 'All_Classes';
+        const subjectLabel = (targetSubject && targetSubject !== 'ALL') ? targetSubject.replace(/[^a-zA-Z0-9_\-]/g, '_') : 'All_Subjects';
+        const filename = `cbt_score_report_${classLabel}_${subjectLabel}.csv`;
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.status(200).send(csvContent);
+
+        console.log(`📊 [CSV Export] Generated and streamed clean CSV report "${filename}" (${results.length} rows).`);
+
+    } catch (error) {
+        console.error('❌ [CSV Export Error]:', error);
+        next(error);
+    }
+};
+
+router.get('/export-csv', handleExportCsv);
+router.get('/results/export-csv', handleExportCsv);
+
+// --------------------------------------------------------------------------
+// 6. GET & POST /api/admin/exam-config
+// Manage exam duration scheduling and timing configurations per class and subject
+// --------------------------------------------------------------------------
+router.get('/exam-config', async (req, res, next) => {
+    try {
+        const { class: examClass, subject } = req.query;
+        let sql = `SELECT * FROM exam_configs WHERE 1=1`;
+        const params = [];
+        if (examClass && examClass !== 'ALL') {
+            sql += ` AND (LOWER(class) = LOWER(?) OR class IS NULL)`;
+            params.push(examClass.trim());
+        }
+        if (subject && subject !== 'ALL') {
+            sql += ` AND LOWER(subject) = LOWER(?)`;
+            params.push(subject.trim());
+        }
+        sql += ` ORDER BY subject ASC, class ASC`;
+        const configs = await dbAll(sql, params);
+        return res.status(200).json({ success: true, configs });
+    } catch (error) {
+        console.error('❌ [Get Exam Config Error]:', error);
+        next(error);
+    }
+});
+
+router.post('/exam-config', async (req, res, next) => {
+    try {
+        const { class: examClass, subject, duration_minutes, duration, is_active } = req.body;
+        if (!subject) {
+            return res.status(400).json({ success: false, message: "Subject is required." });
+        }
+
+        const normSubject = normalizeSubjectName(subject);
+        const targetClass = examClass && examClass !== 'ALL' ? String(examClass).trim() : null;
+        const durationMinutes = parseInt(duration_minutes !== undefined ? duration_minutes : duration, 10) || 45;
+        const isActiveVal = (is_active === 0 || is_active === false || is_active === '0') ? 0 : 1;
+
+        // Upsert into exam_configs table
+        await dbRun(
+            `INSERT INTO exam_configs (class, subject, duration_minutes, is_active) VALUES (?, ?, ?, ?)
+             ON CONFLICT(class, subject) DO UPDATE SET duration_minutes = excluded.duration_minutes, is_active = excluded.is_active`,
+            [targetClass, normSubject, durationMinutes, isActiveVal]
+        );
+
+        // Also update subjects master table
+        await dbRun(`UPDATE subjects SET duration_minutes = ?, is_active = ? WHERE LOWER(name) = LOWER(?)`, [durationMinutes, isActiveVal, normSubject]);
+
+        console.log(`⏱️ [Exam Config Updated] ${targetClass || 'All Classes'} - ${normSubject}: ${durationMinutes} minutes (Active: ${isActiveVal}).`);
+
+        return res.status(200).json({
+            success: true,
+            message: `Exam duration set to ${durationMinutes} minutes for ${targetClass || 'All Classes'} - ${normSubject}.`,
+            class: targetClass,
+            subject: normSubject,
+            duration_minutes: durationMinutes,
+            is_active: isActiveVal
+        });
+    } catch (error) {
+        console.error('❌ [Post Exam Config Error]:', error);
+        next(error);
+    }
+});
+
+// --------------------------------------------------------------------------
+// 7. POST /api/admin/subjects/toggle
+// Toggle exam activation status (ACTIVE = 1, INACTIVE = 0) per class and subject
+// --------------------------------------------------------------------------
+router.post('/subjects/toggle', async (req, res, next) => {
+    try {
+        const { class: examClass, name, subject, is_active } = req.body;
+        const targetSubject = normalizeSubjectName(name || subject);
+        const targetClass = examClass && examClass !== 'ALL' ? String(examClass).trim() : null;
+
+        if (!targetSubject) {
+            return res.status(400).json({ success: false, message: "Subject name is required." });
+        }
+
+        let nextActive = is_active;
+        if (nextActive === undefined || nextActive === null) {
+            const existing = await dbGet(`SELECT is_active FROM exam_configs WHERE LOWER(class) = LOWER(?) AND LOWER(subject) = LOWER(?)`, [targetClass, targetSubject]) ||
+                             await dbGet(`SELECT is_active FROM subjects WHERE LOWER(name) = LOWER(?)`, [targetSubject]);
+            const currentActive = (existing && existing.is_active !== undefined) ? existing.is_active : 1;
+            nextActive = currentActive === 1 ? 0 : 1;
+        } else {
+            nextActive = (nextActive === 1 || nextActive === true || nextActive === '1') ? 1 : 0;
+        }
+
+        if (targetClass) {
+            await dbRun(
+                `INSERT INTO exam_configs (class, subject, duration_minutes, is_active) VALUES (?, ?, 45, ?)
+                 ON CONFLICT(class, subject) DO UPDATE SET is_active = excluded.is_active`,
+                [targetClass, targetSubject, nextActive]
+            );
+        } else {
+            await dbRun(`UPDATE subjects SET is_active = ? WHERE LOWER(name) = LOWER(?)`, [nextActive, targetSubject]);
+            await dbRun(`UPDATE exam_configs SET is_active = ? WHERE LOWER(subject) = LOWER(?)`, [nextActive, targetSubject]);
+        }
+
+        console.log(`🔘 [Subject Toggle] ${targetClass || 'All Classes'} - ${targetSubject}: is_active = ${nextActive}`);
+
+        return res.status(200).json({
+            success: true,
+            message: `Subject "${targetSubject}" exam session status set to ${nextActive === 1 ? 'ACTIVE' : 'INACTIVE'}.`,
+            class: targetClass,
+            subject: targetSubject,
+            is_active: nextActive
+        });
+    } catch (error) {
+        console.error('❌ [Subject Toggle Error]:', error);
+        next(error);
+    }
+});
+
+// --------------------------------------------------------------------------
+// 7. GET /api/admin/export-excel
 // Generate and stream MS Excel (.xlsx) spreadsheet of all student results
 // --------------------------------------------------------------------------
 router.get('/export-excel', async (req, res, next) => {
     try {
-        const sql = `
+        const { class: targetClass, subject: targetSubject } = req.query;
+
+        let sql = `
             SELECT 
                 es.id AS session_id,
                 es.student_id,
                 s.reg_number,
                 s.surname,
                 s.class,
-                s.assigned_subject,
+                COALESCE(es.subject, s.assigned_subject) AS assigned_subject,
                 es.workstation_ip,
                 es.login_time,
                 es.status,
-                es.score
+                es.score,
+                COALESCE(es.duration_minutes, 45) AS duration_minutes
             FROM exam_sessions es
             JOIN students s ON es.student_id = s.id
-            ORDER BY es.id DESC
+            WHERE 1=1
         `;
-        const results = await dbAll(sql);
+        const params = [];
+        if (targetClass && targetClass !== 'ALL') {
+            sql += ` AND (LOWER(s.class) = LOWER(?) OR LOWER(s.class) LIKE LOWER(?))`;
+            params.push(targetClass.trim(), `${targetClass.trim()} %`);
+        }
+        if (targetSubject && targetSubject !== 'ALL') {
+            sql += ` AND LOWER(COALESCE(es.subject, s.assigned_subject)) = LOWER(?)`;
+            params.push(targetSubject.trim());
+        }
+        sql += ` ORDER BY s.class ASC, es.id DESC`;
+
+        const results = await dbAll(sql, params);
 
         // Create ExcelJS Workbook and Worksheet
         const workbook = new ExcelJS.Workbook();
-        workbook.creator = 'School CBT Admin Control Center';
+        workbook.creator = 'Anthony White Bridge Academy CBT Control Center';
         workbook.created = new Date();
 
         const worksheet = workbook.addWorksheet('CBT Exam Results');
@@ -398,11 +759,12 @@ router.get('/export-excel', async (req, res, next) => {
             { header: 'Session ID', key: 'session_id', width: 12 },
             { header: 'Student Name', key: 'surname', width: 22 },
             { header: 'Reg Number', key: 'reg_number', width: 16 },
-            { header: 'Class', key: 'class', width: 10 },
-            { header: 'Assigned Subject', key: 'assigned_subject', width: 22 },
+            { header: 'Class', key: 'class', width: 14 },
+            { header: 'Subject', key: 'assigned_subject', width: 22 },
             { header: 'Workstation IP', key: 'workstation_ip', width: 18 },
             { header: 'Status', key: 'status', width: 15 },
             { header: 'Score (/50)', key: 'score', width: 15 },
+            { header: 'Duration (Mins)', key: 'duration_minutes', width: 16 },
             { header: 'Submission Time', key: 'login_time', width: 26 }
         ];
 
@@ -428,6 +790,7 @@ router.get('/export-excel', async (req, res, next) => {
                 workstation_ip: row.workstation_ip,
                 status: row.status ? row.status.toUpperCase() : 'ACTIVE',
                 score: row.score !== null ? row.score : 'In Progress',
+                duration_minutes: row.duration_minutes || 45,
                 login_time: new Date(row.login_time).toLocaleString()
             });
 
@@ -638,12 +1001,27 @@ router.post('/upload-questions', upload.single('file'), async (req, res, next) =
             insertedCount++;
         }
 
+        const durationMinutes = parseInt(req.body.duration_minutes || req.body.duration, 10) || 45;
+
+        // Upsert duration into exam_configs table
+        try {
+            await dbRun(
+                `INSERT INTO exam_configs (class, subject, duration_minutes) VALUES (?, ?, ?)
+                 ON CONFLICT(class, subject) DO UPDATE SET duration_minutes = excluded.duration_minutes`,
+                [targetClass, normalizedSubject, durationMinutes]
+            );
+            console.log(`⏱️ [Exam Config] Scheduled duration for "${targetClass}" - "${normalizedSubject}": ${durationMinutes} minutes.`);
+        } catch (cfgErr) {
+            console.warn('⚠️ [Exam Config Notice]:', cfgErr.message);
+        }
+
         console.log(`📄 [Question Bank Upload] Successfully parsed & inserted ${insertedCount} questions into SQLite for class "${targetClass}" and subject "${normalizedSubject}".`);
 
         return res.status(200).json({
             success: true,
-            message: `Questions uploaded and parsed successfully for ${targetClass} - ${normalizedSubject}`,
+            message: `Questions uploaded and parsed successfully for ${targetClass} - ${normalizedSubject} (${durationMinutes} mins)`,
             count: insertedCount,
+            duration_minutes: durationMinutes,
             questions: parsedQuestions
         });
 

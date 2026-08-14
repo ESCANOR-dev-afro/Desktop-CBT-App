@@ -1,8 +1,8 @@
 // Granular Class Hierarchy & Arm Mapping Definition
 export const classHierarchy = {
-  'JSS 1': ['JSS 1 Gold', 'JSS 1 Diamond'],
-  'JSS 2': ['JSS 2 Gold', 'JSS 2 Diamond'],
-  'JSS 3': ['JSS 3 Gold', 'JSS 3 Diamond'],
+  'JSS 1': ['JSS 1 Gold', 'JSS 1 Silver', 'JSS 1 Diamond'],
+  'JSS 2': ['JSS 2 Gold', 'JSS 2 Silver', 'JSS 2 Diamond'],
+  'JSS 3': ['JSS 3 Gold', 'JSS 3 Silver', 'JSS 3 Diamond'],
   'SS 1': ['SS 1 Science', 'SS 1 Art', 'SS 1 Commercial'],
   'SS 2': ['SS 2 Science', 'SS 2 Art', 'SS 2 Commercial'],
   'SS 3': ['SS 3 Science', 'SS 3 Art', 'SS 3 Commercial'],
@@ -23,6 +23,11 @@ export const initialSubjectsByClass = {
     { id: 'j1g-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 50, category: 'Core' },
     { id: 'j1g-sci', name: 'Basic Science', teacher: 'Dr. E. Okafor', questionsCount: 40, category: 'Sciences' },
   ],
+  'JSS 1 Silver': [
+    { id: 'j1s-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 45, category: 'Core' },
+    { id: 'j1s-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 50, category: 'Core' },
+    { id: 'j1s-sci', name: 'Basic Science', teacher: 'Dr. E. Okafor', questionsCount: 40, category: 'Sciences' },
+  ],
   'JSS 1 Diamond': [
     { id: 'j1d-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 45, category: 'Core' },
     { id: 'j1d-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 50, category: 'Core' },
@@ -39,6 +44,11 @@ export const initialSubjectsByClass = {
     { id: 'j2g-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 45, category: 'Core' },
     { id: 'j2g-sci', name: 'Basic Science', teacher: 'Dr. E. Okafor', questionsCount: 38, category: 'Sciences' },
   ],
+  'JSS 2 Silver': [
+    { id: 'j2s-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 40, category: 'Core' },
+    { id: 'j2s-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 45, category: 'Core' },
+    { id: 'j2s-bus', name: 'Business Studies', teacher: 'Mrs. A. Balogun', questionsCount: 30, category: 'Commercial' },
+  ],
   'JSS 2 Diamond': [
     { id: 'j2d-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 40, category: 'Core' },
     { id: 'j2d-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 45, category: 'Core' },
@@ -54,6 +64,11 @@ export const initialSubjectsByClass = {
     { id: 'j3g-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 50, category: 'Core' },
     { id: 'j3g-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 50, category: 'Core' },
     { id: 'j3g-tech', name: 'Basic Technology', teacher: 'Engr. T. Benson', questionsCount: 42, category: 'Technical' },
+  ],
+  'JSS 3 Silver': [
+    { id: 'j3s-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 50, category: 'Core' },
+    { id: 'j3s-eng', name: 'English Language', teacher: 'Mrs. F. Nwosu', questionsCount: 50, category: 'Core' },
+    { id: 'j3s-tech', name: 'Basic Technology', teacher: 'Engr. T. Benson', questionsCount: 42, category: 'Technical' },
   ],
   'JSS 3 Diamond': [
     { id: 'j3d-math', name: 'Mathematics', teacher: 'Mr. O. Adeleke', questionsCount: 50, category: 'Core' },
@@ -217,6 +232,44 @@ export const initialStudents = [
     assignedSubjects: ['Mathematics', 'English Language', 'Basic Science'],
     status: 'Active',
     recentScore: '76%',
+  },
+  {
+    id: 'STU-JSS1-003',
+    regNo: '1009013',
+    surname: 'Kanu',
+    firstName: 'Nnamdi',
+    name: 'Kanu, Nnamdi',
+    class: 'JSS 1 Silver',
+    gender: 'Male',
+    assignedSubjects: ['Mathematics', 'English Language', 'Basic Science'],
+    status: 'Exam Ready',
+    recentScore: '88%',
+  },
+  // JSS 2 Silver Student
+  {
+    id: 'STU-JSS2-003',
+    regNo: '1009023',
+    surname: 'Ajayi',
+    firstName: 'Oluwaseun',
+    name: 'Ajayi, Oluwaseun',
+    class: 'JSS 2 Silver',
+    gender: 'Female',
+    assignedSubjects: ['Mathematics', 'English Language', 'Business Studies'],
+    status: 'Exam Ready',
+    recentScore: '90%',
+  },
+  // JSS 3 Silver Student
+  {
+    id: 'STU-JSS3-003',
+    regNo: '1009033',
+    surname: 'Williams',
+    firstName: 'Grace',
+    name: 'Williams, Grace',
+    class: 'JSS 3 Silver',
+    gender: 'Female',
+    assignedSubjects: ['Mathematics', 'English Language', 'Basic Technology'],
+    status: 'Exam Ready',
+    recentScore: '92%',
   },
 
   // SS 1 Students

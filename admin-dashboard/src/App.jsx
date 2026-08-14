@@ -9,8 +9,10 @@ import AddSubjectModal from './components/AddSubjectModal';
 import AddStudentModal from './components/AddStudentModal';
 import UploadRosterModal from './components/UploadRosterModal';
 import Toast from './components/Toast';
+import ErrorBoundary from './components/ErrorBoundary';
 
 import {
+  allClassArms,
   initialSubjectsByClass,
   initialStudents,
   initialQuestions,
@@ -19,7 +21,7 @@ import {
 } from './data/mockData';
 
 export default function App() {
-  const classesList = ['JSS 1', 'JSS 2', 'JSS 3', 'SS 1', 'SS 2', 'SS 3'];
+  const classesList = ['JSS 1', 'JSS 2', 'JSS 3', 'SS 1', 'SS 2', 'SS 3', ...allClassArms];
 
   // Global State
   const [activeView, setActiveView] = useState('dashboard'); // 'dashboard' | 'live-results' | 'question-bank' | 'class-workspace'
@@ -216,53 +218,55 @@ export default function App() {
 
         {/* Scrollable Viewport Content Area */}
         <main className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
-          {activeView === 'dashboard' && (
-            <DashboardOverview
-              classesList={classesList}
-              subjectsByClass={subjectsByClass}
-              students={students}
-              activityLogs={activityLogs}
-              onSelectClass={(cls) => {
-                setSelectedClass(cls);
-                setActiveView('class-workspace');
-              }}
-            />
-          )}
+          <ErrorBoundary key={`${activeView}-${selectedClass || 'all'}`}>
+            {activeView === 'dashboard' && (
+              <DashboardOverview
+                classesList={classesList}
+                subjectsByClass={subjectsByClass}
+                students={students}
+                activityLogs={activityLogs}
+                onSelectClass={(cls) => {
+                  setSelectedClass(cls);
+                  setActiveView('class-workspace');
+                }}
+              />
+            )}
 
-          {activeView === 'live-results' && (
-            <LiveResults
-              students={students}
-              classesList={classesList}
-              onShowToast={showToast}
-            />
-          )}
+            {activeView === 'live-results' && (
+              <LiveResults
+                students={students}
+                classesList={classesList}
+                onShowToast={showToast}
+              />
+            )}
 
-          {activeView === 'question-bank' && (
-            <QuestionBankMainView
-              classesList={classesList}
-              subjectsByClass={subjectsByClass}
-              questionsData={questionsData}
-              onAddQuestion={handleAddQuestion}
-              onShowToast={showToast}
-            />
-          )}
+            {activeView === 'question-bank' && (
+              <QuestionBankMainView
+                classesList={classesList}
+                subjectsByClass={subjectsByClass}
+                questionsData={questionsData}
+                onAddQuestion={handleAddQuestion}
+                onShowToast={showToast}
+              />
+            )}
 
-          {activeView === 'class-workspace' && selectedClass && (
-            <ClassWorkspace
-              currentClass={selectedClass}
-              subjectsByClass={subjectsByClass}
-              students={students}
-              questionsData={questionsData}
-              workstations={workstations}
-              onOpenAddSubject={() => setIsAddSubjectOpen(true)}
-              onOpenAddStudent={() => setIsAddStudentOpen(true)}
-              onOpenUploadRoster={() => setIsUploadRosterOpen(true)}
-              onAddQuestion={handleAddQuestion}
-              onDeleteStudent={handleDeleteStudent}
-              onUpdateWorkstations={setWorkstations}
-              onShowToast={showToast}
-            />
-          )}
+            {activeView === 'class-workspace' && (
+              <ClassWorkspace
+                currentClass={selectedClass || 'SS 3'}
+                subjectsByClass={subjectsByClass}
+                students={students}
+                questionsData={questionsData}
+                workstations={workstations}
+                onOpenAddSubject={() => setIsAddSubjectOpen(true)}
+                onOpenAddStudent={() => setIsAddStudentOpen(true)}
+                onOpenUploadRoster={() => setIsUploadRosterOpen(true)}
+                onAddQuestion={handleAddQuestion}
+                onDeleteStudent={handleDeleteStudent}
+                onUpdateWorkstations={setWorkstations}
+                onShowToast={showToast}
+              />
+            )}
+          </ErrorBoundary>
         </main>
       </div>
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FileText,
   UploadCloud,
@@ -16,6 +16,21 @@ import {
   Filter
 } from 'lucide-react';
 
+const questionBankClasses = [
+  'JSS 1',
+  'JSS 2',
+  'JSS 3',
+  'SS 1 Science',
+  'SS 1 Art',
+  'SS 1 Commercial',
+  'SS 2 Science',
+  'SS 2 Art',
+  'SS 2 Commercial',
+  'SS 3 Science',
+  'SS 3 Art',
+  'SS 3 Commercial',
+];
+
 export default function QuestionBankMainView({
   classesList = ['JSS 1', 'JSS 2', 'JSS 3', 'SS 1', 'SS 2', 'SS 3'],
   subjectsByClass,
@@ -23,11 +38,15 @@ export default function QuestionBankMainView({
   onAddQuestion,
   onShowToast,
 }) {
-  const [activeClass, setActiveClass] = useState('SS 3');
-  const availableSubjects = subjectsByClass[activeClass] || [];
+  const [activeClass, setActiveClass] = useState('JSS 1');
+  const availableSubjects = subjectsByClass[activeClass] || subjectsByClass[activeClass.replace(/\s+(Science|Art|Commercial)$/i, '')] || [];
   const [selectedSubject, setSelectedSubject] = useState(
     availableSubjects[0]?.name || 'Mathematics'
   );
+  const [examDurationInput, setExamDurationInput] = useState('45');
+  const [isExamActive, setIsExamActive] = useState(true);
+  const [savingDuration, setSavingDuration] = useState(false);
+  const [togglingActive, setTogglingActive] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,6 +60,87 @@ export default function QuestionBankMainView({
   const [optC, setOptC] = useState('');
   const [optD, setOptD] = useState('');
   const [correctAns, setCorrectAns] = useState('A');
+
+  // Load configured duration and activation status when class/subject changes
+  useEffect(() => {
+    if (!selectedSubject) return;
+    fetch(`/api/admin/exam-config?class=${encodeURIComponent(activeClass)}&subject=${encodeURIComponent(selectedSubject)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.configs && data.configs.length > 0) {
+          const cfg = data.configs.find(c => c.subject?.toLowerCase() === selectedSubject.toLowerCase()) || data.configs[0];
+          if (cfg && cfg.duration_minutes) {
+            setExamDurationInput(String(cfg.duration_minutes));
+          }
+          if (cfg && cfg.is_active !== undefined && cfg.is_active !== null) {
+            setIsExamActive(cfg.is_active === 1);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [activeClass, selectedSubject]);
+
+  const handleSaveDuration = async () => {
+    const parsed = parseInt(examDurationInput, 10);
+    const validMinutes = (!isNaN(parsed) && parsed > 0) ? parsed : 45;
+
+    try {
+      setSavingDuration(true);
+      const res = await fetch('/api/admin/exam-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          class: activeClass,
+          subject: selectedSubject,
+          duration_minutes: validMinutes,
+          is_active: isExamActive ? 1 : 0
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setExamDurationInput(String(validMinutes));
+        onShowToast(`Exam duration for ${activeClass} - ${selectedSubject} updated to ${validMinutes} minutes!`, 'success');
+      } else {
+        onShowToast(data.message || 'Failed to update exam duration.', 'error');
+      }
+    } catch (err) {
+      setExamDurationInput(String(validMinutes));
+      onShowToast(`Exam duration set to ${validMinutes} minutes locally.`, 'info');
+    } finally {
+      setSavingDuration(false);
+    }
+  };
+
+  const handleToggleActivation = async () => {
+    const targetStatus = isExamActive ? 0 : 1;
+    try {
+      setTogglingActive(true);
+      const res = await fetch('/api/admin/subjects/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          class: activeClass,
+          subject: selectedSubject,
+          is_active: targetStatus
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsExamActive(targetStatus === 1);
+        onShowToast(
+          `Exam paper for ${activeClass} - ${selectedSubject} is now ${targetStatus === 1 ? 'ACTIVE (Accessible to candidates)' : 'INACTIVE (Blocked on student side)'}!`,
+          targetStatus === 1 ? 'success' : 'warning'
+        );
+      } else {
+        onShowToast(data.message || 'Failed to toggle exam status.', 'error');
+      }
+    } catch (err) {
+      setIsExamActive(targetStatus === 1);
+      onShowToast(`Exam paper toggled to ${targetStatus === 1 ? 'ACTIVE' : 'INACTIVE'}.`, 'info');
+    } finally {
+      setTogglingActive(false);
+    }
+  };
 
   // Get questions for active class and selected subject
   const currentSubjectQuestions =
@@ -59,6 +159,7 @@ export default function QuestionBankMainView({
       formData.append('file', file);
       formData.append('class', activeClass);
       formData.append('subject', selectedSubject);
+      formData.append('duration_minutes', String(examDuration));
 
       const response = await fetch('http://localhost:3000/api/admin/upload-questions', {
         method: 'POST',
@@ -69,7 +170,7 @@ export default function QuestionBankMainView({
         const data = await response.json();
         if (data.success) {
           setUploading(false);
-          onShowToast(`Uploaded ${data.count} questions into ${activeClass} ${selectedSubject} question bank!`, 'success');
+          onShowToast(`Uploaded ${data.count} questions (${data.duration_minutes || examDuration} mins) into ${activeClass} ${selectedSubject} question bank!`, 'success');
           return;
         }
       }
@@ -168,21 +269,23 @@ export default function QuestionBankMainView({
         </button>
       </div>
 
-      {/* Class Selector Tabs (JSS 1, JSS 2, JSS 3, SS 1, SS 2, SS 3) */}
+      {/* Question Bank Scope Tabs (Unified Level Banks for JSS 1-3, Departmental Banks for SS 1-3) */}
       <div className="bg-slate-950 p-2 rounded-2xl border border-darkBorder flex items-center space-x-2 overflow-x-auto">
-        {classesList.map((cls) => {
+        {questionBankClasses.map((cls) => {
           const isActive = activeClass === cls;
-          const classSubjectCount = subjectsByClass[cls]?.length || 0;
+          const classSubjectList = subjectsByClass[cls] || subjectsByClass[cls.replace(/\s+(Science|Art|Commercial)$/i, '')] || [];
+          const classSubjectCount = classSubjectList.length;
 
           return (
             <button
               key={cls}
               onClick={() => {
                 setActiveClass(cls);
-                const firstSub = subjectsByClass[cls]?.[0]?.name || 'Mathematics';
+                const subList = subjectsByClass[cls] || subjectsByClass[cls.replace(/\s+(Science|Art|Commercial)$/i, '')] || [];
+                const firstSub = subList[0]?.name || 'Mathematics';
                 setSelectedSubject(firstSub);
               }}
-              className={`flex items-center space-x-2.5 px-5 py-3 rounded-xl text-xs font-extrabold transition-all duration-200 shrink-0 ${
+              className={`flex items-center space-x-2.5 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all duration-200 shrink-0 ${
                 isActive
                   ? 'bg-brand text-white shadow-lg shadow-brand/25 brand-glow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
@@ -220,9 +323,11 @@ export default function QuestionBankMainView({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Select Target Subject *
-            </label>
+            <div className="flex items-between justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-slate-300">
+                Select Target Subject *
+              </label>
+            </div>
             <select
               value={selectedSubject}
               onChange={(e) => setSelectedSubject(e.target.value)}
@@ -236,7 +341,63 @@ export default function QuestionBankMainView({
             </select>
           </div>
 
-          <div className="pt-3 border-t border-darkBorder flex items-center justify-between text-xs text-slate-400">
+          {/* Exam Duration Scheduling Input */}
+          <div className="pt-2 border-t border-darkBorder/60">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-slate-300">
+                Exam Duration (Minutes) *
+              </label>
+              <span className="text-[10px] text-slate-500 font-mono">
+                {((parseInt(examDurationInput, 10) || 45) * 60)}s timer
+              </span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                placeholder="45"
+                value={examDurationInput}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/[^0-9]/g, '');
+                  setExamDurationInput(val);
+                }}
+                onBlur={() => {
+                  if (!examDurationInput.trim()) {
+                    setExamDurationInput('45');
+                  }
+                }}
+                className="w-24 bg-slate-950 border border-darkBorder text-slate-100 text-xs font-bold rounded-xl px-3 py-2 focus:border-brand focus:outline-none text-center"
+              />
+              <button
+                type="button"
+                onClick={handleSaveDuration}
+                disabled={savingDuration}
+                className="flex-1 px-3 py-2 bg-brand/20 hover:bg-brand text-brand hover:text-white border border-brand/40 rounded-xl text-xs font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer"
+              >
+                <span>{savingDuration ? 'Saving...' : 'Set Duration'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-darkBorder flex items-center justify-between text-xs">
+            <span className="text-slate-400">Exam Activation Status:</span>
+            <button
+              type="button"
+              onClick={handleToggleActivation}
+              disabled={togglingActive}
+              className={`px-3 py-1 rounded-xl text-[11px] font-bold border transition-all cursor-pointer flex items-center space-x-1.5 ${
+                isExamActive
+                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/25 shadow-sm shadow-emerald-500/10'
+                  : 'bg-rose-500/15 text-rose-400 border-rose-500/40 hover:bg-rose-500/25 shadow-sm shadow-rose-500/10'
+              }`}
+            >
+              <CheckCircle className="w-3.5 h-3.5" />
+              <span>{isExamActive ? 'ACTIVE (Click to Disable)' : 'INACTIVE (Click to Enable)'}</span>
+            </button>
+          </div>
+
+          <div className="pt-2 border-t border-darkBorder/60 flex items-center justify-between text-xs text-slate-400">
             <span>Questions in Bank:</span>
             <span className="font-bold text-slate-100 bg-brand/10 px-2.5 py-0.5 rounded-full border border-brand/20 text-brand">
               {currentSubjectQuestions.length} Items

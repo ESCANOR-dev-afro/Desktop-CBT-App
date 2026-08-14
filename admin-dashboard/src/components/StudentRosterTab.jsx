@@ -51,7 +51,7 @@ export default function StudentRosterTab({
     return matchesSearch && matchesSubject && matchesStatus;
   });
 
-  const baseTier = currentClass.replace(/\s+(Science|Art|Commercial|Gold|Diamond)$/i, '').trim();
+  const baseTier = currentClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
   const availableSubjectsForClass = subjectsByClass[currentClass] || subjectsByClass[baseTier] || [];
 
   const handleGeneratePasscode = (studentName) => {
