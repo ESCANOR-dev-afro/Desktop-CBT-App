@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Search,
   Bell,
@@ -8,7 +8,9 @@ import {
   Calendar,
   CheckCircle2,
   HelpCircle,
-  UserCheck
+  UserCheck,
+  ChevronDown,
+  Check
 } from 'lucide-react';
 
 export default function Header({
@@ -16,7 +18,35 @@ export default function Header({
   selectedClass,
   onOpenAddSubject,
   onOpenAddStudent,
+  activeTerm = '2nd Term',
+  academicSession = '2025/2026',
+  onSelectAcademicTerm,
 }) {
+  const [isTermDropdownOpen, setIsTermDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  const termOptions = ['1st Term', '2nd Term', '3rd Term'];
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsTermDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  const handleTermSelect = (term) => {
+    setIsTermDropdownOpen(false);
+    if (onSelectAcademicTerm && term !== activeTerm) {
+      onSelectAcademicTerm(term);
+    }
+  };
+
   return (
     <header className="h-16 bg-slate-950/90 border-b border-darkBorder flex items-center justify-between px-6 shrink-0 backdrop-blur-md z-20">
       {/* Breadcrumbs with Official School Logo Micro Emblem */}
@@ -61,10 +91,43 @@ export default function Header({
           </span>
         </div>
 
-        {/* Academic Session Selector Badge */}
-        <div className="hidden md:flex items-center space-x-2 bg-slate-900 border border-darkBorder px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-300">
-          <Calendar className="w-3.5 h-3.5 text-brand" />
-          <span>2025/2026 • Term 2</span>
+        {/* Academic Session & Active Term Selector Dropdown */}
+        <div className="relative hidden md:block" ref={dropdownRef}>
+          <button
+            onClick={() => setIsTermDropdownOpen(!isTermDropdownOpen)}
+            className="flex items-center space-x-2 bg-slate-900 hover:bg-slate-800/80 border border-darkBorder hover:border-brand/40 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-200 transition-all shadow-sm focus:outline-none focus:ring-1 focus:ring-brand"
+            title="Click to switch active Academic Term"
+          >
+            <Calendar className="w-3.5 h-3.5 text-brand" />
+            <span>{academicSession} • {activeTerm}</span>
+            <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${isTermDropdownOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          {/* Interactive Term Selection Menu */}
+          {isTermDropdownOpen && (
+            <div className="absolute right-0 mt-2 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-xl z-50 py-1.5 animate-in fade-in zoom-in-95 duration-150">
+              <div className="px-3 py-1.5 border-b border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Select Active Term ({academicSession})
+              </div>
+              {termOptions.map((term) => {
+                const isSelected = term === activeTerm;
+                return (
+                  <button
+                    key={term}
+                    onClick={() => handleTermSelect(term)}
+                    className={`w-full flex items-center justify-between px-3 py-2 text-xs text-left font-medium transition-colors ${
+                      isSelected
+                        ? 'bg-brand/10 text-brand font-bold'
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    }`}
+                  >
+                    <span>{term}</span>
+                    {isSelected && <Check className="w-3.5 h-3.5 text-brand shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Server Status */}

@@ -35,31 +35,51 @@ class _CBTStudentAppState extends State<CBTStudentApp> {
           session['session_id'] != null &&
           session['server_ip'] != null) {
         final studentId = session['student_id'] as int;
+        final sessionId = session['session_id'] as int;
         final serverIp = session['server_ip'] as String;
 
-        // Verify session still valid on backend
-        final dashboardData = await AuthService.fetchStudentDashboard(
+        // 1. Verify active session token against server
+        final isValidSession = await AuthService.verifySession(
           studentId: studentId,
+          sessionId: sessionId,
           serverIp: serverIp,
         );
 
-        if (dashboardData != null && dashboardData['student'] != null) {
-          final student = Map<String, dynamic>.from(dashboardData['student']);
-          student['server_ip'] = serverIp;
+        if (isValidSession) {
+          // 2. Fetch fresh student profile & subject statuses
+          final dashboardData = await AuthService.fetchStudentDashboard(
+            studentId: studentId,
+            serverIp: serverIp,
+            sessionId: sessionId,
+          );
 
-          setState(() {
-            _activeStudentData = student;
-            _activeSessionId = session['session_id'] as int;
-            _isLoadingSession = false;
-          });
-          return;
+          if (dashboardData != null && dashboardData['student'] != null) {
+            final student = Map<String, dynamic>.from(dashboardData['student']);
+            student['server_ip'] = serverIp;
+
+            if (mounted) {
+              setState(() {
+                _activeStudentData = student;
+                _activeSessionId = sessionId;
+                _isLoadingSession = false;
+              });
+            }
+            return;
+          }
         }
       }
     } catch (_) {}
 
-    setState(() {
-      _isLoadingSession = false;
-    });
+    // Explicitly purge stale local storage tokens when verification fails
+    await AuthService.logout();
+
+    if (mounted) {
+      setState(() {
+        _activeStudentData = null;
+        _activeSessionId = null;
+        _isLoadingSession = false;
+      });
+    }
   }
 
   @override

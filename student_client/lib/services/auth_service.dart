@@ -143,14 +143,47 @@ class AuthService {
     await prefs.clear();
   }
 
+  /// Verifies active session token against server
+  static Future<bool> verifySession({
+    required int studentId,
+    required int sessionId,
+    required String serverIp,
+  }) async {
+    try {
+      final url = ApiConfig.getUri(serverIp, '/student/verify-session');
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'student_id': studentId,
+              'session_id': sessionId,
+            }),
+          )
+          .timeout(const Duration(seconds: 4));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        return data['success'] == true && data['valid'] == true;
+      }
+    } catch (e) {
+      debugPrint('⚠️ Session verification failed: $e');
+    }
+    return false;
+  }
+
   /// Retrieves stored session details
   static Future<Map<String, dynamic>?> getStoredSession() async {
     final prefs = await SharedPreferences.getInstance();
-    if (!prefs.containsKey('session_id') && !prefs.containsKey('student_id')) return null;
+    if (!prefs.containsKey('session_id') || !prefs.containsKey('student_id')) return null;
+
+    final sessionId = prefs.getInt('session_id');
+    final studentId = prefs.getInt('student_id');
+    if (sessionId == null || studentId == null) return null;
 
     return {
-      'session_id': prefs.getInt('session_id'),
-      'student_id': prefs.getInt('student_id'),
+      'session_id': sessionId,
+      'student_id': studentId,
       'reg_number': prefs.getString('reg_number'),
       'surname': prefs.getString('surname'),
       'class': prefs.getString('student_class'),
@@ -163,9 +196,13 @@ class AuthService {
   static Future<Map<String, dynamic>?> fetchStudentDashboard({
     required int studentId,
     required String serverIp,
+    int? sessionId,
   }) async {
     try {
-      final url = ApiConfig.getUri(serverIp, '/student/$studentId/dashboard');
+      final path = sessionId != null
+          ? '/student/$studentId/dashboard?session_id=$sessionId'
+          : '/student/$studentId/dashboard';
+      final url = ApiConfig.getUri(serverIp, path);
       final response = await http.get(url).timeout(const Duration(seconds: 6));
 
       if (response.statusCode == 200) {

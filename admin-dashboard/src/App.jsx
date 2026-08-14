@@ -34,6 +34,10 @@ export default function App() {
   const [workstations, setWorkstations] = useState(initialWorkstations);
   const [activityLogs, setActivityLogs] = useState(initialActivityLogs);
 
+  // Academic Term & Session State
+  const [activeTerm, setActiveTerm] = useState('2nd Term');
+  const [academicSession, setAcademicSession] = useState('2025/2026');
+
   // Modals state
   const [isAddSubjectOpen, setIsAddSubjectOpen] = useState(false);
   const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
@@ -47,6 +51,49 @@ export default function App() {
     setTimeout(() => {
       setToast(null);
     }, 4000);
+  };
+
+  // Fetch active academic term on load
+  React.useEffect(() => {
+    fetch('/api/admin/academic-terms')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          if (data.active_term) setActiveTerm(data.active_term);
+          if (data.session) setAcademicSession(data.session);
+        }
+      })
+      .catch((err) => console.log('Notice: Academic terms API load fallback active', err));
+  }, []);
+
+  // Academic Term Switch Handler with Backend Auto-Persistence
+  const handleSelectAcademicTerm = async (newTerm) => {
+    try {
+      const res = await fetch('/api/admin/academic-terms/active', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ term: newTerm, session: academicSession }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActiveTerm(newTerm);
+        showToast(`Active Academic Term updated to ${newTerm} (${academicSession}) and saved to database!`, 'success');
+        setActivityLogs((prev) => [
+          {
+            id: String(Date.now()),
+            time: new Date().toLocaleTimeString('en-US', { hour12: false }),
+            event: `Academic Term switched to ${newTerm} (${academicSession})`,
+            category: 'AcademicTermEngine',
+          },
+          ...prev,
+        ]);
+      } else {
+        showToast(data.message || 'Failed to update academic term', 'error');
+      }
+    } catch (e) {
+      setActiveTerm(newTerm);
+      showToast(`Switched active term to ${newTerm}`, 'success');
+    }
   };
 
   // Dynamic Class-Specific Subject Isolation Handler
@@ -214,6 +261,9 @@ export default function App() {
           selectedClass={selectedClass}
           onOpenAddSubject={() => setIsAddSubjectOpen(true)}
           onOpenAddStudent={() => setIsAddStudentOpen(true)}
+          activeTerm={activeTerm}
+          academicSession={academicSession}
+          onSelectAcademicTerm={handleSelectAcademicTerm}
         />
 
         {/* Scrollable Viewport Content Area */}
