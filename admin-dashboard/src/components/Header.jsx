@@ -10,7 +10,9 @@ import {
   HelpCircle,
   UserCheck,
   ChevronDown,
-  Check
+  Check,
+  HardDrive,
+  Loader2
 } from 'lucide-react';
 
 export default function Header({
@@ -19,10 +21,12 @@ export default function Header({
   onOpenAddSubject,
   onOpenAddStudent,
   activeTerm = '2nd Term',
-  academicSession = '2025/2026',
+  academicSession = '2026/2027',
   onSelectAcademicTerm,
+  onShowToast,
 }) {
   const [isTermDropdownOpen, setIsTermDropdownOpen] = useState(false);
+  const [isBackingUp, setIsBackingUp] = useState(false);
   const dropdownRef = useRef(null);
 
   const termOptions = ['1st Term', '2nd Term', '3rd Term'];
@@ -44,6 +48,30 @@ export default function Header({
     setIsTermDropdownOpen(false);
     if (onSelectAcademicTerm && term !== activeTerm) {
       onSelectAcademicTerm(term);
+    }
+  };
+
+  const handleExecuteBackup = async () => {
+    try {
+      setIsBackingUp(true);
+      if (onShowToast) onShowToast('Executing atomic database snapshot & USB backup...', 'info');
+      const res = await fetch('/api/admin/backup', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        if (onShowToast) {
+          onShowToast(data.message || `Backup completed successfully! Snapshot saved to ${data.backupDirectory}`, 'success');
+        }
+      } else {
+        if (onShowToast) {
+          onShowToast(data.message || 'Backup failed.', 'error');
+        }
+      }
+    } catch (e) {
+      if (onShowToast) {
+        onShowToast('Backup execution failed. Ensure server connection.', 'error');
+      }
+    } finally {
+      setIsBackingUp(false);
     }
   };
 
@@ -115,11 +143,10 @@ export default function Header({
                   <button
                     key={term}
                     onClick={() => handleTermSelect(term)}
-                    className={`w-full flex items-center justify-between px-3 py-2 text-xs text-left font-medium transition-colors ${
-                      isSelected
+                    className={`w-full flex items-center justify-between px-3 py-2 text-xs text-left font-medium transition-colors ${isSelected
                         ? 'bg-brand/10 text-brand font-bold'
                         : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                    }`}
+                      }`}
                   >
                     <span>{term}</span>
                     {isSelected && <Check className="w-3.5 h-3.5 text-brand shrink-0" />}
@@ -138,6 +165,21 @@ export default function Header({
           </span>
           <span>Node 1: Online (12ms)</span>
         </div>
+
+        {/* USB / External Storage Backup Trigger Button */}
+        <button
+          onClick={handleExecuteBackup}
+          disabled={isBackingUp}
+          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-darkBorder hover:border-brand/40 text-xs font-semibold text-slate-200 transition-all cursor-pointer disabled:opacity-50"
+          title="Trigger safe SQLite snapshot & mirror diagram assets to USB / external storage"
+        >
+          {isBackingUp ? (
+            <Loader2 className="w-3.5 h-3.5 text-brand animate-spin" />
+          ) : (
+            <HardDrive className="w-3.5 h-3.5 text-brand" />
+          )}
+          <span className="hidden lg:inline">{isBackingUp ? 'Backing up...' : 'Backup to USB'}</span>
+        </button>
 
         {/* Quick Action Button for Adding Subject */}
         {activeView === 'class-workspace' && (

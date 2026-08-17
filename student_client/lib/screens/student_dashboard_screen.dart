@@ -79,33 +79,38 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   }
 
   List<Map<String, dynamic>> _getFallbackSubjects() {
-    final assigned = (_currentStudentData['assigned_subject'] ?? 'Mathematics').toString();
-    return [
-      {
-        'name': assigned.isNotEmpty ? assigned : 'Mathematics',
-        'schedule': 'Now Available',
-        'status': 'available',
-        'message': 'Ready to Start',
-      },
-      {
-        'name': 'English Language',
-        'schedule': 'Now Available',
-        'status': 'available',
-        'message': 'Ready to Start',
-      },
-      {
-        'name': 'Computer Studies',
-        'schedule': 'Now Available',
-        'status': 'available',
-        'message': 'Ready to Start',
-      },
-      {
-        'name': 'Further Mathematics',
-        'schedule': 'Scheduled for 2:00 PM - 3:00 PM',
-        'status': 'not_scheduled',
-        'message': 'Scheduled for 2:00 PM - 3:00 PM. Sorry, you are not scheduled for this exam yet.',
-      },
-    ];
+    final clsUpper = (_currentStudentData['class'] ?? 'SS 3 Science').toString().toUpperCase();
+    List<String> streamSubjects;
+
+    if (clsUpper.startsWith('JSS')) {
+      streamSubjects = [
+        "English Language", "Mathematics", "Yoruba", "French", "Fine Art", "Music",
+        "Basic Science", "Basic Technology", "PHE", "Digital Technology", "Social Studies",
+        "Civic Education", "Home Economics", "Agricultural Science", "Business Studies", "History"
+      ];
+    } else if (clsUpper.contains('COMMERCIAL')) {
+      streamSubjects = [
+        "Mathematics", "English Language", "Civic Education", "Further Mathematics",
+        "Economics", "Digital Technology", "Account", "Commerce"
+      ];
+    } else if (clsUpper.contains('ART')) {
+      streamSubjects = [
+        "Mathematics", "English Language", "Civic Education", "Economics",
+        "Digital Technology", "Government", "CRS", "Literature in English"
+      ];
+    } else {
+      streamSubjects = [
+        "Mathematics", "English Language", "Biology", "Chemistry", "Physics",
+        "Civic Education", "Further Mathematics", "Economics", "Digital Technology", "Geography", "Agricultural Science"
+      ];
+    }
+
+    return streamSubjects.map((sub) => {
+      'name': sub,
+      'schedule': 'Now Available',
+      'status': 'available',
+      'message': 'Ready to Start',
+    }).toList();
   }
 
   /// Starts exam session for chosen subject paper
@@ -527,13 +532,14 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     );
   }
 
-  /// Individual Subject Card with 3 Explicit Status States
+  /// Individual Subject Card with 4 Explicit Status States (Available, In Progress, Completed, Not Scheduled)
   Widget _buildSubjectCard(Map<String, dynamic> item) {
-    final name = (item['name'] ?? 'Subject').toString();
-    final status = (item['status'] ?? 'available').toString(); // 'available', 'not_scheduled', 'completed'
+    final name = (item['name'] ?? item['subject'] ?? 'Subject').toString();
+    final status = (item['status'] ?? 'available').toString(); // 'available', 'active', 'in_progress', 'not_scheduled', 'completed'
     final message = (item['message'] ?? '').toString();
 
     final isAvailable = status == 'available';
+    final isInProgress = status == 'active' || status == 'in_progress';
     final isCompleted = status == 'completed';
     final isNotScheduled = status == 'not_scheduled';
 
@@ -547,11 +553,16 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       badgeTextColor = Colors.green.shade800;
       statusLabel = 'COMPLETED';
       statusIcon = Icons.check_circle_rounded;
+    } else if (isInProgress) {
+      badgeBgColor = Colors.orange.withValues(alpha: 0.15);
+      badgeTextColor = Colors.orange.shade900;
+      statusLabel = 'IN PROGRESS';
+      statusIcon = Icons.hourglass_top_rounded;
     } else if (isNotScheduled) {
       badgeBgColor = Colors.amber.withValues(alpha: 0.15);
       badgeTextColor = Colors.amber.shade900;
-      statusLabel = 'NOT SCHEDULED YET';
-      statusIcon = Icons.schedule_rounded;
+      statusLabel = 'INACTIVE / NOT SCHEDULED';
+      statusIcon = Icons.lock_rounded;
     } else {
       badgeBgColor = AppTheme.primaryOrange.withValues(alpha: 0.12);
       badgeTextColor = AppTheme.primaryOrange;
@@ -637,17 +648,35 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.info_outline_rounded, size: 14, color: Colors.amber),
+                    Icon(Icons.info_outline_rounded, size: 14, color: Colors.amber.shade900),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        message,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: AppTheme.darkCharcoal,
-                        ),
-                        maxLines: 2,
+                        message.isNotEmpty ? message : 'Paper is inactive.',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.amber.shade900),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (isInProgress)
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.withValues(alpha: 0.25)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.timer_outlined, size: 14, color: Colors.orange.shade900),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Exam session active. Tap Resume to continue.',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.orange.shade900),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -686,7 +715,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             SizedBox(
               width: double.infinity,
               height: 42,
-              child: isAvailable
+              child: (isAvailable || isInProgress)
                   ? ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.primaryOrange,
@@ -695,10 +724,10 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                       onPressed: () => _startSubjectExam(item),
-                      icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                      label: const Text(
-                        'START EXAM',
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                      icon: Icon(isInProgress ? Icons.replay_rounded : Icons.play_arrow_rounded, size: 18),
+                      label: Text(
+                        isInProgress ? 'RESUME EXAM' : 'START EXAM',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 0.5),
                       ),
                     )
                   : isCompleted
@@ -722,9 +751,9 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
                           onPressed: null, // Disabled
-                          icon: const Icon(Icons.lock_clock_rounded, size: 18),
+                          icon: const Icon(Icons.lock_rounded, size: 18),
                           label: const Text(
-                            'NOT SCHEDULED YET',
+                            'INACTIVE / NOT SCHEDULED',
                             style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                           ),
                         ),

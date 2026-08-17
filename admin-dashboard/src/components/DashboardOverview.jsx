@@ -41,7 +41,7 @@ export default function DashboardOverview({
           <div className="w-16 h-16 rounded-2xl bg-slate-950 border-2 border-brand/40 p-1.5 shadow-xl shadow-brand/10 shrink-0 flex items-center justify-center">
             <img
               src="school_logo.jpg"
-              alt="Anthony White Bridge Academy Logo"
+              alt="Anthony Whitebridge Academy Logo"
               className="w-full h-full object-contain rounded-xl"
             />
           </div>
@@ -51,7 +51,7 @@ export default function DashboardOverview({
               Official Executive Control Panel
             </span>
             <h2 className="text-2xl font-extrabold text-slate-100 tracking-tight mt-1.5">
-              Anthony White Bridge Academy CBT Overview
+              Anthony Whitebridge Academy CBT Overview
             </h2>
             <p className="text-xs text-slate-400 mt-1">
               Real-time computer-based testing infrastructure, candidate enrollment & class subject isolation monitor.
@@ -131,7 +131,7 @@ export default function DashboardOverview({
               Distinction
             </span>
           </div>
-          <p className="text-[10px] text-slate-500">Term 2 Mock Examinations</p>
+          <p className="text-[10px] text-slate-500">Term 2 Terminal Examinations</p>
         </div>
       </div>
 

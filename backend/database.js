@@ -98,18 +98,26 @@ function initDatabase() {
             CREATE TABLE IF NOT EXISTS students (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 reg_number TEXT UNIQUE NOT NULL,
+                registration_no TEXT UNIQUE,
                 surname TEXT NOT NULL,
                 first_name TEXT NOT NULL DEFAULT '',
                 class TEXT NOT NULL,
                 assigned_subject TEXT NOT NULL,
-                class_id INTEGER
+                class_id INTEGER,
+                academic_term_id INTEGER,
+                password TEXT
             );
         `;
         db.run(createStudentsTable, (err) => {
             if (!err) {
                 db.run(`ALTER TABLE students ADD COLUMN first_name TEXT DEFAULT '';`, () => {});
                 db.run(`ALTER TABLE students ADD COLUMN class_id INTEGER;`, () => {});
+                db.run(`ALTER TABLE students ADD COLUMN registration_no TEXT;`, () => {});
+                db.run(`ALTER TABLE students ADD COLUMN academic_term_id INTEGER;`, () => {});
+                db.run(`ALTER TABLE students ADD COLUMN password TEXT;`, () => {});
+                db.run(`UPDATE students SET registration_no = reg_number WHERE registration_no IS NULL OR TRIM(registration_no) = '';`, () => {});
                 db.run(`CREATE INDEX IF NOT EXISTS idx_students_class ON students(class);`, () => {});
+                db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_students_registration_no ON students(registration_no);`, () => {});
             }
         });
 
@@ -173,6 +181,7 @@ function initDatabase() {
                 db.run(`ALTER TABLE exam_sessions ADD COLUMN duration_minutes INTEGER DEFAULT 45;`, () => {});
                 db.run(`ALTER TABLE exam_sessions ADD COLUMN exam_id INTEGER;`, () => {});
                 db.run(`ALTER TABLE exam_sessions ADD COLUMN term_id INTEGER;`, () => {});
+                db.run(`ALTER TABLE exam_sessions ADD COLUMN option_mapping TEXT DEFAULT NULL;`, () => {});
                 db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_student_status ON exam_sessions(student_id, status);`, () => {});
                 db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_student_subject_status ON exam_sessions(student_id, subject, status);`, () => {});
             }
@@ -229,6 +238,10 @@ function initDatabase() {
                 subject TEXT NOT NULL,
                 duration_minutes INTEGER NOT NULL DEFAULT 45,
                 is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+                assessment_mode TEXT DEFAULT 'TEST',
+                delivery_count INTEGER DEFAULT 30,
+                shuffle_questions INTEGER DEFAULT 1,
+                shuffle_options INTEGER DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(class, subject)
             );
@@ -236,6 +249,10 @@ function initDatabase() {
         db.run(createExamConfigsTable, (err) => {
             if (!err) {
                 db.run(`ALTER TABLE exam_configs ADD COLUMN is_active INTEGER DEFAULT 1;`, () => {});
+                db.run(`ALTER TABLE exam_configs ADD COLUMN assessment_mode TEXT DEFAULT 'TEST';`, () => {});
+                db.run(`ALTER TABLE exam_configs ADD COLUMN delivery_count INTEGER DEFAULT 30;`, () => {});
+                db.run(`ALTER TABLE exam_configs ADD COLUMN shuffle_questions INTEGER DEFAULT 1;`, () => {});
+                db.run(`ALTER TABLE exam_configs ADD COLUMN shuffle_options INTEGER DEFAULT 1;`, () => {});
                 db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_configs_class_subject ON exam_configs(class, subject);`, () => {});
             }
         });
@@ -329,6 +346,52 @@ function initDatabase() {
             else console.log('📋 [Table Created] "audit_logs" table is ready.');
         });
 
+        // 13. Normalized Mapping Entity: `class_subjects`
+        const createClassSubjectsTable = `
+            CREATE TABLE IF NOT EXISTS class_subjects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                class_id INTEGER REFERENCES classes(id) ON DELETE CASCADE,
+                subject_id INTEGER REFERENCES subjects(id) ON DELETE CASCADE,
+                class_name TEXT NOT NULL,
+                subject_name TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(class_name, subject_name)
+            );
+        `;
+        db.run(createClassSubjectsTable, (err) => {
+            if (err) console.error('❌ Error creating "class_subjects" table:', err.message);
+            else console.log('📋 [Table Created] Normalized "class_subjects" mapping table is ready.');
+        });
+
+        // 14. Student Exam Session Tracking & Auto-Resume Persistence Table
+        const createStudentExamSessionsTable = `
+            CREATE TABLE IF NOT EXISTS student_exam_sessions (
+                session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL,
+                class_id INTEGER,
+                subject_id INTEGER,
+                subject_name TEXT NOT NULL,
+                class_name TEXT,
+                status TEXT NOT NULL CHECK(status IN ('IN_PROGRESS', 'SUBMITTED', 'EXPIRED')) DEFAULT 'IN_PROGRESS',
+                started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME,
+                duration_minutes INTEGER DEFAULT 45,
+                delivered_questions_json TEXT NOT NULL DEFAULT '[]',
+                selected_answers_json TEXT DEFAULT '{}',
+                score INTEGER DEFAULT NULL,
+                workstation_ip TEXT,
+                FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+            );
+        `;
+        db.run(createStudentExamSessionsTable, (err) => {
+            if (err) console.error('❌ Error creating "student_exam_sessions" table:', err.message);
+            else {
+                console.log('📋 [Table Created] "student_exam_sessions" entity is ready.');
+                db.run(`CREATE INDEX IF NOT EXISTS idx_ses_student_status ON student_exam_sessions(student_id, status);`, () => {});
+                db.run(`CREATE INDEX IF NOT EXISTS idx_ses_student_subject_status ON student_exam_sessions(student_id, subject_name, status);`, () => {});
+            }
+        });
+
         // Seed data & run auto-normalization
         seedDatabase();
     });
@@ -338,11 +401,11 @@ function initDatabase() {
  * Seed database with initial default subjects, students, questions, academic terms, and classes.
  */
 function seedDatabase() {
-    // 1. Seed Academic Terms ('1st Term', '2nd Term', '3rd Term' for 2025/2026)
+    // 1. Seed Academic Terms ('1st Term', '2nd Term', '3rd Term' for 2026/2027)
     const terms = [
-        { name: '1st Term', session: '2025/2026', is_current: 0 },
-        { name: '2nd Term', session: '2025/2026', is_current: 1 }, // Default Active Term
-        { name: '3rd Term', session: '2025/2026', is_current: 0 }
+        { name: '1st Term', session: '2026/2027', is_current: 1 },
+        { name: '2nd Term', session: '2026/2027', is_current: 0 },
+        { name: '3rd Term', session: '2026/2027', is_current: 0 }
     ];
     const termSql = `
         INSERT INTO academic_terms (name, session, is_current)
@@ -351,129 +414,53 @@ function seedDatabase() {
     `;
     const termStmt = db.prepare(termSql);
     terms.forEach(t => termStmt.run([t.name, t.session, t.is_current]));
-    termStmt.finalize();
+    termStmt.finalize(() => {
+        db.get(`SELECT COUNT(*) as count FROM academic_terms WHERE is_current = 1`, [], (err, row) => {
+            if (!err && row && row.count === 0) {
+                db.run(`UPDATE academic_terms SET is_current = 1 WHERE session = '2026/2027' AND name = '1st Term'`);
+            }
+        });
+    });
 
-    // 2. Seed Default Subjects
+    // 2. Seed Default Master Subjects Catalog
     const defaultSubjects = [
-        'Mathematics',
+        // Junior Secondary 16 Full Subjects
         'English Language',
+        'Mathematics',
+        'Yoruba',
+        'French',
+        'Fine Art',
+        'Music',
+        'Basic Science',
+        'Basic Technology',
+        'PHE',
+        'Digital Technology',
+        'Social Studies',
+        'Civic Education',
+        'Home Economics',
+        'Agricultural Science',
+        'Business Studies',
+        'History',
+        // Senior Secondary Stream Specific Subjects
         'Biology',
         'Chemistry',
         'Physics',
-        'Civic Education',
-        'Computer Studies',
+        'Further Mathematics',
         'Economics',
-        'Government'
+        'Account',
+        'Commerce',
+        'Government',
+        'CRS',
+        'Literature in English',
+        'Geography',
+        'Computer Studies'
     ];
 
     const subjectInsertSql = `INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1);`;
     const subjectStmt = db.prepare(subjectInsertSql);
     defaultSubjects.forEach(sub => subjectStmt.run([sub]));
-    subjectStmt.finalize();
-
-    // 3. Seed Mock Students
-    const mockStudents = [
-        { reg_number: '1009001', surname: 'OKONKWO', first_name: 'Chidi', class: 'SS 3 Science', assigned_subject: 'Mathematics' },
-        { reg_number: '1009002', surname: 'ADEBAYO', first_name: 'Amina', class: 'SS 3 Science', assigned_subject: 'Mathematics' },
-        { reg_number: '1009003', surname: 'USMAN', first_name: 'Babatunde', class: 'SS 3 Art', assigned_subject: 'Government' },
-        { reg_number: '1009004', surname: 'EZE', first_name: 'Grace', class: 'SS 3 Commercial', assigned_subject: 'Economics' },
-        { reg_number: '1009011', surname: 'KALU', first_name: 'David', class: 'JSS 1 Gold', assigned_subject: 'Mathematics' },
-        { reg_number: '1009012', surname: 'OKON', first_name: 'Blessing', class: 'JSS 1 Diamond', assigned_subject: 'English Language' },
-        { reg_number: '1009013', surname: 'KANU', first_name: 'Nnamdi', class: 'JSS 1 Silver', assigned_subject: 'Mathematics' },
-        { reg_number: '1009021', surname: 'BELLO', first_name: 'Zainab', class: 'JSS 2 Gold', assigned_subject: 'Basic Science' },
-        { reg_number: '1009022', surname: 'LAWAL', first_name: 'Farouk', class: 'JSS 2 Diamond', assigned_subject: 'Mathematics' },
-        { reg_number: '1009023', surname: 'AJAYI', first_name: 'Oluwaseun', class: 'JSS 2 Silver', assigned_subject: 'English Language' },
-        { reg_number: '1009031', surname: 'DANIELS', first_name: 'Joy', class: 'JSS 3 Gold', assigned_subject: 'Basic Technology' },
-        { reg_number: '1009032', surname: 'AHMED', first_name: 'Mustapha', class: 'JSS 3 Diamond', assigned_subject: 'English Language' },
-        { reg_number: '1009033', surname: 'WILLIAMS', first_name: 'Grace', class: 'JSS 3 Silver', assigned_subject: 'Basic Technology' },
-        { reg_number: '1009041', surname: 'SANUSI', first_name: 'Kemi', class: 'SS 1 Science', assigned_subject: 'Physics' },
-        { reg_number: '1009042', surname: 'OBASI', first_name: 'Emeka', class: 'SS 1 Art', assigned_subject: 'Literature in English' },
-        { reg_number: '1009043', surname: 'BAKARE', first_name: 'Tayo', class: 'SS 1 Commercial', assigned_subject: 'Financial Accounting' },
-        { reg_number: '1009051', surname: 'NWACHUKWU', first_name: 'Sandra', class: 'SS 2 Science', assigned_subject: 'Chemistry' },
-        { reg_number: '1009052', surname: 'IBRAHIM', first_name: 'Halima', class: 'SS 2 Art', assigned_subject: 'Government' },
-        { reg_number: '1009053', surname: 'ALABI', first_name: 'Gideon', class: 'SS 2 Commercial', assigned_subject: 'Commerce' }
-    ];
-
-    const studentInsertSql = `
-        INSERT OR IGNORE INTO students (reg_number, surname, first_name, class, assigned_subject)
-        VALUES (?, ?, ?, ?, ?);
-    `;
-    const studentStmt = db.prepare(studentInsertSql);
-    mockStudents.forEach(student => {
-        studentStmt.run([student.reg_number, student.surname.toUpperCase(), student.first_name, student.class, student.assigned_subject]);
-    });
-    studentStmt.finalize();
-
-    // 4. Seed Mock Questions
-    const mockQuestions = [
-        {
-            class: 'SS3',
-            subject: 'mathematics',
-            question_text: 'Solve for x: 2x + 5 = 15.',
-            option_a: '3',
-            option_b: '5',
-            option_c: '10',
-            option_d: '7',
-            correct_answer: 'B'
-        },
-        {
-            class: 'SS3',
-            subject: 'mathematics',
-            question_text: 'What is the square root of 144?',
-            option_a: '10',
-            option_b: '11',
-            option_c: '12',
-            option_d: '14',
-            correct_answer: 'C'
-        },
-        {
-            class: 'SS3',
-            subject: 'mathematics',
-            question_text: 'Calculate the area of a circle with radius 7 cm. (Use π = 22/7)',
-            option_a: '154 cm²',
-            option_b: '44 cm²',
-            option_c: '49 cm²',
-            option_d: '308 cm²',
-            correct_answer: 'A'
-        },
-        {
-            class: 'SS3',
-            subject: 'mathematics',
-            question_text: 'If a right-angled triangle has sides of length 3 cm and 4 cm, what is the length of the hypotenuse?',
-            option_a: '6 cm',
-            option_b: '5 cm',
-            option_c: '7 cm',
-            option_d: '8 cm',
-            correct_answer: 'B'
-        },
-        {
-            class: 'SS3',
-            subject: 'mathematics',
-            question_text: 'What is the value of 3^4 (3 to the 4th power)?',
-            option_a: '12',
-            option_b: '27',
-            option_c: '81',
-            option_d: '64',
-            correct_answer: 'C'
-        }
-    ];
-
-    db.get('SELECT COUNT(*) AS count FROM questions WHERE LOWER(subject) = ?', ['mathematics'], (err, row) => {
-        if (!err && row && row.count === 0) {
-            const questionInsertSql = `
-                INSERT INTO questions (class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-            `;
-            const questionStmt = db.prepare(questionInsertSql);
-            mockQuestions.forEach(q => {
-                questionStmt.run([q.class, q.subject, q.question_text, q.option_a, q.option_b, q.option_c, q.option_d, q.correct_answer]);
-            });
-            questionStmt.finalize(() => {
-                runAutoNormalization();
-            });
-        } else {
-            runAutoNormalization();
-        }
+    subjectStmt.finalize(() => {
+        runAutoNormalization();
     });
 }
 
@@ -481,11 +468,11 @@ function seedDatabase() {
  * Runs automated data normalization:
  * - Syncs distinct class names to `classes` table.
  * - Syncs question options from flat `questions` table to `question_options` table.
- * - Populates `exams` table.
+ * - Populates `class_subjects` mapping table with strict Junior and Senior stream allocations.
  */
 async function runAutoNormalization() {
     try {
-        // 1. Populate `classes` table from `students` and `questions`
+        // 1. Populate `classes` table with standard base classes and arms
         const studentClasses = await allAsync(`SELECT DISTINCT class FROM students WHERE class IS NOT NULL AND TRIM(class) != ''`);
         const questionClasses = await allAsync(`SELECT DISTINCT class FROM questions WHERE class IS NOT NULL AND TRIM(class) != ''`);
         const allClassNames = new Set();
@@ -493,8 +480,16 @@ async function runAutoNormalization() {
         studentClasses.forEach(c => allClassNames.add(c.class.trim()));
         questionClasses.forEach(c => allClassNames.add(c.class.trim()));
 
-        // Also add standard base classes
-        ['JSS 1', 'JSS 2', 'JSS 3', 'SS 1', 'SS 2', 'SS 3'].forEach(c => allClassNames.add(c));
+        // Add full suite of junior arms and senior streams
+        const baseClassesList = [
+            'JSS 1', 'JSS 1 Gold', 'JSS 1 Silver', 'JSS 1 Diamond',
+            'JSS 2', 'JSS 2 Gold', 'JSS 2 Silver', 'JSS 2 Diamond',
+            'JSS 3', 'JSS 3 Gold', 'JSS 3 Silver', 'JSS 3 Diamond',
+            'SS 1', 'SS 1 Science', 'SS 1 Commercial', 'SS 1 Art', 'SS 1 Arts',
+            'SS 2', 'SS 2 Science', 'SS 2 Commercial', 'SS 2 Art', 'SS 2 Arts',
+            'SS 3', 'SS 3 Science', 'SS 3 Commercial', 'SS 3 Art', 'SS 3 Arts'
+        ];
+        baseClassesList.forEach(c => allClassNames.add(c));
 
         for (const clsName of allClassNames) {
             const level = clsName.startsWith('JSS') ? 'JSS' : (clsName.startsWith('SS') ? 'SS' : 'GENERAL');
@@ -534,7 +529,59 @@ async function runAutoNormalization() {
             await runAsync(`UPDATE questions SET class_id = ? WHERE LOWER(class) = LOWER(?)`, [id, name]);
         }
 
-        console.log('🎉 [Database Normalization Complete] SQLite WAL ready & normalized schema synchronized successfully.');
+        // 4. Populate Stream & Tier Subject Mappings into `class_subjects` Table
+        const juniorSubjects = [
+            "English Language", "Mathematics", "Yoruba", "French", "Fine Art", "Music",
+            "Basic Science", "Basic Technology", "PHE", "Digital Technology", "Social Studies",
+            "Civic Education", "Home Economics", "Agricultural Science", "Business Studies", "History"
+        ];
+        const scienceSubjects = [
+            "Mathematics", "English Language", "Biology", "Chemistry", "Physics",
+            "Civic Education", "Further Mathematics", "Economics", "Digital Technology", "Geography", "Agricultural Science"
+        ];
+        const commercialSubjects = [
+            "Mathematics", "English Language", "Civic Education", "Further Mathematics",
+            "Economics", "Digital Technology", "Account", "Commerce"
+        ];
+        const artsSubjects = [
+            "Mathematics", "English Language", "Civic Education", "Economics",
+            "Digital Technology", "Government", "CRS", "Literature in English"
+        ];
+
+        const subjectRows = await allAsync(`SELECT id, name FROM subjects`);
+        const subjMap = new Map(subjectRows.map(s => [s.name.toLowerCase(), s.id]));
+
+        for (const cls of classesRows) {
+            const nameUpper = cls.name.toUpperCase();
+            let allocated = [];
+
+            if (nameUpper.startsWith('JSS')) {
+                allocated = juniorSubjects;
+            } else if (nameUpper.includes('SCIENCE')) {
+                allocated = scienceSubjects;
+            } else if (nameUpper.includes('COMMERCIAL')) {
+                allocated = commercialSubjects;
+            } else if (nameUpper.includes('ART')) {
+                allocated = artsSubjects;
+            } else {
+                // Base Senior classes (e.g. SS 1, SS 2, SS 3) include general core & science defaults
+                allocated = scienceSubjects;
+            }
+
+            for (const subName of allocated) {
+                const subId = subjMap.get(subName.toLowerCase()) || null;
+                await runAsync(
+                    `INSERT INTO class_subjects (class_id, subject_id, class_name, subject_name)
+                     VALUES (?, ?, ?, ?)
+                     ON CONFLICT(class_name, subject_name) DO UPDATE SET
+                        class_id = excluded.class_id,
+                        subject_id = excluded.subject_id`,
+                    [cls.id, subId, cls.name, subName]
+                );
+            }
+        }
+
+        console.log('🎉 [Database Normalization Complete] SQLite WAL ready, class_subjects mappings & normalized schema synchronized successfully.');
     } catch (err) {
         console.error('⚠️ [Normalization Sync Notice]:', err.message);
     }
@@ -544,3 +591,4 @@ async function runAutoNormalization() {
 initDatabase();
 
 module.exports = db;
+

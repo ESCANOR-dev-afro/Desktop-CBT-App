@@ -150,9 +150,75 @@ async function isExamActive(studentClass, subject) {
     }
 }
 
+/**
+ * Resolves configured exam duration, assessment mode, delivery question count,
+ * and shuffling flags for a specific class and subject combination.
+ */
+async function resolveExamConfig(studentClass, subject) {
+    try {
+        let sql = `
+            SELECT duration_minutes, is_active, assessment_mode, delivery_count, shuffle_questions, shuffle_options
+            FROM exam_configs
+            WHERE LOWER(subject) = LOWER(?)
+        `;
+        const params = [subject.trim()];
+        if (studentClass) {
+            const baseTier = studentClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
+            sql += ` AND (LOWER(class) = LOWER(?) OR LOWER(class) = LOWER(?) OR class IS NULL)`;
+            params.push(studentClass.trim(), baseTier);
+        }
+        sql += ` ORDER BY class DESC LIMIT 1`;
+
+        const row = await dbGet(sql, params);
+        if (row) {
+            const mode = (row.assessment_mode && ['TEST', 'EXAM', 'CUSTOM'].includes(String(row.assessment_mode).toUpperCase()))
+                ? String(row.assessment_mode).toUpperCase()
+                : 'TEST';
+            
+            let count = parseInt(row.delivery_count, 10);
+            if (isNaN(count) || count <= 0) {
+                count = mode === 'EXAM' ? 50 : 30;
+            }
+
+            return {
+                duration_minutes: row.duration_minutes || 45,
+                is_active: row.is_active !== undefined ? row.is_active === 1 : true,
+                assessment_mode: mode,
+                delivery_count: count,
+                shuffle_questions: row.shuffle_questions !== undefined ? row.shuffle_questions !== 0 : true,
+                shuffle_options: row.shuffle_options !== undefined ? row.shuffle_options !== 0 : true
+            };
+        }
+    } catch (err) {
+        console.warn('Notice resolving exam config:', err.message);
+    }
+
+    return {
+        duration_minutes: 45,
+        is_active: true,
+        assessment_mode: 'TEST',
+        delivery_count: 30,
+        shuffle_questions: true,
+        shuffle_options: true
+    };
+}
+
+async function getExamDurationMinutes(studentClass, subject) {
+    const cfg = await resolveExamConfig(studentClass, subject);
+    return cfg.duration_minutes;
+}
+
+/**
+ * Checks whether an exam paper is active for a class and subject scope.
+ */
+async function isExamActive(studentClass, subject) {
+    const cfg = await resolveExamConfig(studentClass, subject);
+    return cfg.is_active;
+}
+
 // --------------------------------------------------------------------------
 // 1. GET /api/exam/questions/:subject
-// Fetch randomized test paper tailored per student session with persistence
+// Fetch randomized test paper tailored per student session with persistence & pool sampling
 // --------------------------------------------------------------------------
 router.get('/questions/:subject', async (req, res, next) => {
     try {
@@ -170,7 +236,7 @@ router.get('/questions/:subject', async (req, res, next) => {
 
         const normalizedSubject = subject.trim();
 
-        // 3. Look up student class dynamically if student_id is provided
+        // Look up student class dynamically if student_id is provided
         let targetClass = classScope;
         if (!targetClass && studentId) {
             const studentRec = await dbGet(`SELECT class FROM students WHERE id = ?`, [studentId]);
@@ -179,9 +245,10 @@ router.get('/questions/:subject', async (req, res, next) => {
             }
         }
 
+        const examConfig = await resolveExamConfig(targetClass, normalizedSubject);
+
         // Check if subject is active for this class scope
-        const active = await isExamActive(targetClass, normalizedSubject);
-        if (!active) {
+        if (!examConfig.is_active) {
             return res.status(403).json({
                 success: false,
                 message: `The examination paper for "${normalizedSubject}" is currently inactive / disabled by administrator.`,
@@ -193,19 +260,18 @@ router.get('/questions/:subject', async (req, res, next) => {
         let activeSession = null;
         if (sessionIdParam) {
             activeSession = await dbGet(
-                `SELECT id, student_id, question_order, status, is_locked, duration_minutes FROM exam_sessions WHERE id = ? AND status = 'active' AND is_locked = 0`,
+                `SELECT id, student_id, question_order, option_mapping, status, is_locked, duration_minutes FROM exam_sessions WHERE id = ? AND status = 'active' AND is_locked = 0`,
                 [sessionIdParam]
             );
         } else if (studentId) {
             activeSession = await dbGet(
-                `SELECT id, student_id, question_order, status, is_locked, duration_minutes FROM exam_sessions 
+                `SELECT id, student_id, question_order, option_mapping, status, is_locked, duration_minutes FROM exam_sessions 
                  WHERE student_id = ? AND LOWER(subject) = LOWER(?) AND status = 'active' AND is_locked = 0
                  ORDER BY id DESC LIMIT 1`,
                 [studentId, normalizedSubject]
             );
         }
 
-        // 3. Look up student class dynamically if student_id is provided
         const targetStudentId = studentId || (activeSession ? activeSession.student_id : null);
         if (!targetClass && targetStudentId) {
             const studentRec = await dbGet(`SELECT class FROM students WHERE id = ?`, [targetStudentId]);
@@ -214,25 +280,42 @@ router.get('/questions/:subject', async (req, res, next) => {
             }
         }
 
-        const durationMinutes = activeSession?.duration_minutes || (await getExamDurationMinutes(targetClass, normalizedSubject));
+        const durationMinutes = activeSession?.duration_minutes || examConfig.duration_minutes;
 
         // 2. If active session has a persisted question_order, fetch and preserve that exact order
         if (activeSession && activeSession.question_order) {
             try {
                 const questionIds = JSON.parse(activeSession.question_order);
+                let optionMap = {};
+                if (activeSession.option_mapping) {
+                    try { optionMap = JSON.parse(activeSession.option_mapping); } catch (_) {}
+                }
+
                 if (Array.isArray(questionIds) && questionIds.length > 0) {
                     const placeholders = questionIds.map(() => '?').join(',');
                     const fetchSql = `
-                        SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, marks, diagram_image_url
+                        SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url
                         FROM questions
                         WHERE id IN (${placeholders})
                     `;
                     const rows = await dbAll(fetchSql, questionIds);
-
-                    // Re-sort fetched rows to match exact saved question_order sequence
                     const rowMap = new Map(rows.map(q => [q.id, q]));
+
                     const orderedQuestions = questionIds
-                        .map(id => rowMap.get(id))
+                        .map(id => {
+                            const q = rowMap.get(id);
+                            if (!q) return null;
+                            const copy = { ...q };
+                            const qIdStr = String(q.id);
+                            if (optionMap[qIdStr] && Array.isArray(optionMap[qIdStr].shuffledOptions)) {
+                                const opts = optionMap[qIdStr].shuffledOptions;
+                                copy.option_a = opts[0] || copy.option_a;
+                                copy.option_b = opts[1] || copy.option_b;
+                                copy.option_c = opts[2] || copy.option_c;
+                                copy.option_d = opts[3] || copy.option_d;
+                            }
+                            return copy;
+                        })
                         .filter(Boolean);
 
                     if (orderedQuestions.length > 0) {
@@ -242,6 +325,8 @@ router.get('/questions/:subject', async (req, res, next) => {
                             session_id: activeSession.id,
                             student_id: activeSession.student_id,
                             is_persisted: true,
+                            assessment_mode: examConfig.assessment_mode,
+                            delivery_count: examConfig.delivery_count,
                             duration_minutes: durationMinutes,
                             duration_seconds: durationMinutes * 60,
                             count: orderedQuestions.length,
@@ -254,9 +339,9 @@ router.get('/questions/:subject', async (req, res, next) => {
             }
         }
 
-        // 4. Query eligible question pool matching subject and class
+        // 3. Query eligible question pool matching subject and class
         let fetchQuestionsSql = `
-            SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, marks, diagram_image_url
+            SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url
             FROM questions
             WHERE LOWER(subject) = LOWER(?)
         `;
@@ -272,7 +357,7 @@ router.get('/questions/:subject', async (req, res, next) => {
         // Fallback if class filter yielded no questions: load general subject question pool
         if (rawQuestions.length === 0 && targetClass) {
             rawQuestions = await dbAll(
-                `SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, marks, diagram_image_url FROM questions WHERE LOWER(subject) = LOWER(?)`,
+                `SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url FROM questions WHERE LOWER(subject) = LOWER(?)`,
                 [normalizedSubject]
             );
         }
@@ -281,6 +366,8 @@ router.get('/questions/:subject', async (req, res, next) => {
             return res.status(200).json({
                 success: true,
                 subject: normalizedSubject.toLowerCase(),
+                assessment_mode: examConfig.assessment_mode,
+                delivery_count: examConfig.delivery_count,
                 duration_minutes: durationMinutes,
                 duration_seconds: durationMinutes * 60,
                 count: 0,
@@ -288,15 +375,45 @@ router.get('/questions/:subject', async (req, res, next) => {
             });
         }
 
-        // 5. Perform Fisher-Yates shuffle algorithm and sub-sample top 50 questions
-        const shuffledQuestions = fisherYatesShuffle(rawQuestions).slice(0, 50);
-        const shuffledIds = shuffledQuestions.map(q => q.id);
+        // 4. Question Shuffling & Pool Sampling (N = 30 for TEST, 50 for EXAM, or Custom N)
+        let sampledQuestions = examConfig.shuffle_questions ? fisherYatesShuffle(rawQuestions) : [...rawQuestions];
+        const targetN = Math.min(examConfig.delivery_count, sampledQuestions.length);
+        sampledQuestions = sampledQuestions.slice(0, targetN);
 
-        // 6. Securely persist shuffled question order to active student session
+        // 5. Option Shuffling per Question & Option Key Mapping
+        const optionMappingObj = {};
+
+        sampledQuestions.forEach(q => {
+            const rawOpts = [
+                { key: 'A', text: q.option_a },
+                { key: 'B', text: q.option_b },
+                { key: 'C', text: q.option_c },
+                { key: 'D', text: q.option_d }
+            ];
+
+            const shuffledOpts = examConfig.shuffle_options ? fisherYatesShuffle(rawOpts) : rawOpts;
+            q.option_a = shuffledOpts[0].text;
+            q.option_b = shuffledOpts[1].text;
+            q.option_c = shuffledOpts[2].text;
+            q.option_d = shuffledOpts[3].text;
+
+            // Determine which shuffled position holds the original correct answer
+            const correctIdx = shuffledOpts.findIndex(o => o.key.toUpperCase() === String(q.correct_answer).toUpperCase());
+            const newCorrectKey = ['A', 'B', 'C', 'D'][correctIdx >= 0 ? correctIdx : 0];
+
+            optionMappingObj[String(q.id)] = {
+                shuffledOptions: [q.option_a, q.option_b, q.option_c, q.option_d],
+                correctKey: newCorrectKey
+            };
+        });
+
+        const shuffledIds = sampledQuestions.map(q => q.id);
+
+        // 6. Securely persist sampled question order & option mapping to active student session
         if (activeSession) {
             await dbRun(
-                `UPDATE exam_sessions SET question_order = ?, duration_minutes = ? WHERE id = ?`,
-                [JSON.stringify(shuffledIds), durationMinutes, activeSession.id]
+                `UPDATE exam_sessions SET question_order = ?, option_mapping = ?, duration_minutes = ? WHERE id = ?`,
+                [JSON.stringify(shuffledIds), JSON.stringify(optionMappingObj), durationMinutes, activeSession.id]
             );
         }
 
@@ -305,10 +422,12 @@ router.get('/questions/:subject', async (req, res, next) => {
             subject: normalizedSubject.toLowerCase(),
             session_id: activeSession ? activeSession.id : null,
             is_persisted: Boolean(activeSession),
+            assessment_mode: examConfig.assessment_mode,
+            delivery_count: targetN,
             duration_minutes: durationMinutes,
             duration_seconds: durationMinutes * 60,
-            count: shuffledQuestions.length,
-            questions: shuffledQuestions
+            count: sampledQuestions.length,
+            questions: sampledQuestions
         });
 
     } catch (error) {
@@ -406,12 +525,12 @@ router.post('/heartbeat', async (req, res, next) => {
 });
 
 // --------------------------------------------------------------------------
-// 3. POST /api/exam/submit
-// Final submission, automatic grading, and session locking
+// 3. POST /api/exam/submit & POST /api/student/exam/submit
+// Final submission, automatic grading with option_mapping evaluation, and session locking
 // --------------------------------------------------------------------------
-router.post('/submit', async (req, res, next) => {
+const handleExamSubmit = async (req, res, next) => {
     try {
-        const { student_id, session_id } = req.body;
+        const { student_id, session_id, user_answers } = req.body;
 
         if (!student_id || !session_id) {
             return res.status(400).json({
@@ -420,13 +539,20 @@ router.post('/submit', async (req, res, next) => {
             });
         }
 
-        // Fetch target exam session
+        // Fetch target exam session & option_mapping
         const sessionSql = `
-            SELECT id, status, is_locked 
+            SELECT id, status, is_locked, option_mapping
             FROM exam_sessions 
             WHERE id = ? AND student_id = ?
         `;
-        const session = await dbGet(sessionSql, [session_id, student_id]);
+        let session = await dbGet(sessionSql, [session_id, student_id]);
+
+        if (!session) {
+            const sesBackup = await dbGet(`SELECT session_id as id, status FROM student_exam_sessions WHERE session_id = ? AND student_id = ?`, [session_id, student_id]);
+            if (sesBackup) {
+                session = { id: sesBackup.session_id, status: sesBackup.status === 'SUBMITTED' ? 'submitted' : 'active', is_locked: sesBackup.status === 'SUBMITTED' ? 1 : 0 };
+            }
+        }
 
         if (!session) {
             return res.status(404).json({
@@ -442,9 +568,30 @@ router.post('/submit', async (req, res, next) => {
             });
         }
 
-        // Step a & b: Fetch student's answers & join with correct answers for auto-grading
+        let optionMap = {};
+        if (session.option_mapping) {
+            try { optionMap = JSON.parse(session.option_mapping); } catch (_) {}
+        }
+
+        // Save any submitted answers to answers table
+        if (user_answers && typeof user_answers === 'object') {
+            for (const [qId, optKey] of Object.entries(user_answers)) {
+                if (optKey) {
+                    await dbRun(
+                        `INSERT INTO answers (student_id, question_id, selected_option, session_id, updated_at)
+                         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                         ON CONFLICT(student_id, question_id) DO UPDATE SET
+                         selected_option = excluded.selected_option,
+                         updated_at = CURRENT_TIMESTAMP`,
+                        [student_id, parseInt(qId), String(optKey).trim().toUpperCase(), session_id]
+                    );
+                }
+            }
+        }
+
+        // Fetch student's answers & join with questions for auto-grading
         const gradingSql = `
-            SELECT a.selected_option, q.correct_answer 
+            SELECT a.question_id, a.selected_option, q.correct_answer 
             FROM answers a 
             JOIN questions q ON a.question_id = q.id 
             WHERE a.student_id = ?
@@ -453,13 +600,23 @@ router.post('/submit', async (req, res, next) => {
 
         let calculatedScore = 0;
         studentAnswers.forEach(record => {
-            if (record.selected_option && record.correct_answer && 
-                record.selected_option.trim().toUpperCase() === record.correct_answer.trim().toUpperCase()) {
+            const qIdStr = String(record.question_id);
+            const expectedKey = (optionMap[qIdStr] && optionMap[qIdStr].correctKey)
+                ? optionMap[qIdStr].correctKey
+                : record.correct_answer;
+
+            if (record.selected_option && expectedKey && 
+                record.selected_option.trim().toUpperCase() === expectedKey.trim().toUpperCase()) {
                 calculatedScore += 1;
             }
         });
 
-        // Step c: Update session status = 'submitted', is_locked = 1, and save score in DB
+        // Update session status = 'SUBMITTED' in both tables
+        await dbRun(
+            `UPDATE student_exam_sessions SET status = 'SUBMITTED', score = ?, selected_answers_json = ? WHERE session_id = ? AND student_id = ?`,
+            [calculatedScore, JSON.stringify(user_answers || {}), session_id, student_id]
+        );
+
         const lockSessionSql = `
             UPDATE exam_sessions 
             SET status = 'submitted', is_locked = 1, score = ? 
@@ -469,25 +626,155 @@ router.post('/submit', async (req, res, next) => {
 
         console.log(`🏁 [Exam Submitted] Student ID ${student_id} (Session #${session_id}) completed exam. Score recorded: ${calculatedScore}`);
 
-        // Step d: Return submission confirmation without exposing score to student client
         return res.status(200).json({
             success: true,
-            message: "Exam submitted successfully."
+            message: "Exam submitted successfully.",
+            score: calculatedScore
         });
 
     } catch (error) {
         console.error('❌ [Exam Submit Error]:', error);
         next(error);
     }
+};
+
+router.post('/submit', handleExamSubmit);
+router.post('/student/exam/submit', handleExamSubmit);
+
+// --------------------------------------------------------------------------
+// 4. GET /api/student/active-session
+// Returns active unexpired exam session for auto-resume upon login / refresh
+// --------------------------------------------------------------------------
+router.get('/student/active-session', async (req, res, next) => {
+    try {
+        const studentId = req.query.student_id || req.query.studentId;
+        const regNo = req.query.registration_no || req.query.reg_number;
+
+        if (!studentId && !regNo) {
+            return res.status(400).json({ success: false, message: "student_id or registration_no required." });
+        }
+
+        let student;
+        if (studentId) {
+            student = await dbGet(`SELECT * FROM students WHERE id = ?`, [studentId]);
+        } else {
+            student = await dbGet(`SELECT * FROM students WHERE LOWER(registration_no) = LOWER(?) OR LOWER(reg_number) = LOWER(?)`, [regNo.trim(), regNo.trim()]);
+        }
+
+        if (!student) {
+            return res.status(404).json({ success: false, message: "Student not found." });
+        }
+
+        const activeSes = await dbGet(
+            `SELECT * FROM student_exam_sessions WHERE student_id = ? AND status = 'IN_PROGRESS' ORDER BY session_id DESC LIMIT 1`,
+            [student.id]
+        );
+
+        if (!activeSes) {
+            return res.status(200).json({ success: true, has_active_session: false });
+        }
+
+        const now = new Date();
+        const expiresAt = new Date(activeSes.expires_at || (new Date(activeSes.started_at).getTime() + (activeSes.duration_minutes || 45) * 60 * 1000));
+
+        if (expiresAt.getTime() <= now.getTime()) {
+            await dbRun(`UPDATE student_exam_sessions SET status = 'EXPIRED' WHERE session_id = ?`, [activeSes.session_id]);
+            return res.status(200).json({ success: true, has_active_session: false });
+        }
+
+        const remainingSeconds = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
+        let deliveredQuestions = [];
+        try { deliveredQuestions = JSON.parse(activeSes.delivered_questions_json || '[]'); } catch (_) {}
+
+        let selectedAnswers = {};
+        try { selectedAnswers = JSON.parse(activeSes.selected_answers_json || '{}'); } catch (_) {}
+
+        return res.status(200).json({
+            success: true,
+            has_active_session: true,
+            active_session: {
+                session_id: activeSes.session_id,
+                student_id: student.id,
+                subject: activeSes.subject_name,
+                class: activeSes.class_name || student.class,
+                started_at: activeSes.started_at,
+                expires_at: activeSes.expires_at,
+                duration_minutes: activeSes.duration_minutes || 45,
+                duration_seconds: remainingSeconds,
+                delivered_questions: deliveredQuestions,
+                selected_answers: selectedAnswers
+            }
+        });
+    } catch (error) {
+        console.error('❌ [Active Session Check Error]:', error);
+        next(error);
+    }
 });
 
 // --------------------------------------------------------------------------
-// 4. POST /api/exam/start-session
-// Initializes or resumes an active exam session for a specific subject paper
+// 5. POST /api/student/exam/save-progress
+// Real-time debounced answer saving for crash recovery & power loss protection
 // --------------------------------------------------------------------------
-router.post('/start-session', async (req, res, next) => {
+router.post('/student/exam/save-progress', async (req, res, next) => {
     try {
-        const { student_id, subject, workstation_ip } = req.body;
+        const { session_id, student_id, selected_answers, question_id, selected_option } = req.body;
+
+        if (!session_id || !student_id) {
+            return res.status(400).json({ success: false, message: "session_id and student_id are required." });
+        }
+
+        const activeSes = await dbGet(
+            `SELECT * FROM student_exam_sessions WHERE session_id = ? AND student_id = ?`,
+            [session_id, student_id]
+        );
+
+        if (!activeSes) {
+            return res.status(404).json({ success: false, message: "Active exam session not found." });
+        }
+
+        if (activeSes.status === 'SUBMITTED') {
+            return res.status(403).json({ success: false, message: "Exam session has already been submitted." });
+        }
+
+        let updatedAnswers = {};
+        try { updatedAnswers = JSON.parse(activeSes.selected_answers_json || '{}'); } catch (_) {}
+
+        if (selected_answers && typeof selected_answers === 'object') {
+            Object.assign(updatedAnswers, selected_answers);
+        } else if (question_id && selected_option) {
+            updatedAnswers[String(question_id)] = String(selected_option).trim().toUpperCase();
+        }
+
+        await dbRun(
+            `UPDATE student_exam_sessions SET selected_answers_json = ? WHERE session_id = ?`,
+            [JSON.stringify(updatedAnswers), session_id]
+        );
+
+        if (question_id && selected_option) {
+            await dbRun(
+                `INSERT INTO answers (student_id, question_id, selected_option, session_id, updated_at)
+                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                 ON CONFLICT(student_id, question_id) DO UPDATE SET
+                 selected_option = excluded.selected_option,
+                 updated_at = CURRENT_TIMESTAMP`,
+                [student_id, parseInt(question_id), String(selected_option).trim().toUpperCase(), session_id]
+            );
+        }
+
+        return res.status(200).json({ success: true, timestamp: new Date().toISOString() });
+    } catch (error) {
+        console.error('❌ [Save Progress Error]:', error);
+        next(error);
+    }
+});
+
+// --------------------------------------------------------------------------
+// 6. POST /api/student/exam/start & POST /api/exam/start-session
+// Initializes or resumes an active exam session with pool sampling
+// --------------------------------------------------------------------------
+const handleStartExamSession = async (req, res, next) => {
+    try {
+        const { student_id, subject, class: reqClass, workstation_ip } = req.body;
 
         if (!student_id || !subject) {
             return res.status(400).json({
@@ -499,23 +786,24 @@ router.post('/start-session', async (req, res, next) => {
         const clientIp = workstation_ip || req.ip || '127.0.0.1';
         const normalizedSubject = String(subject).trim();
 
-        // Look up student class to resolve duration, active status & question pool
-        const studentRec = await dbGet(`SELECT class FROM students WHERE id = ?`, [student_id]);
-        const studentClass = studentRec ? studentRec.class : null;
+        // Look up student record
+        const studentRec = await dbGet(`SELECT id, class FROM students WHERE id = ?`, [student_id]);
+        const studentClass = reqClass || (studentRec ? studentRec.class : null);
+
+        const examConfig = await resolveExamConfig(studentClass, normalizedSubject);
 
         // Check if subject is active for this class scope
-        const active = await isExamActive(studentClass, normalizedSubject);
-        if (!active) {
+        if (!examConfig.is_active) {
             return res.status(403).json({
                 success: false,
-                message: `The examination paper for "${normalizedSubject}" is currently inactive / disabled by administrator.`
+                message: "This subject examination is currently inactive for your class."
             });
         }
 
         // Check if student already submitted this specific subject
         const checkSubmittedSql = `
-            SELECT id FROM exam_sessions 
-            WHERE student_id = ? AND LOWER(subject) = LOWER(?) AND status = 'submitted'
+            SELECT session_id FROM student_exam_sessions 
+            WHERE student_id = ? AND LOWER(subject_name) = LOWER(?) AND status = 'SUBMITTED'
         `;
         const alreadySubmitted = await dbGet(checkSubmittedSql, [student_id, normalizedSubject]);
 
@@ -526,78 +814,146 @@ router.post('/start-session', async (req, res, next) => {
             });
         }
 
-        // Check if active session exists for this subject
-        const checkActiveSql = `
-            SELECT id, question_order FROM exam_sessions 
-            WHERE student_id = ? AND LOWER(subject) = LOWER(?) AND status = 'active' AND is_locked = 0
-            ORDER BY id DESC LIMIT 1
+        // Check for an ongoing active unexpired session in student_exam_sessions
+        const checkActiveSesSql = `
+            SELECT * FROM student_exam_sessions 
+            WHERE student_id = ? AND LOWER(subject_name) = LOWER(?) AND status = 'IN_PROGRESS'
+            ORDER BY session_id DESC LIMIT 1
         `;
-        const activeSession = await dbGet(checkActiveSql, [student_id, normalizedSubject]);
+        const activeSes = await dbGet(checkActiveSesSql, [student_id, normalizedSubject]);
 
-        const durationMinutes = await getExamDurationMinutes(studentClass, normalizedSubject);
+        const now = new Date();
+        const durationMinutes = examConfig.duration_minutes || 45;
 
-        let sessionId;
-        let questionOrder = null;
+        if (activeSes) {
+            const expiresAt = new Date(activeSes.expires_at || (new Date(activeSes.started_at).getTime() + durationMinutes * 60 * 1000));
 
-        if (activeSession) {
-            sessionId = activeSession.id;
-            questionOrder = activeSession.question_order;
-            await dbRun(
-                `UPDATE exam_sessions SET workstation_ip = ?, login_time = CURRENT_TIMESTAMP, duration_minutes = ? WHERE id = ?`,
-                [clientIp, durationMinutes, sessionId]
-            );
-        } else {
-            const insertResult = await dbRun(
-                `INSERT INTO exam_sessions (student_id, workstation_ip, login_time, status, is_locked, subject, duration_minutes) VALUES (?, ?, CURRENT_TIMESTAMP, 'active', 0, ?, ?)`,
-                [student_id, clientIp, normalizedSubject, durationMinutes]
-            );
-            sessionId = insertResult.lastID;
-        }
-
-        // If question_order is not yet stored, generate shuffled question order and store it
-        if (!questionOrder) {
-            let querySql = `SELECT id FROM questions WHERE LOWER(subject) = LOWER(?)`;
-            const queryParams = [normalizedSubject];
-
-            if (studentClass) {
-                const baseTier = studentClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
-                querySql += ` AND (class IS NULL OR TRIM(class) = '' OR LOWER(class) = LOWER(?) OR LOWER(class) = LOWER(?))`;
-                queryParams.push(studentClass, baseTier);
+            // Check if expired
+            if (expiresAt.getTime() <= now.getTime()) {
+                await dbRun(`UPDATE student_exam_sessions SET status = 'EXPIRED' WHERE session_id = ?`, [activeSes.session_id]);
+                return res.status(403).json({
+                    success: false,
+                    message: `Your examination session for ${normalizedSubject} has expired.`
+                });
             }
 
-            let rawQuestions = await dbAll(querySql, queryParams);
+            const remainingSeconds = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
+            let deliveredQuestions = [];
+            try { deliveredQuestions = JSON.parse(activeSes.delivered_questions_json || '[]'); } catch (_) {}
 
-            if (rawQuestions.length === 0 && studentClass) {
-                rawQuestions = await dbAll(
-                    `SELECT id FROM questions WHERE LOWER(subject) = LOWER(?)`,
-                    [normalizedSubject]
-                );
-            }
+            let selectedAnswers = {};
+            try { selectedAnswers = JSON.parse(activeSes.selected_answers_json || '{}'); } catch (_) {}
 
-            if (rawQuestions.length > 0) {
-                const shuffled = fisherYatesShuffle(rawQuestions).slice(0, 50);
-                const shuffledIds = shuffled.map(q => q.id);
-                questionOrder = JSON.stringify(shuffledIds);
-                await dbRun(
-                    `UPDATE exam_sessions SET question_order = ?, duration_minutes = ? WHERE id = ?`,
-                    [questionOrder, durationMinutes, sessionId]
-                );
+            if (deliveredQuestions.length > 0) {
+                return res.status(200).json({
+                    success: true,
+                    is_resumed: true,
+                    session_id: activeSes.session_id,
+                    subject: normalizedSubject,
+                    class: studentClass,
+                    assessment_mode: examConfig.assessment_mode,
+                    delivery_count: deliveredQuestions.length,
+                    duration_minutes: durationMinutes,
+                    duration_seconds: remainingSeconds,
+                    questions: deliveredQuestions,
+                    question_order: deliveredQuestions.map(q => q.id),
+                    selected_answers: selectedAnswers
+                });
             }
         }
+
+        // If no active session, sample questions
+        let querySql = `SELECT id, question_text, option_a, option_b, option_c, option_d, correct_answer, diagram_image_url FROM questions WHERE LOWER(subject) = LOWER(?)`;
+        const queryParams = [normalizedSubject];
+
+        if (studentClass) {
+            const baseTier = studentClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
+            querySql += ` AND (class IS NULL OR TRIM(class) = '' OR LOWER(class) = LOWER(?) OR LOWER(class) = LOWER(?))`;
+            queryParams.push(studentClass, baseTier);
+        }
+
+        let rawQuestions = await dbAll(querySql, queryParams);
+        if (rawQuestions.length === 0 && studentClass) {
+            rawQuestions = await dbAll(
+                `SELECT id, question_text, option_a, option_b, option_c, option_d, correct_answer, diagram_image_url FROM questions WHERE LOWER(subject) = LOWER(?)`,
+                [normalizedSubject]
+            );
+        }
+
+        let sampled = examConfig.shuffle_questions ? fisherYatesShuffle(rawQuestions) : [...rawQuestions];
+        const targetN = Math.min(examConfig.delivery_count, sampled.length);
+        sampled = sampled.slice(0, targetN);
+
+        const optionMappingObj = {};
+        const deliveredQuestions = sampled.map(q => {
+            const rawOpts = [
+                { key: 'A', text: q.option_a },
+                { key: 'B', text: q.option_b },
+                { key: 'C', text: q.option_c },
+                { key: 'D', text: q.option_d }
+            ];
+
+            const shuffledOpts = examConfig.shuffle_options ? fisherYatesShuffle(rawOpts) : rawOpts;
+            const correctIdx = shuffledOpts.findIndex(o => o.key.toUpperCase() === String(q.correct_answer).toUpperCase());
+            const newCorrectKey = ['A', 'B', 'C', 'D'][correctIdx >= 0 ? correctIdx : 0];
+
+            optionMappingObj[String(q.id)] = {
+                shuffledOptions: [shuffledOpts[0].text, shuffledOpts[1].text, shuffledOpts[2].text, shuffledOpts[3].text],
+                correctKey: newCorrectKey
+            };
+
+            return {
+                id: q.id,
+                question_text: q.question_text,
+                option_a: shuffledOpts[0].text,
+                option_b: shuffledOpts[1].text,
+                option_c: shuffledOpts[2].text,
+                option_d: shuffledOpts[3].text,
+                diagram_filename: q.diagram_image_url || null,
+                diagram_url: q.diagram_image_url || null
+            };
+        });
+
+        const startedAtStr = now.toISOString();
+        const expiresAt = new Date(now.getTime() + durationMinutes * 60 * 1000);
+        const expiresAtStr = expiresAt.toISOString();
+
+        const insertSes = await dbRun(
+            `INSERT INTO student_exam_sessions (student_id, subject_name, class_name, status, started_at, expires_at, duration_minutes, delivered_questions_json, selected_answers_json, workstation_ip) VALUES (?, ?, ?, 'IN_PROGRESS', ?, ?, ?, ?, '{}', ?)`,
+            [student_id, normalizedSubject, studentClass, startedAtStr, expiresAtStr, durationMinutes, JSON.stringify(deliveredQuestions), clientIp]
+        );
+        const newSessionId = insertSes.lastID;
+
+        // Also insert into legacy exam_sessions for backward compatibility
+        await dbRun(
+            `INSERT INTO exam_sessions (student_id, workstation_ip, login_time, status, is_locked, subject, duration_minutes, question_order, option_mapping) VALUES (?, ?, ?, 'active', 0, ?, ?, ?, ?)`,
+            [student_id, clientIp, startedAtStr, normalizedSubject, durationMinutes, JSON.stringify(deliveredQuestions.map(q => q.id)), JSON.stringify(optionMappingObj)]
+        );
 
         return res.status(200).json({
             success: true,
-            session_id: sessionId,
+            is_resumed: false,
+            session_id: newSessionId,
             subject: normalizedSubject,
+            class: studentClass,
+            assessment_mode: examConfig.assessment_mode,
+            delivery_count: deliveredQuestions.length,
             duration_minutes: durationMinutes,
             duration_seconds: durationMinutes * 60,
-            question_order: questionOrder ? JSON.parse(questionOrder) : []
+            questions: deliveredQuestions,
+            question_order: deliveredQuestions.map(q => q.id),
+            selected_answers: {}
         });
 
     } catch (error) {
         console.error('❌ [Start Session Error]:', error);
         next(error);
     }
-});
+};
+
+router.post('/start-session', handleStartExamSession);
+router.post('/student/exam/start', handleStartExamSession);
 
 module.exports = router;
+module.exports.handleStartExamSession = handleStartExamSession;
+

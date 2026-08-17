@@ -48,7 +48,7 @@ export default function AddSubjectModal({
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-100">Add New Subject</h3>
-              <p className="text-xs text-slate-400">Anthony White Bridge Academy • Subject Isolation Engine</p>
+              <p className="text-xs text-slate-400">Anthony Whitebridge Academy • Subject Isolation Engine</p>
             </div>
           </div>
           <button
@@ -78,10 +78,10 @@ export default function AddSubjectModal({
               <select
                 value={targetClass}
                 onChange={(e) => setTargetClass(e.target.value)}
-                className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-semibold"
+                className="w-full bg-slate-950 border border-darkBorder text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-semibold shadow-sm"
               >
                 {classesList.map((cls) => (
-                  <option key={cls} value={cls}>
+                  <option key={cls} value={cls} className="bg-slate-900 text-slate-100 py-1 font-medium">
                     {cls} Class Workspace
                   </option>
                 ))}

@@ -17,12 +17,15 @@ import {
 
 export default function QuestionBankTab({
   currentClass,
-  subjectsByClass,
-  questionsData,
-  onAddQuestion,
-  onShowToast,
+  subjectsByClass = {},
+  questionsData = {},
+  onAddQuestion = () => {},
+  onShowToast = () => {},
 }) {
-  const availableSubjects = subjectsByClass[currentClass] || [];
+  const safeSubjectsByClass = subjectsByClass || {};
+  const safeQuestionsData = questionsData || {};
+
+  const availableSubjects = safeSubjectsByClass[currentClass] || [];
   const [selectedSubject, setSelectedSubject] = useState(
     availableSubjects[0]?.name || ''
   );
@@ -31,15 +34,27 @@ export default function QuestionBankTab({
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedQuestionId, setExpandedQuestionId] = useState(null);
 
-  // Get questions for current class and selected subject
+  const formatOptDisplay = (opt) => {
+    if (opt === null || opt === undefined) return '';
+    if (typeof opt === 'string') return opt;
+    if (typeof opt === 'number') return String(opt);
+    if (typeof opt === 'object') {
+      const key = opt.option_key || opt.key || opt.label || '';
+      const text = opt.option_text || opt.text || opt.value || '';
+      return key ? `${key}) ${text}` : text;
+    }
+    return String(opt);
+  };
+
+  // Get questions for current class and selected subject safely
   const currentSubjectQuestions =
-    questionsData[currentClass]?.[selectedSubject] || [];
+    (safeQuestionsData[currentClass] && safeQuestionsData[currentClass][selectedSubject]) || [];
 
   const filteredQuestions = currentSubjectQuestions.filter((q) =>
-    q.stem.toLowerCase().includes(searchQuery.toLowerCase())
+    (q && (q.stem || q.question_text || '')).toLowerCase().includes((searchQuery || '').toLowerCase())
   );
 
-  const handleSimulatedDocxUpload = (fileName = 'Physics_Mock_Exam_Paper.docx') => {
+  const handleSimulatedDocxUpload = (fileName = 'Physics_Terminal_Exam_Paper.docx') => {
     setUploading(true);
     setTimeout(() => {
       setUploading(false);
@@ -103,25 +118,25 @@ export default function QuestionBankTab({
             <select
               value={selectedSubject}
               onChange={(e) => setSelectedSubject(e.target.value)}
-              className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-bold"
+              className="w-full bg-slate-950 border border-darkBorder text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-bold shadow-sm"
             >
               {availableSubjects.map((sub) => (
-                <option key={sub.id} value={sub.name}>
+                <option key={sub.id || sub.name} value={sub.name} className="bg-slate-900 text-slate-100 py-1 font-medium">
                   {sub.name}
                 </option>
               ))}
             </select>
           </div>
 
-          <div className="pt-2 border-t border-darkBorder flex items-center justify-between text-xs text-slate-400">
-            <span>Questions Count:</span>
+          <div className="pt-3 border-t border-darkBorder flex items-center justify-between text-xs text-slate-400">
+            <span>Questions in Bank:</span>
             <span className="font-bold text-slate-100 bg-brand/10 px-2.5 py-0.5 rounded-full border border-brand/20 text-brand">
-              {currentSubjectQuestions.length} Questions
+              {currentSubjectQuestions.length} Items
             </span>
           </div>
         </div>
 
-        {/* Modern Docx File Uploader Dropzone */}
+        {/* Question Paper & Answer Key Document Dropzone */}
         <div
           onDragOver={(e) => {
             e.preventDefault();
@@ -131,8 +146,7 @@ export default function QuestionBankTab({
           onDrop={(e) => {
             e.preventDefault();
             setIsDragging(false);
-            const file = e.dataTransfer.files[0];
-            if (file) handleSimulatedDocxUpload(file.name);
+            handleSimulatedDocxUpload('Dropped_Exam_Paper.docx');
           }}
           className={`lg:col-span-2 border-2 border-dashed rounded-2xl p-6 transition-all flex flex-col items-center justify-center text-center ${
             isDragging
@@ -144,59 +158,51 @@ export default function QuestionBankTab({
             <UploadCloud className="w-8 h-8" />
           </div>
           <h4 className="text-sm font-bold text-slate-100 mb-1">
-            Drag & Drop MS Word (.docx) Question Paper
+            Upload Question Document (.docx / .xlsx)
           </h4>
           <p className="text-xs text-slate-400 max-w-md mb-4 leading-relaxed">
-            Our automated CBT parser will parse stems, options A-D, answer keys, and images from your MS Word document and map them strictly to <strong className="text-brand">{selectedSubject || currentClass}</strong>.
+            Drag & drop MS Word or Excel question papers. Automated parser extracts stems, options A-D, and answer keys isolated to <strong className="text-brand">{currentClass} - {selectedSubject || 'All Subjects'}</strong>.
           </p>
 
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <button
-              onClick={() => handleSimulatedDocxUpload()}
-              disabled={uploading}
-              className="px-4 py-2.5 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-md shadow-brand/20 flex items-center space-x-2 brand-glow-sm"
-            >
-              {uploading ? (
-                <>
-                  <Sparkles className="w-4 h-4 animate-spin" />
-                  <span>Parsing Docx File...</span>
-                </>
-              ) : (
-                <>
-                  <FileText className="w-4 h-4" />
-                  <span>Upload & Parse Docx File</span>
-                </>
-              )}
-            </button>
-            <span className="text-xs text-slate-500 font-medium">Supported: .docx, .doc</span>
-          </div>
+          <button
+            onClick={() => handleSimulatedDocxUpload()}
+            disabled={uploading}
+            className="px-4 py-2.5 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-md shadow-brand/20 flex items-center space-x-2 brand-glow-sm cursor-pointer"
+          >
+            {uploading ? (
+              <>
+                <Sparkles className="w-4 h-4 animate-spin" />
+                <span>Parsing Question Paper...</span>
+              </>
+            ) : (
+              <>
+                <FileText className="w-4 h-4" />
+                <span>Upload Question Paper</span>
+              </>
+            )}
+          </button>
         </div>
       </div>
 
-      {/* Question List Section */}
+      {/* Questions List Header & Search */}
       <div className="bg-slate-900 border border-darkBorder rounded-2xl p-5 space-y-4 shadow-xl">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pb-4 border-b border-darkBorder">
-          <div className="flex items-center space-x-3">
-            <div className="relative flex-1 sm:w-72">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input
-                type="text"
-                placeholder="Search questions by stem keyword..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-slate-950 text-xs pl-9 pr-4 py-2 rounded-xl border border-darkBorder focus:outline-none focus:border-brand text-slate-200"
-              />
-            </div>
+          <div className="relative flex-1 sm:w-80">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            <input
+              type="text"
+              placeholder={`Search ${currentClass} ${selectedSubject} questions...`}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-slate-950 text-xs pl-9 pr-4 py-2.5 rounded-xl border border-darkBorder focus:outline-none focus:border-brand text-slate-200"
+            />
           </div>
 
-          <div className="flex items-center space-x-3">
-            <span className="text-xs text-slate-400">
-              Showing <strong className="text-slate-200">{filteredQuestions.length}</strong> items
-            </span>
+          <div className="text-xs text-slate-400">
+            Showing <strong className="text-slate-200">{filteredQuestions.length}</strong> questions in <strong className="text-brand">{currentClass} - {selectedSubject || 'All Subjects'}</strong>
           </div>
         </div>
 
-        {/* Questions Listing */}
         {filteredQuestions.length === 0 ? (
           <div className="p-12 text-center text-slate-500 space-y-2">
             <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-brand/30 p-1 mx-auto mb-3 opacity-60 flex items-center justify-center">
@@ -210,15 +216,26 @@ export default function QuestionBankTab({
         ) : (
           <div className="space-y-3">
             {filteredQuestions.map((q, idx) => {
-              const isExpanded = expandedQuestionId === q.id;
+              const isExpanded = expandedQuestionId === (q.id || idx);
+              const stemText = q.stem || q.question_text || '';
+              const rawOpts = q.options || [
+                `A) ${q.option_a || ''}`,
+                `B) ${q.option_b || ''}`,
+                `C) ${q.option_c || ''}`,
+                `D) ${q.option_d || ''}`,
+              ];
+              const correctIdx = q.correctIndex !== undefined 
+                ? q.correctIndex 
+                : (q.correct_answer === 'B' ? 1 : q.correct_answer === 'C' ? 2 : q.correct_answer === 'D' ? 3 : 0);
+
               return (
                 <div
-                  key={q.id}
+                  key={q.id || idx}
                   className="bg-slate-950 border border-darkBorder rounded-xl overflow-hidden hover:border-slate-700 transition-all"
                 >
                   <div
                     onClick={() =>
-                      setExpandedQuestionId(isExpanded ? null : q.id)
+                      setExpandedQuestionId(isExpanded ? null : (q.id || idx))
                     }
                     className="p-4 flex items-start justify-between cursor-pointer select-none"
                   >
@@ -228,14 +245,26 @@ export default function QuestionBankTab({
                       </span>
                       <div>
                         <h5 className="text-xs font-semibold text-slate-200 leading-relaxed">
-                          {q.stem}
+                          {stemText}
                         </h5>
+
+                        {q.diagram_image_url && (
+                          <div className="mt-2 mb-1 max-w-sm rounded-xl overflow-hidden border border-darkBorder bg-slate-900 p-2">
+                            <img
+                              src={q.diagram_image_url.startsWith('/') ? q.diagram_image_url : `/${q.diagram_image_url}`}
+                              alt="Diagram"
+                              className="max-h-48 object-contain rounded-lg"
+                              onError={(e) => { e.target.style.display = 'none'; }}
+                            />
+                          </div>
+                        )}
+
                         <div className="flex items-center space-x-2 mt-2">
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-brand/10 text-brand border border-brand/20">
-                            {q.difficulty}
+                            {q.difficulty || 'Objective'}
                           </span>
                           <span className="text-[10px] text-slate-500">
-                            {q.marks} Mark{q.marks > 1 ? 's' : ''}
+                            {q.marks || 1} Mark{(q.marks || 1) > 1 ? 's' : ''}
                           </span>
                         </div>
                       </div>
@@ -257,8 +286,9 @@ export default function QuestionBankTab({
                         Options & Verified Answer Key:
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {q.options.map((opt, oIdx) => {
-                          const isCorrect = oIdx === q.correctIndex;
+                        {rawOpts.map((opt, oIdx) => {
+                          const isCorrect = oIdx === correctIdx;
+                          const formattedText = formatOptDisplay(opt);
                           return (
                             <div
                               key={oIdx}
@@ -268,7 +298,7 @@ export default function QuestionBankTab({
                                   : 'bg-slate-950 border-darkBorder text-slate-400'
                               }`}
                             >
-                              <span>{opt}</span>
+                              <span>{formattedText}</span>
                               {isCorrect && (
                                 <span className="flex items-center space-x-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">
                                   <Check className="w-3 h-3" />

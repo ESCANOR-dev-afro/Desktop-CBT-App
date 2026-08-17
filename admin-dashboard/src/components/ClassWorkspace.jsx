@@ -4,32 +4,25 @@ import {
   BookOpen,
   Monitor,
   Plus,
-  Layers,
-  GraduationCap,
   ShieldCheck,
-  CheckCircle2,
-  FileCheck2,
   FileSpreadsheet
 } from 'lucide-react';
 import StudentRosterTab from './StudentRosterTab';
-import QuestionBankTab from './QuestionBankTab';
 import WorkstationMonitorTab from './WorkstationMonitorTab';
 
 export default function ClassWorkspace({
   currentClass,
   subjectsByClass,
   students,
-  questionsData,
   workstations,
   onOpenAddSubject,
   onOpenAddStudent,
   onOpenUploadRoster,
-  onAddQuestion,
   onDeleteStudent,
   onUpdateWorkstations,
   onShowToast,
 }) {
-  const [activeTab, setActiveTab] = useState('roster'); // 'roster' | 'questions' | 'monitor'
+  const [activeTab, setActiveTab] = useState('roster'); // 'roster' | 'monitor'
 
   const matchesClassScope = (studentClass, targetScope) => {
     if (!studentClass || !targetScope) return false;
@@ -57,7 +50,7 @@ export default function ClassWorkspace({
           <div className="w-14 h-14 rounded-2xl bg-slate-950 border-2 border-brand/40 p-1 shadow-lg shadow-brand/10 flex items-center justify-center shrink-0">
             <img
               src="school_logo.jpg"
-              alt="Anthony White Bridge Academy Logo"
+              alt="Anthony Whitebridge Academy Logo"
               className="w-full h-full object-contain rounded-xl"
             />
           </div>
@@ -71,7 +64,7 @@ export default function ClassWorkspace({
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-1 truncate">
-              Anthony White Bridge Academy • Class-Isolated CBT Administration
+              Anthony Whitebridge Academy • Class-Isolated CBT Administration
             </p>
           </div>
         </div>
@@ -96,7 +89,7 @@ export default function ClassWorkspace({
 
           <button
             onClick={onOpenUploadRoster}
-            className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-bold transition-all border border-darkBorder flex items-center space-x-2"
+            className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-bold transition-all border border-darkBorder flex items-center space-x-2 cursor-pointer"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
             <span>Upload Class List</span>
@@ -104,7 +97,7 @@ export default function ClassWorkspace({
 
           <button
             onClick={onOpenAddSubject}
-            className="px-4 py-3 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-lg shadow-brand/25 flex items-center space-x-2 brand-glow-sm"
+            className="px-4 py-3 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-lg shadow-brand/25 flex items-center space-x-2 brand-glow-sm cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>+ Add Subject for {currentClass}</span>
@@ -131,11 +124,11 @@ export default function ClassWorkspace({
         </div>
       </div>
 
-      {/* Modern Sub-Navigation Tabs */}
+      {/* Modern 2-Tab Sub-Navigation */}
       <div className="flex items-center space-x-2 bg-slate-950 p-1.5 rounded-2xl border border-darkBorder shadow-inner max-w-fit">
         <button
           onClick={() => setActiveTab('roster')}
-          className={`flex items-center space-x-2.5 px-5 py-3 rounded-xl text-xs font-extrabold transition-all duration-200 ${
+          className={`flex items-center space-x-2.5 px-5 py-3 rounded-xl text-xs font-extrabold transition-all duration-200 cursor-pointer ${
             activeTab === 'roster'
               ? 'bg-brand text-white shadow-lg shadow-brand/25 brand-glow-sm'
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
@@ -153,20 +146,8 @@ export default function ClassWorkspace({
         </button>
 
         <button
-          onClick={() => setActiveTab('questions')}
-          className={`flex items-center space-x-2.5 px-5 py-3 rounded-xl text-xs font-extrabold transition-all duration-200 ${
-            activeTab === 'questions'
-              ? 'bg-brand text-white shadow-lg shadow-brand/25 brand-glow-sm'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
-          }`}
-        >
-          <BookOpen className="w-4 h-4" />
-          <span>Question Bank & Docx Uploader</span>
-        </button>
-
-        <button
           onClick={() => setActiveTab('monitor')}
-          className={`flex items-center space-x-2.5 px-5 py-3 rounded-xl text-xs font-extrabold transition-all duration-200 ${
+          className={`flex items-center space-x-2.5 px-5 py-3 rounded-xl text-xs font-extrabold transition-all duration-200 cursor-pointer ${
             activeTab === 'monitor'
               ? 'bg-brand text-white shadow-lg shadow-brand/25 brand-glow-sm'
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
@@ -187,16 +168,6 @@ export default function ClassWorkspace({
             onOpenAddStudent={onOpenAddStudent}
             onOpenUploadRoster={onOpenUploadRoster}
             onDeleteStudent={onDeleteStudent}
-            onShowToast={onShowToast}
-          />
-        )}
-
-        {activeTab === 'questions' && (
-          <QuestionBankTab
-            currentClass={currentClass}
-            subjectsByClass={subjectsByClass}
-            questionsData={questionsData}
-            onAddQuestion={onAddQuestion}
             onShowToast={onShowToast}
           />
         )}

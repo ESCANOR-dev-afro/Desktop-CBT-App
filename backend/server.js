@@ -59,6 +59,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/exam', examRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/questions', questionRoutes);
+app.use('/api', examRoutes);
 app.use('/api', authRoutes);
 
 /**
@@ -98,7 +99,17 @@ const activeStudentPath = fs.existsSync(path.join(backendPublicPath, 'index.html
     ? backendPublicPath
     : flutterBuildPath;
 
-app.use(express.static(activeStudentPath));
+app.use(express.static(activeStudentPath, {
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.wasm')) {
+            res.setHeader('Content-Type', 'application/wasm');
+        } else if (filePath.endsWith('.js') || filePath.endsWith('.mjs')) {
+            res.setHeader('Content-Type', 'application/javascript');
+        } else if (filePath.endsWith('.json')) {
+            res.setHeader('Content-Type', 'application/json');
+        }
+    }
+}));
 
 // Student Client SPA Wildcard Fallback (/*)
 app.use((req, res, next) => {
@@ -145,12 +156,16 @@ process.on('unhandledRejection', (reason, promise) => {
 // ----------------------------------------------------
 // Start Unified CBT Server
 // ----------------------------------------------------
-app.listen(3000, '0.0.0.0', () => {
-    console.log('====================================================');
-    console.log('Server running on port 3000');
-    console.log('🚀 CBT Server running locally on http://localhost:3000');
-    console.log('🌐 LAN Network Student App: http://0.0.0.0:3000/');
-    console.log('🛡️ LAN Network Admin Dashboard: http://0.0.0.0:3000/admin/');
-    console.log('🏥 Health Check API: http://localhost:3000/api/health');
-    console.log('====================================================');
-});
+if (require.main === module) {
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log('====================================================');
+        console.log(`Server running on port ${PORT}`);
+        console.log(`🚀 CBT Server running locally on http://localhost:${PORT}`);
+        console.log(`🌐 LAN Network Student App: http://0.0.0.0:${PORT}/`);
+        console.log(`🛡️ LAN Network Admin Dashboard: http://0.0.0.0:${PORT}/admin/`);
+        console.log(`🏥 Health Check API: http://localhost:${PORT}/api/health`);
+        console.log('====================================================');
+    });
+}
+
+module.exports = app;

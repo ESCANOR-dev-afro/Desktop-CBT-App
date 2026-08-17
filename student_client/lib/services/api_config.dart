@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 class ApiConfig {
   static const String defaultPort = '3000';
 
@@ -5,7 +7,19 @@ class ApiConfig {
   static String getBaseUrl(String serverIpInput) {
     String input = serverIpInput.trim();
 
-    // If input is empty, fallback intelligently
+    // Dynamically resolve server IP from browser URL in Flutter Web
+    if (kIsWeb) {
+      final currentHost = Uri.base.host;
+      final currentPort = Uri.base.port != 0 ? Uri.base.port : 3000;
+      if (input.isEmpty || input == '127.0.0.1' || input == 'localhost') {
+        if (currentHost.isNotEmpty) {
+          final scheme = Uri.base.scheme.isNotEmpty ? Uri.base.scheme : 'http';
+          return '$scheme://$currentHost:$currentPort/api';
+        }
+      }
+    }
+
+    // Fallback for native mobile / desktop
     if (input.isEmpty) {
       input = '127.0.0.1';
     }

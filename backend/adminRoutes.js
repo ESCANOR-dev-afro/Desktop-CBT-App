@@ -11,8 +11,15 @@ const router = express.Router();
 const multer = require('multer');
 const mammoth = require('mammoth');
 const ExcelJS = require('exceljs');
+const XLSX = require('xlsx');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const db = require('./database');
 const { logAuditAction } = require('./services/auditLogger');
+const { performBackup, detectBackupDestination } = require('./services/backupService');
+const { deriveSessionPrefix, getActiveSessionString, generateNextRegistrationNo } = require('./services/regNumberEngine');
+const { handleQuestionBankUpload } = require('./questionRoutes');
 
 // Configure Multer memory storage for uploaded documents
 const upload = multer({ 
@@ -177,6 +184,28 @@ router.get('/audit-logs', async (req, res, next) => {
 
 // --------------------------------------------------------------------------
 // 0. GET /api/admin/subjects
+// --------------------------------------------------------------------------
+// GET /api/admin/class-subjects
+// Returns dynamic class-isolated subject lists grouped by class name
+// --------------------------------------------------------------------------
+router.get('/class-subjects', async (req, res, next) => {
+    try {
+        const rows = await dbAll(`SELECT class_name, subject_name FROM class_subjects ORDER BY id ASC`);
+        const map = {};
+        for (const r of rows) {
+            if (!map[r.class_name]) map[r.class_name] = [];
+            map[r.class_name].push({ id: `cs-${r.class_name}-${r.subject_name}`, name: r.subject_name, category: 'Curriculum' });
+        }
+        return res.status(200).json({
+            success: true,
+            classSubjects: map
+        });
+    } catch (error) {
+        console.error('❌ [Admin Class-Subjects Error]:', error);
+        next(error);
+    }
+});
+
 // Returns dynamic list of subjects from database with is_active activation status
 // --------------------------------------------------------------------------
 router.get('/subjects', async (req, res, next) => {
@@ -329,9 +358,9 @@ router.get('/students', async (req, res, next) => {
 // --------------------------------------------------------------------------
 const handleAddCandidate = async (req, res, next) => {
     try {
-        const { reg_number, regNo, surname, first_name, firstName, class: studentClass, assigned_subject, assignedSubjects } = req.body;
+        const { reg_number, regNo, registration_no, surname, first_name, firstName, class: studentClass, assigned_subject, assignedSubjects } = req.body;
 
-        const targetRegNo = String(reg_number || regNo || '').trim();
+        let targetRegNo = String(reg_number || regNo || registration_no || '').trim().toUpperCase();
         const targetSurname = String(surname || '').trim().toUpperCase();
         const targetFirstName = String(first_name || firstName || '').trim();
         const targetClass = String(studentClass || 'SS 3').trim();
@@ -344,25 +373,45 @@ const handleAddCandidate = async (req, res, next) => {
             targetSubject = 'Mathematics';
         }
 
-        if (!targetRegNo || !targetSurname) {
+        if (!targetSurname) {
             return res.status(400).json({
                 success: false,
-                message: "Registration number and surname are required."
+                message: "Surname is required."
             });
         }
 
+        // Auto-generate Registration Number if omitted using dual-year engine
+        if (!targetRegNo) {
+            targetRegNo = await generateNextRegistrationNo(db);
+        }
+
+        // Resolve active term & class_id
+        const activeTerm = await dbGet(`SELECT id FROM academic_terms WHERE is_current = 1 ORDER BY id DESC LIMIT 1`);
+        const activeTermId = activeTerm ? activeTerm.id : null;
+        let classRow = await dbGet(`SELECT id FROM classes WHERE LOWER(name) = LOWER(?)`, [targetClass]);
+        if (!classRow) {
+            const level = targetClass.startsWith('JSS') ? 'JSS' : 'SS';
+            const insCls = await dbRun(`INSERT OR IGNORE INTO classes (name, level) VALUES (?, ?)`, [targetClass, level]);
+            classRow = { id: insCls.lastID };
+        }
+
         const normalizedSubject = normalizeSubjectName(String(targetSubject));
+        const hashedPassword = crypto.createHash('sha256').update(targetSurname).digest('hex');
 
         const insertSql = `
-            INSERT INTO students (reg_number, surname, first_name, class, assigned_subject)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO students (reg_number, registration_no, surname, first_name, class, assigned_subject, class_id, academic_term_id, password)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
         const result = await dbRun(insertSql, [
+            targetRegNo,
             targetRegNo,
             targetSurname,
             targetFirstName,
             targetClass,
-            normalizedSubject || 'Mathematics'
+            normalizedSubject || 'Mathematics',
+            classRow ? classRow.id : null,
+            activeTermId,
+            hashedPassword
         ]);
 
         return res.status(201).json({
@@ -372,6 +421,7 @@ const handleAddCandidate = async (req, res, next) => {
             student: {
                 id: result.lastID,
                 reg_number: targetRegNo,
+                registration_no: targetRegNo,
                 surname: targetSurname,
                 first_name: targetFirstName,
                 class: targetClass,
@@ -392,6 +442,311 @@ const handleAddCandidate = async (req, res, next) => {
 
 router.post('/students', handleAddCandidate);
 router.post('/candidates', handleAddCandidate);
+
+// --------------------------------------------------------------------------
+// Class Roster Spreadsheet Upload Pipeline
+// POST /api/admin/upload-roster & POST /api/admin/classes/upload-roster
+// --------------------------------------------------------------------------
+const handleUploadRosterPipeline = async (req, res, next) => {
+    try {
+        if (!req.file || !req.file.buffer) {
+            return res.status(400).json({
+                success: false,
+                message: "No spreadsheet file uploaded. Please upload a valid .xlsx or .csv roster file."
+            });
+        }
+
+        const selectedClass = String(req.body.class || req.body.class_id || req.body.currentClass || req.body.selectedClass || req.body.class_name || 'JSS 1 Gold').trim();
+        
+        // Resolve active academic term & class_id
+        let activeTerm = await dbGet(`SELECT id, session, name FROM academic_terms WHERE is_current = 1 ORDER BY id DESC LIMIT 1`);
+        if (!activeTerm) {
+            activeTerm = { id: 1, session: '2026/2027', name: '1st Term' };
+        }
+
+        let classRow = await dbGet(`SELECT id FROM classes WHERE LOWER(name) = LOWER(?)`, [selectedClass]);
+        if (!classRow) {
+            const level = selectedClass.startsWith('JSS') ? 'JSS' : 'SS';
+            const insClass = await dbRun(`INSERT OR IGNORE INTO classes (name, level) VALUES (?, ?)`, [selectedClass, level]);
+            classRow = { id: insClass.lastID };
+        }
+
+        // Parse workbook using XLSX library
+        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+        if (!rawRows || rawRows.length < 2) {
+            return res.status(400).json({
+                success: false,
+                message: "Uploaded spreadsheet is empty or contains no data rows."
+            });
+        }
+
+        // Identify column header indices
+        const headerRow = rawRows[0].map(cell => String(cell || '').trim().toLowerCase());
+        let surnameIdx = headerRow.findIndex(h => /surname|last.*name|family.*name/i.test(h));
+        let firstNameIdx = headerRow.findIndex(h => /first.*name|given.*name/i.test(h));
+        let otherNamesIdx = headerRow.findIndex(h => /other.*name|middle.*name/i.test(h));
+        let fullNameIdx = headerRow.findIndex(h => /full.*name|candidate.*name|student.*name|^name$/i.test(h));
+        let regNoIdx = headerRow.findIndex(h => /reg.*no|registration.*no|reg.*number|^id$/i.test(h));
+
+        // Default indices fallback if headers weren't found by string match
+        if (surnameIdx === -1 && fullNameIdx === -1) {
+            surnameIdx = 0;
+            firstNameIdx = 1;
+            otherNamesIdx = 2;
+            regNoIdx = 3;
+        }
+
+        // Allocate default subjects according to stream/class or class_subjects registration
+        let classSubjectsList = [];
+        if (classRow && classRow.id) {
+            const registeredRows = await dbAll(
+                `SELECT s.name FROM class_subjects cs JOIN subjects s ON cs.subject_id = s.id WHERE cs.class_id = ?`,
+                [classRow.id]
+            );
+            if (registeredRows && registeredRows.length > 0) {
+                classSubjectsList = registeredRows.map(r => r.name);
+            }
+        }
+
+        let defaultSubjects = classSubjectsList.length > 0
+            ? classSubjectsList.join(', ')
+            : "Mathematics, English Language, Basic Science";
+
+        if (classSubjectsList.length === 0) {
+            const clsUpper = selectedClass.toUpperCase();
+            if (clsUpper.startsWith('JSS')) {
+                defaultSubjects = "English Language, Mathematics, Basic Science, Social Studies, Basic Technology";
+            } else if (clsUpper.includes('COMMERCIAL')) {
+                defaultSubjects = "Mathematics, English Language, Economics, Commerce, Financial Accounting";
+            } else if (clsUpper.includes('ART')) {
+                defaultSubjects = "Mathematics, English Language, Government, CRS / IRS, Literature in English";
+            } else {
+                defaultSubjects = "Mathematics, English Language, Biology, Chemistry, Physics";
+            }
+        }
+
+        const insertedStudents = [];
+
+        for (let i = 1; i < rawRows.length; i++) {
+            const row = rawRows[i];
+            if (!row || row.length === 0) continue;
+
+            let surname = surnameIdx !== -1 && row[surnameIdx] ? String(row[surnameIdx]).trim() : '';
+            let firstName = firstNameIdx !== -1 && row[firstNameIdx] ? String(row[firstNameIdx]).trim() : '';
+            let otherNames = otherNamesIdx !== -1 && row[otherNamesIdx] ? String(row[otherNamesIdx]).trim() : '';
+            let fullName = fullNameIdx !== -1 && row[fullNameIdx] ? String(row[fullNameIdx]).trim() : '';
+            let regNo = regNoIdx !== -1 && row[regNoIdx] ? String(row[regNoIdx]).trim().toUpperCase() : '';
+
+            // Handle full_name splitting if surname wasn't provided separately
+            if (!surname && fullName) {
+                const parts = fullName.split(/\s+/);
+                surname = parts[0] || '';
+                firstName = parts.slice(1).join(' ') || '';
+            }
+
+            if (!surname) continue; // Skip blank candidate rows
+
+            surname = surname.toUpperCase();
+            if (otherNames) {
+                firstName = firstName ? `${firstName} ${otherNames}` : otherNames;
+            }
+
+            // Auto-assign sequential registration number if omitted
+            if (!regNo) {
+                regNo = await generateNextRegistrationNo(db, activeTerm.session);
+            }
+
+            const hashedPassword = crypto.createHash('sha256').update(surname).digest('hex');
+
+            const sql = `
+                INSERT INTO students (reg_number, registration_no, surname, first_name, class, assigned_subject, class_id, academic_term_id, password)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(reg_number) DO UPDATE SET
+                    registration_no = excluded.registration_no,
+                    surname = excluded.surname,
+                    first_name = excluded.first_name,
+                    class = excluded.class,
+                    class_id = excluded.class_id,
+                    academic_term_id = excluded.academic_term_id,
+                    password = excluded.password
+            `;
+
+            const resRun = await dbRun(sql, [
+                regNo,
+                regNo,
+                surname,
+                firstName,
+                selectedClass,
+                defaultSubjects,
+                classRow ? classRow.id : null,
+                activeTerm.id,
+                hashedPassword
+            ]);
+
+            insertedStudents.push({
+                id: resRun.lastID || `STU-${Date.now()}-${i}`,
+                reg_number: regNo,
+                registration_no: regNo,
+                regNo: regNo,
+                surname: surname,
+                first_name: firstName,
+                firstName: firstName,
+                name: firstName ? `${surname}, ${firstName}` : surname,
+                class: selectedClass,
+                assigned_subject: defaultSubjects,
+                assignedSubjects: defaultSubjects.split(', '),
+                status: 'Exam Ready'
+            });
+        }
+
+        console.log(`📋 [Roster Upload Pipeline] Imported ${insertedStudents.length} candidate records for "${selectedClass}" (${activeTerm.session}).`);
+
+        // Record Audit Log
+        await logAuditAction({
+            action: 'UPLOAD_CLASS_ROSTER',
+            entity_type: 'students',
+            entity_id: selectedClass,
+            details: { class: selectedClass, count: insertedStudents.length, term: activeTerm.name, session: activeTerm.session },
+            ip_address: req.ip || '127.0.0.1'
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: `${insertedStudents.length} Students successfully enrolled into ${selectedClass}.`,
+            class: selectedClass,
+            count: insertedStudents.length,
+            students: insertedStudents
+        });
+
+    } catch (error) {
+        console.error('❌ [Upload Roster Pipeline Error]:', error);
+        next(error);
+    }
+};
+
+router.post('/upload-roster', upload.single('file'), handleUploadRosterPipeline);
+router.post('/classes/upload-roster', upload.single('file'), handleUploadRosterPipeline);
+
+// --------------------------------------------------------------------------
+// End-of-Exam Score Aggregator & Isolated Report View
+// GET /api/admin/reports/class-subject-summary
+// --------------------------------------------------------------------------
+router.get('/reports/class-subject-summary', async (req, res, next) => {
+    try {
+        const { class_id, class: classParam, subject_id, subject: subjectParam, academic_term_id, term: termParam } = req.query;
+
+        // Resolve active term & session
+        let activeTerm = null;
+        if (academic_term_id) {
+            activeTerm = await dbGet(`SELECT id, name, session FROM academic_terms WHERE id = ?`, [academic_term_id]);
+        } else if (termParam) {
+            activeTerm = await dbGet(`SELECT id, name, session FROM academic_terms WHERE LOWER(name) = LOWER(?)`, [termParam.trim()]);
+        }
+        if (!activeTerm) {
+            activeTerm = await dbGet(`SELECT id, name, session FROM academic_terms WHERE is_current = 1 ORDER BY id DESC LIMIT 1`);
+        }
+        if (!activeTerm) {
+            activeTerm = { id: 1, name: '2nd Term', session: '2026/2027' };
+        }
+
+        // Resolve target class
+        let targetClassRow = null;
+        if (class_id) {
+            targetClassRow = await dbGet(`SELECT id, name FROM classes WHERE id = ?`, [class_id]);
+        } else if (classParam && classParam !== 'ALL') {
+            targetClassRow = await dbGet(`SELECT id, name FROM classes WHERE LOWER(name) = LOWER(?)`, [classParam.trim()]);
+        }
+        const className = targetClassRow ? targetClassRow.name : (classParam && classParam !== 'ALL' ? classParam.trim() : 'SS 3 Science');
+        const resolvedClassId = targetClassRow ? targetClassRow.id : null;
+
+        // Resolve target subject
+        let targetSubjectRow = null;
+        if (subject_id) {
+            targetSubjectRow = await dbGet(`SELECT id, name FROM subjects WHERE id = ?`, [subject_id]);
+        } else if (subjectParam && subjectParam !== 'ALL') {
+            targetSubjectRow = await dbGet(`SELECT id, name FROM subjects WHERE LOWER(name) = LOWER(?)`, [subjectParam.trim()]);
+        }
+        const subjectName = targetSubjectRow ? targetSubjectRow.name : (subjectParam && subjectParam !== 'ALL' ? subjectParam.trim() : 'Mathematics');
+        const resolvedSubjectId = targetSubjectRow ? targetSubjectRow.id : null;
+
+        // Fetch candidate roster & latest session score for class and subject
+        const querySql = `
+            SELECT 
+                s.id,
+                COALESCE(s.registration_no, s.reg_number) AS reg_number,
+                s.surname,
+                s.first_name,
+                s.class,
+                s.assigned_subject,
+                es.id AS session_id,
+                es.score,
+                es.status AS session_status
+            FROM students s
+            LEFT JOIN exam_sessions es ON s.id = es.student_id AND LOWER(es.subject) = LOWER(?)
+            WHERE (LOWER(s.class) = LOWER(?) OR s.class_id = ?)
+            ORDER BY UPPER(s.surname) ASC, UPPER(s.first_name) ASC
+        `;
+
+        const candidatesRaw = await dbAll(querySql, [subjectName, className, resolvedClassId]);
+
+        let submissionsCount = 0;
+        const formattedCandidates = candidatesRaw.map((c, idx) => {
+            const hasSubmitted = c.session_status === 'submitted' || (c.score !== null && c.score !== undefined);
+            if (hasSubmitted) submissionsCount++;
+
+            const rawScore = c.score !== null && c.score !== undefined ? c.score : null;
+            const pct = rawScore !== null ? Number(((rawScore / 50) * 100).toFixed(1)) : null;
+            let statusStr = 'Not Taken';
+            if (c.session_status === 'submitted' || rawScore !== null) {
+                statusStr = 'Submitted';
+            } else if (c.session_status === 'active') {
+                statusStr = 'Active Session';
+            }
+
+            const surnameUpper = String(c.surname || '').toUpperCase();
+            const firstNameTrim = String(c.first_name || '').trim();
+
+            return {
+                sn: idx + 1,
+                id: c.id,
+                reg_number: c.reg_number,
+                registration_no: c.reg_number,
+                surname: surnameUpper,
+                first_name: firstNameTrim,
+                full_name: firstNameTrim ? `${surnameUpper}, ${firstNameTrim}` : surnameUpper,
+                raw_score: rawScore,
+                total_marks: 50,
+                percentage: pct !== null ? `${pct}%` : 'N/A',
+                pct_value: pct,
+                status: statusStr
+            };
+        });
+
+        return res.status(200).json({
+            success: true,
+            metadata: {
+                class_name: className,
+                class_id: resolvedClassId,
+                subject_name: subjectName,
+                subject_id: resolvedSubjectId,
+                academic_session: activeTerm.session,
+                academic_term: activeTerm.name,
+                academic_term_id: activeTerm.id,
+                total_candidates: formattedCandidates.length,
+                submissions_count: submissionsCount
+            },
+            candidates: formattedCandidates
+        });
+
+    } catch (error) {
+        console.error('❌ [Class Subject Summary Report Error]:', error);
+        next(error);
+    }
+});
 
 // --------------------------------------------------------------------------
 // 3. GET /api/admin/questions
@@ -730,7 +1085,7 @@ router.get('/exam-config', async (req, res, next) => {
 
 router.post('/exam-config', async (req, res, next) => {
     try {
-        const { class: examClass, subject, duration_minutes, duration, is_active } = req.body;
+        const { class: examClass, subject, duration_minutes, duration, is_active, assessment_mode, delivery_count, shuffle_questions, shuffle_options } = req.body;
         if (!subject) {
             return res.status(400).json({ success: false, message: "Subject is required." });
         }
@@ -740,25 +1095,50 @@ router.post('/exam-config', async (req, res, next) => {
         const durationMinutes = parseInt(duration_minutes !== undefined ? duration_minutes : duration, 10) || 45;
         const isActiveVal = (is_active === 0 || is_active === false || is_active === '0') ? 0 : 1;
 
+        const modeVal = (assessment_mode && ['TEST', 'EXAM', 'CUSTOM'].includes(String(assessment_mode).toUpperCase()))
+            ? String(assessment_mode).toUpperCase()
+            : 'TEST';
+        
+        let countVal = parseInt(delivery_count, 10);
+        if (isNaN(countVal) || countVal <= 0) {
+            countVal = modeVal === 'EXAM' ? 50 : 30;
+        }
+
+        const shuffleQsVal = (shuffle_questions === 0 || shuffle_questions === false || shuffle_questions === '0') ? 0 : 1;
+        const shuffleOptsVal = (shuffle_options === 0 || shuffle_options === false || shuffle_options === '0') ? 0 : 1;
+
         // Upsert into exam_configs table
         await dbRun(
-            `INSERT INTO exam_configs (class, subject, duration_minutes, is_active) VALUES (?, ?, ?, ?)
-             ON CONFLICT(class, subject) DO UPDATE SET duration_minutes = excluded.duration_minutes, is_active = excluded.is_active`,
-            [targetClass, normSubject, durationMinutes, isActiveVal]
+            `INSERT INTO exam_configs (class, subject, duration_minutes, is_active, assessment_mode, delivery_count, shuffle_questions, shuffle_options)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(class, subject) DO UPDATE SET
+                duration_minutes = excluded.duration_minutes,
+                is_active = excluded.is_active,
+                assessment_mode = excluded.assessment_mode,
+                delivery_count = excluded.delivery_count,
+                shuffle_questions = excluded.shuffle_questions,
+                shuffle_options = excluded.shuffle_options`,
+            [targetClass, normSubject, durationMinutes, isActiveVal, modeVal, countVal, shuffleQsVal, shuffleOptsVal]
         );
 
-        // Also update subjects master table
-        await dbRun(`UPDATE subjects SET duration_minutes = ?, is_active = ? WHERE LOWER(name) = LOWER(?)`, [durationMinutes, isActiveVal, normSubject]);
+        // Only update global subjects table if no specific class scope was specified
+        if (!targetClass) {
+            await dbRun(`UPDATE subjects SET duration_minutes = ?, is_active = ? WHERE LOWER(name) = LOWER(?)`, [durationMinutes, isActiveVal, normSubject]);
+        }
 
-        console.log(`⏱️ [Exam Config Updated] ${targetClass || 'All Classes'} - ${normSubject}: ${durationMinutes} minutes (Active: ${isActiveVal}).`);
+        console.log(`⏱️ [Exam Config Updated] ${targetClass || 'All Classes'} - ${normSubject}: ${durationMinutes} mins | Mode: ${modeVal} (${countVal} Qs) | Shuffle Qs: ${shuffleQsVal}, Opts: ${shuffleOptsVal}.`);
 
         return res.status(200).json({
             success: true,
-            message: `Exam duration set to ${durationMinutes} minutes for ${targetClass || 'All Classes'} - ${normSubject}.`,
+            message: `Exam config updated for ${targetClass || 'All Classes'} - ${normSubject} (${modeVal} mode, ${countVal} Qs).`,
             class: targetClass,
             subject: normSubject,
             duration_minutes: durationMinutes,
-            is_active: isActiveVal
+            is_active: isActiveVal,
+            assessment_mode: modeVal,
+            delivery_count: countVal,
+            shuffle_questions: shuffleQsVal,
+            shuffle_options: shuffleOptsVal
         });
     } catch (error) {
         console.error('❌ [Post Exam Config Error]:', error);
@@ -767,14 +1147,16 @@ router.post('/exam-config', async (req, res, next) => {
 });
 
 // --------------------------------------------------------------------------
-// 7. POST /api/admin/subjects/toggle
-// Toggle exam activation status (ACTIVE = 1, INACTIVE = 0) per class and subject
+// 7. POST /api/admin/subjects/toggle & PATCH /api/admin/subject-config/status
+// Toggle exam activation status (ACTIVE = 1, INACTIVE = 0) strictly per class and subject
 // --------------------------------------------------------------------------
-router.post('/subjects/toggle', async (req, res, next) => {
+const handleToggleSubjectStatus = async (req, res, next) => {
     try {
-        const { class: examClass, name, subject, is_active } = req.body;
-        const targetSubject = normalizeSubjectName(name || subject);
-        const targetClass = examClass && examClass !== 'ALL' ? String(examClass).trim() : null;
+        const { class: examClass, class_id, name, subject, subject_id, is_active } = req.body;
+        const targetSubject = normalizeSubjectName(name || subject || subject_id);
+        const targetClass = (examClass || class_id) && String(examClass || class_id).trim() !== 'ALL' 
+            ? String(examClass || class_id).trim() 
+            : null;
 
         if (!targetSubject) {
             return res.status(400).json({ success: false, message: "Subject name is required." });
@@ -814,7 +1196,10 @@ router.post('/subjects/toggle', async (req, res, next) => {
         console.error('❌ [Subject Toggle Error]:', error);
         next(error);
     }
-});
+};
+
+router.post('/subjects/toggle', handleToggleSubjectStatus);
+router.patch('/subject-config/status', handleToggleSubjectStatus);
 
 // --------------------------------------------------------------------------
 // 7. GET /api/admin/export-excel
@@ -856,7 +1241,7 @@ router.get('/export-excel', async (req, res, next) => {
 
         // Create ExcelJS Workbook and Worksheet
         const workbook = new ExcelJS.Workbook();
-        workbook.creator = 'Anthony White Bridge Academy CBT Control Center';
+        workbook.creator = 'Anthony Whitebridge Academy CBT Control Center';
         workbook.created = new Date();
 
         const worksheet = workbook.addWorksheet('CBT Exam Results');
@@ -1017,126 +1402,37 @@ function isQuestionValid(q) {
 }
 
 // --------------------------------------------------------------------------
-// 6. POST /api/admin/upload-questions
-// Upload and parse document (.docx, .xlsx, .csv) into SQLite questions table
-// Isolated strictly per class and subject
+// POST /api/admin/backup
+// Triggers safe SQLite database snapshot (VACUUM INTO) and mirrors diagram assets to USB / external storage
 // --------------------------------------------------------------------------
-router.post('/upload-questions', upload.single('file'), async (req, res, next) => {
+router.post('/backup', async (req, res, next) => {
     try {
-        if (!req.file) {
-            return res.status(400).json({
-                success: false,
-                message: "No document file uploaded."
-            });
-        }
-
-        const rawTargetSubject = req.body.subject || 'Mathematics';
-        const targetClass = req.body.class || 'SS 3';
-        const normalizedSubject = normalizeSubjectName(rawTargetSubject);
-        const fileName = (req.file.originalname || '').toLowerCase();
-
-        let parsedQuestions = [];
-
-        if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
-            // Parse Excel Question File using ExcelJS
-            const workbook = new ExcelJS.Workbook();
-            await workbook.xlsx.load(req.file.buffer);
-            const worksheet = workbook.worksheets[0];
-
-            worksheet.eachRow((row, rowNumber) => {
-                if (rowNumber === 1) return; // Skip Header row
-                const qText = row.getCell(1).value ? String(row.getCell(1).value).trim() : '';
-                const optA = row.getCell(2).value ? String(row.getCell(2).value).trim() : '';
-                const optB = row.getCell(3).value ? String(row.getCell(3).value).trim() : '';
-                const optC = row.getCell(4).value ? String(row.getCell(4).value).trim() : '';
-                const optD = row.getCell(5).value ? String(row.getCell(5).value).trim() : '';
-                let ans = row.getCell(6).value ? String(row.getCell(6).value).trim().toUpperCase() : 'A';
-                if (ans.startsWith('OPTION')) ans = ans.replace('OPTION', '').trim();
-                if (ans.length > 1) ans = ans[0];
-
-                if (qText && optA && optB && optC && optD) {
-                    parsedQuestions.push({
-                        class: targetClass,
-                        subject: normalizedSubject,
-                        question_text: qText,
-                        option_a: optA,
-                        option_b: optB,
-                        option_c: optC,
-                        option_d: optD,
-                        correct_answer: ['A', 'B', 'C', 'D'].includes(ans) ? ans : 'A'
-                    });
-                }
-            });
+        const clientIp = req.ip || '127.0.0.1';
+        const backupResult = await performBackup({ ipAddress: clientIp });
+        if (backupResult.success) {
+            return res.status(200).json(backupResult);
         } else {
-            // Parse Word Document (.docx) or Text using Mammoth
-            let rawText = '';
-            if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
-                const result = await mammoth.extractRawText({ buffer: req.file.buffer });
-                rawText = result.value || '';
-            } else {
-                rawText = req.file.buffer.toString('utf8');
-            }
-
-            parsedQuestions = parseDocxText(rawText, normalizedSubject, targetClass);
-        }
-
-        if (parsedQuestions.length === 0) {
             return res.status(400).json({
                 success: false,
-                message: "Could not parse any valid questions from the uploaded file. Ensure standard formatting (Question text, Options A-D, Answer: X)."
+                message: backupResult.message || "External USB drive not found or inaccessible. Please verify USB is plugged in."
             });
         }
-
-        // Insert parsed questions into SQLite database
-        const insertSql = `
-            INSERT INTO questions (class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `;
-
-        let insertedCount = 0;
-        for (const q of parsedQuestions) {
-            await dbRun(insertSql, [
-                q.class || targetClass,
-                normalizeSubjectName(q.subject || normalizedSubject),
-                q.question_text,
-                q.option_a,
-                q.option_b,
-                q.option_c,
-                q.option_d,
-                q.correct_answer
-            ]);
-            insertedCount++;
-        }
-
-        const durationMinutes = parseInt(req.body.duration_minutes || req.body.duration, 10) || 45;
-
-        // Upsert duration into exam_configs table
-        try {
-            await dbRun(
-                `INSERT INTO exam_configs (class, subject, duration_minutes) VALUES (?, ?, ?)
-                 ON CONFLICT(class, subject) DO UPDATE SET duration_minutes = excluded.duration_minutes`,
-                [targetClass, normalizedSubject, durationMinutes]
-            );
-            console.log(`⏱️ [Exam Config] Scheduled duration for "${targetClass}" - "${normalizedSubject}": ${durationMinutes} minutes.`);
-        } catch (cfgErr) {
-            console.warn('⚠️ [Exam Config Notice]:', cfgErr.message);
-        }
-
-        console.log(`📄 [Question Bank Upload] Successfully parsed & inserted ${insertedCount} questions into SQLite for class "${targetClass}" and subject "${normalizedSubject}".`);
-
-        return res.status(200).json({
-            success: true,
-            message: `Questions uploaded and parsed successfully for ${targetClass} - ${normalizedSubject} (${durationMinutes} mins)`,
-            count: insertedCount,
-            duration_minutes: durationMinutes,
-            questions: parsedQuestions
-        });
-
     } catch (error) {
-        console.error('❌ [Question Bank Upload Error]:', error);
-        next(error);
+        console.error('❌ [Backup Execution Error]:', error);
+        return res.status(500).json({
+            success: false,
+            message: "External USB drive not found or inaccessible. Please verify USB is plugged in."
+        });
     }
 });
+
+// --------------------------------------------------------------------------
+// 6. POST /api/admin/questions/upload-bank & POST /api/admin/upload-bank
+// Bulk Question & Diagram Asset Upload Handler (.xlsx, .csv + image files or .zip)
+// --------------------------------------------------------------------------
+router.post('/questions/upload-bank', upload.any(), handleQuestionBankUpload);
+router.post('/upload-bank', upload.any(), handleQuestionBankUpload);
+router.post('/upload-questions', upload.any(), handleQuestionBankUpload);
 
 // --------------------------------------------------------------------------
 // 7. POST /api/admin/upload-roster
@@ -1252,6 +1548,490 @@ router.post('/upload-roster', upload.single('file'), async (req, res, next) => {
     } catch (error) {
         console.error('❌ [Roster Bulk Upload Error]:', error);
         next(error);
+    }
+});
+
+// --------------------------------------------------------------------------
+// 8. GET /api/admin/questions
+// Fetch all questions for Question Bank Hub with class & subject filters (No LIMIT)
+// --------------------------------------------------------------------------
+router.get('/questions', async (req, res, next) => {
+    try {
+        const { class: reqClass, subject: reqSubject } = req.query;
+        let sql = `
+            SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url
+            FROM questions
+            WHERE 1=1
+        `;
+        const params = [];
+
+        if (reqSubject) {
+            sql += ` AND LOWER(subject) = LOWER(?)`;
+            params.push(reqSubject.trim());
+        }
+
+        if (reqClass) {
+            const cls = reqClass.trim();
+            const baseTier = cls.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
+            sql += ` AND (class IS NULL OR TRIM(class) = '' OR LOWER(class) = LOWER(?) OR LOWER(class) = LOWER(?))`;
+            params.push(cls, baseTier);
+        }
+
+        sql += ` ORDER BY id ASC`;
+
+        const questions = await dbAll(sql, params);
+        return res.json({
+            success: true,
+            count: questions.length,
+            questions: questions
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
+// --------------------------------------------------------------------------
+// 9. POST /api/admin/questions (Create Single Question)
+// --------------------------------------------------------------------------
+router.post('/questions', async (req, res, next) => {
+    try {
+        const { class: targetClass, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url } = req.body;
+
+        if (!question_text || !option_a || !option_b || !option_c || !option_d || !correct_answer) {
+            return res.status(400).json({
+                success: false,
+                message: "Missing required question fields (question_text, option_a..d, correct_answer)."
+            });
+        }
+
+        const normSubject = normalizeSubjectName(subject || 'Mathematics');
+        const normAns = String(correct_answer).toUpperCase().trim();
+        const validAns = ['A', 'B', 'C', 'D'].includes(normAns) ? normAns : 'A';
+        const validMarks = parseInt(marks, 10) || 1;
+
+        const insertSql = `
+            INSERT INTO questions (class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+
+        const result = await dbRun(insertSql, [
+            targetClass || null,
+            normSubject,
+            question_text,
+            option_a,
+            option_b,
+            option_c,
+            option_d,
+            validAns,
+            validMarks,
+            diagram_image_url || null
+        ]);
+
+        const qId = result.lastID;
+        if (qId) {
+            const optionInsertSql = `
+                INSERT INTO question_options (question_id, option_key, option_text, is_correct)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(question_id, option_key) DO UPDATE SET option_text = excluded.option_text, is_correct = excluded.is_correct;
+            `;
+            const opts = [
+                { key: 'A', text: option_a, is_correct: validAns === 'A' ? 1 : 0 },
+                { key: 'B', text: option_b, is_correct: validAns === 'B' ? 1 : 0 },
+                { key: 'C', text: option_c, is_correct: validAns === 'C' ? 1 : 0 },
+                { key: 'D', text: option_d, is_correct: validAns === 'D' ? 1 : 0 }
+            ];
+            for (const opt of opts) {
+                await dbRun(optionInsertSql, [qId, opt.key, opt.text, opt.is_correct]);
+            }
+        }
+
+        return res.status(201).json({
+            success: true,
+            message: "Question created successfully.",
+            question_id: qId
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
+// --------------------------------------------------------------------------
+// 10. DELETE /api/admin/questions/:id (Delete Single Question)
+// --------------------------------------------------------------------------
+router.delete('/questions/:id', async (req, res, next) => {
+    try {
+        const qId = req.params.id;
+        await dbRun(`DELETE FROM question_options WHERE question_id = ?`, [qId]);
+        await dbRun(`DELETE FROM questions WHERE id = ?`, [qId]);
+        return res.json({
+            success: true,
+            message: `Question #${qId} deleted successfully.`
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
+// --------------------------------------------------------------------------
+// 11. POST / DELETE /api/admin/questions/clear-subject
+// Clears all questions and diagram assets for a given class & subject scope
+// --------------------------------------------------------------------------
+const handleClearSubjectQuestions = async (req, res, next) => {
+    try {
+        const reqClass = req.body.class || req.query.class || req.body.class_id || req.query.class_id;
+        const reqSubject = req.body.subject || req.query.subject || req.body.subject_id || req.query.subject_id;
+
+        if (!reqClass || !reqSubject) {
+            return res.status(400).json({
+                success: false,
+                message: "class and subject parameters are required."
+            });
+        }
+
+        const normalizedSubject = normalizeSubjectName(reqSubject);
+        const trimmedClass = String(reqClass).trim();
+
+        // 1. Fetch diagram files before deleting questions to clean disk assets
+        const findDiagramsSql = `
+            SELECT diagram_image_url FROM questions 
+            WHERE LOWER(subject) = LOWER(?) 
+            AND LOWER(class) = LOWER(?)
+        `;
+        const questionRows = await dbAll(findDiagramsSql, [normalizedSubject, trimmedClass]);
+
+        let removedDiagramsCount = 0;
+        for (const row of questionRows) {
+            if (row.diagram_image_url) {
+                const basename = path.basename(row.diagram_image_url);
+                const filePaths = [
+                    path.join(__dirname, 'public/uploads/diagrams', basename),
+                    path.join(__dirname, 'uploads/diagrams', basename)
+                ];
+                filePaths.forEach(fp => {
+                    if (fs.existsSync(fp)) {
+                        try {
+                            fs.unlinkSync(fp);
+                            removedDiagramsCount++;
+                        } catch (_) {}
+                    }
+                });
+            }
+        }
+
+        // 2. Delete question options and questions strictly matching class AND subject
+        const fetchQuestionIdsSql = `
+            SELECT id FROM questions 
+            WHERE LOWER(subject) = LOWER(?) 
+            AND LOWER(class) = LOWER(?)
+        `;
+        const qIdsRows = await dbAll(fetchQuestionIdsSql, [normalizedSubject, trimmedClass]);
+        const qIds = qIdsRows.map(r => r.id);
+
+        if (qIds.length > 0) {
+            const placeholders = qIds.map(() => '?').join(',');
+            await dbRun(`DELETE FROM question_options WHERE question_id IN (${placeholders})`, qIds);
+            await dbRun(`DELETE FROM questions WHERE id IN (${placeholders})`, qIds);
+        }
+
+        // Clean orphaned question options
+        await dbRun(`DELETE FROM question_options WHERE question_id NOT IN (SELECT id FROM questions)`);
+
+        // 3. Log audit action
+        await logAuditAction(
+            'ADMIN',
+            'CLEAR_SUBJECT_QUESTIONS',
+            `Cleared ${qIds.length} questions for ${trimmedClass} - ${normalizedSubject}`
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: `Question bank for ${trimmedClass} - ${normalizedSubject} successfully cleared.`,
+            deletedCount: qIds.length,
+            removedDiagramsCount: removedDiagramsCount
+        });
+    } catch (err) {
+        console.error('❌ [Clear Subject Questions Error]:', err);
+        next(err);
+    }
+};
+
+router.post('/questions/clear-subject', handleClearSubjectQuestions);
+router.delete('/questions/clear-subject', handleClearSubjectQuestions);
+
+// --------------------------------------------------------------------------
+// 12. POST / DELETE /api/admin/classes/reset-roster & /api/admin/classes/:classId/roster
+// Clears student records, assigned papers, and exam sessions strictly for target class
+// --------------------------------------------------------------------------
+const handleResetClassRoster = async (req, res, next) => {
+    try {
+        const targetClass = req.body.class || req.query.class || req.params.classId || req.body.class_id || req.body.classId;
+
+        if (!targetClass) {
+            return res.status(400).json({
+                success: false,
+                message: "class parameter is required."
+            });
+        }
+
+        const trimmedClass = String(targetClass).trim();
+
+        // Find candidate IDs matching strictly this target class
+        const students = await dbAll(
+            `SELECT id FROM students WHERE LOWER(class) = LOWER(?)`,
+            [trimmedClass]
+        );
+        const studentIds = students.map(s => s.id);
+
+        let deletedCount = studentIds.length;
+        if (studentIds.length > 0) {
+            const placeholders = studentIds.map(() => '?').join(',');
+            await dbRun(`DELETE FROM answers WHERE student_id IN (${placeholders})`, studentIds);
+            await dbRun(`DELETE FROM exam_sessions WHERE student_id IN (${placeholders})`, studentIds);
+            await dbRun(`DELETE FROM student_exam_sessions WHERE student_id IN (${placeholders})`, studentIds);
+            await dbRun(`DELETE FROM students WHERE id IN (${placeholders})`, studentIds);
+        }
+
+        await logAuditAction(
+            'ADMIN',
+            'RESET_CLASS_ROSTER',
+            `Reset student roster for ${trimmedClass} (${deletedCount} candidate profiles removed)`
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: `Student roster for ${trimmedClass} successfully cleared.`,
+            deletedCount: deletedCount
+        });
+    } catch (err) {
+        console.error('❌ [Reset Class Roster Error]:', err);
+        next(err);
+    }
+};
+
+router.post('/classes/reset-roster', handleResetClassRoster);
+router.delete('/classes/reset-roster', handleResetClassRoster);
+router.delete('/classes/:classId/roster', handleResetClassRoster);
+router.post('/classes/:classId/roster', handleResetClassRoster);
+
+// --------------------------------------------------------------------------
+// 13. POST /api/admin/system/purge-test-results
+// Purges active/trial exam session results (per-class or all classes)
+// --------------------------------------------------------------------------
+router.post('/system/purge-test-results', async (req, res, next) => {
+    try {
+        const { scope, target_class } = req.body;
+        const purgeScope = scope === 'CLASS' ? 'CLASS' : 'ALL';
+
+        let purgedCount = 0;
+
+        if (purgeScope === 'CLASS' && target_class && target_class !== 'ALL') {
+            const trimmedClass = target_class.trim();
+            const students = await dbAll(
+                `SELECT id FROM students WHERE LOWER(class) = LOWER(?)`,
+                [trimmedClass]
+            );
+            const studentIds = students.map(s => s.id);
+
+            if (studentIds.length > 0) {
+                const placeholders = studentIds.map(() => '?').join(',');
+                const run1 = await dbRun(`DELETE FROM answers WHERE student_id IN (${placeholders})`, studentIds);
+                const run2 = await dbRun(`DELETE FROM exam_sessions WHERE student_id IN (${placeholders})`, studentIds);
+                const run3 = await dbRun(`DELETE FROM student_exam_sessions WHERE student_id IN (${placeholders})`, studentIds);
+                purgedCount = (run2.changes || 0) + (run3.changes || 0);
+            }
+        } else {
+            const run1 = await dbRun(`DELETE FROM answers`);
+            const run2 = await dbRun(`DELETE FROM exam_sessions`);
+            const run3 = await dbRun(`DELETE FROM student_exam_sessions`);
+            purgedCount = (run2.changes || 0) + (run3.changes || 0);
+        }
+
+        await logAuditAction(
+            'ADMIN',
+            'PURGE_TEST_RESULTS',
+            `Purged ${purgeScope} trial exam submissions (${purgedCount} sessions cleared)`
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: purgeScope === 'CLASS'
+                ? `Trial exam submissions for ${target_class} successfully purged.`
+                : `All trial exam submissions across all classes successfully purged.`,
+            purgedCount: purgedCount
+        });
+    } catch (err) {
+        console.error('❌ [Purge Test Results Error]:', err);
+        next(err);
+    }
+});
+
+// --------------------------------------------------------------------------
+// 14. Real-Time Class Workstation & Exam Monitor Endpoint
+// GET /api/admin/live-monitor?class=...
+// --------------------------------------------------------------------------
+router.get('/live-monitor', async (req, res, next) => {
+    try {
+        const targetClass = String(req.query.class || req.query.class_name || req.query.currentClass || 'SS 1 Science').trim();
+        const baseTier = targetClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
+
+        // 1. Enrolled students for this class
+        const enrolledStudents = await dbAll(
+            `SELECT id, reg_number, registration_no, surname, first_name, class, assigned_subject 
+             FROM students 
+             WHERE LOWER(class) = LOWER(?) OR LOWER(class) = LOWER(?) OR LOWER(class) LIKE LOWER(?)`,
+            [targetClass, baseTier, `${baseTier} %`]
+        );
+        const enrolledCount = enrolledStudents.length;
+
+        // 2. Active student exam sessions for this class
+        const studentIds = enrolledStudents.map(s => s.id);
+        let activeSessions = [];
+        if (studentIds.length > 0) {
+            const placeholders = studentIds.map(() => '?').join(',');
+            activeSessions = await dbAll(
+                `SELECT ses.*, st.reg_number, st.surname, st.first_name, st.class as student_class
+                 FROM student_exam_sessions ses
+                 JOIN students st ON ses.student_id = st.id
+                 WHERE ses.student_id IN (${placeholders})
+                 ORDER BY ses.session_id DESC`,
+                studentIds
+            );
+        }
+
+        // Format metrics and session cards
+        let activeCount = 0;
+        let lockoutCount = 0;
+        let submittedCount = 0;
+
+        const sessionCards = activeSessions.map(ses => {
+            const isSubmitted = ses.status === 'SUBMITTED';
+            const isExpired = ses.status === 'EXPIRED';
+            const isLockout = ses.status === 'LOCKOUT_ALERT';
+            const isActive = ses.status === 'IN_PROGRESS';
+
+            if (isActive) activeCount++;
+            if (isLockout) lockoutCount++;
+            if (isSubmitted || isExpired) submittedCount++;
+
+            let deliveredCount = 0;
+            try {
+                const del = JSON.parse(ses.delivered_questions_json || '[]');
+                deliveredCount = Array.isArray(del) ? del.length : 0;
+            } catch (e) {}
+
+            let answeredCount = 0;
+            try {
+                const ans = JSON.parse(ses.selected_answers_json || '{}');
+                answeredCount = Object.keys(ans || {}).length;
+            } catch (e) {}
+
+            const sName = ses.first_name ? `${String(ses.surname).toUpperCase()}, ${ses.first_name}` : String(ses.surname).toUpperCase();
+
+            return {
+                id: ses.session_id,
+                session_id: ses.session_id,
+                student_id: ses.student_id,
+                studentName: sName,
+                regNo: ses.reg_number || ses.registration_no,
+                subject: ses.subject_name,
+                status: ses.status,
+                isLockout: isLockout,
+                lockoutReason: 'Focus Lost / Tab Switch Detected',
+                currentQuestion: answeredCount,
+                totalQuestions: deliveredCount || 30,
+                expiresAt: ses.expires_at,
+                startedAt: ses.started_at,
+                nodeName: `NODE-${String(ses.session_id).padStart(2, '0')}`
+            };
+        });
+
+        const idleCount = Math.max(0, enrolledCount - (activeCount + lockoutCount + submittedCount));
+
+        return res.status(200).json({
+            success: true,
+            class: targetClass,
+            metrics: {
+                enrolledCandidates: enrolledCount,
+                activeWorkstations: activeCount,
+                lockoutAlerts: lockoutCount,
+                submittedExams: submittedCount,
+                idleNodes: idleCount
+            },
+            sessions: sessionCards
+        });
+    } catch (err) {
+        console.error('❌ [Live Monitor API Error]:', err);
+        next(err);
+    }
+});
+
+// --------------------------------------------------------------------------
+// Live Workstation Admin Control Actions
+// --------------------------------------------------------------------------
+router.post('/live-monitor/extend-time', async (req, res, next) => {
+    try {
+        const { session_id, minutes = 5 } = req.body;
+        if (!session_id) {
+            return res.status(400).json({ success: false, message: 'session_id is required' });
+        }
+        await dbRun(
+            `UPDATE student_exam_sessions SET expires_at = datetime(expires_at, '+' || ? || ' minutes') WHERE session_id = ?`,
+            [minutes, session_id]
+        );
+        return res.status(200).json({ success: true, message: `Granted +${minutes}m extension to Session #${session_id}` });
+    } catch (err) {
+        next(err);
+    }
+});
+
+router.post('/live-monitor/force-submit', async (req, res, next) => {
+    try {
+        const { session_id } = req.body;
+        if (!session_id) {
+            return res.status(400).json({ success: false, message: 'session_id is required' });
+        }
+        await dbRun(
+            `UPDATE student_exam_sessions SET status = 'SUBMITTED' WHERE session_id = ?`,
+            [session_id]
+        );
+        return res.status(200).json({ success: true, message: `Exam session #${session_id} force submitted.` });
+    } catch (err) {
+        next(err);
+    }
+});
+
+router.post('/live-monitor/unlock', async (req, res, next) => {
+    try {
+        const { session_id } = req.body;
+        if (!session_id) {
+            return res.status(400).json({ success: false, message: 'session_id is required' });
+        }
+        await dbRun(
+            `UPDATE student_exam_sessions SET status = 'IN_PROGRESS' WHERE session_id = ?`,
+            [session_id]
+        );
+        return res.status(200).json({ success: true, message: `Security lockout reset for Session #${session_id}` });
+    } catch (err) {
+        next(err);
+    }
+});
+
+// --------------------------------------------------------------------------
+// 15. POST /api/admin/system/purge-production-data
+// Triggers full production database wipe (mock students, sessions, questions)
+// --------------------------------------------------------------------------
+const { purgeDatabase } = require('./scripts/purge_production_db');
+
+router.post('/system/purge-production-data', async (req, res, next) => {
+    try {
+        await purgeDatabase();
+        return res.status(200).json({
+            success: true,
+            message: "Production database successfully purged. 0 mock records remain."
+        });
+    } catch (err) {
+        console.error('❌ [Purge Production Data Error]:', err);
+        next(err);
     }
 });
 

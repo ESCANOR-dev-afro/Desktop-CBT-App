@@ -18,12 +18,9 @@ export default function AddStudentModal({
   const [gender, setGender] = useState('Male');
   const [selectedSubjects, setSelectedSubjects] = useState([]);
 
-  // Auto-generate clean 7-digit RegNo recommendation when class changes
+  // Auto-set preselected subjects when target class changes
   useEffect(() => {
-    const randomNum = Math.floor(1000000 + Math.random() * 9000000);
-    setRegNo(String(randomNum));
-
-    // Preselect all subjects belonging to this class or base tier
+    setRegNo('');
     const baseTier = studentClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
     const available = subjectsByClass[studentClass] || subjectsByClass[baseTier] || [];
     setSelectedSubjects(available.map((s) => s.name));
@@ -39,17 +36,19 @@ export default function AddStudentModal({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!surname.trim() || !firstName.trim() || !regNo.trim()) return;
+    if (!surname.trim() || !firstName.trim()) return;
 
-    const sName = surname.trim();
+    const sName = surname.trim().toUpperCase();
     const fName = firstName.trim();
     const displayName = `${sName}, ${fName}`;
 
     const newStudent = {
       id: `STU-${Date.now()}`,
-      regNo: regNo.trim(),
+      regNo: regNo.trim().toUpperCase(),
+      reg_number: regNo.trim().toUpperCase(),
       surname: sName,
       firstName: fName,
+      first_name: fName,
       name: displayName,
       class: studentClass,
       gender,
@@ -61,6 +60,7 @@ export default function AddStudentModal({
     onAddStudent(newStudent);
     setSurname('');
     setFirstName('');
+    setRegNo('');
     onClose();
   };
 
@@ -81,8 +81,8 @@ export default function AddStudentModal({
               />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-100">Register CBT Candidate</h3>
-              <p className="text-xs text-slate-400">Anthony White Bridge Academy • Class Enrollment</p>
+              <h3 className="text-base font-bold text-slate-100">Enroll New Candidate</h3>
+              <p className="text-xs text-slate-400">Anthony Whitebridge Academy • Class Enrollment</p>
             </div>
           </div>
           <button
@@ -104,41 +104,40 @@ export default function AddStudentModal({
               <select
                 value={studentClass}
                 onChange={(e) => setStudentClass(e.target.value)}
-                className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-bold"
+                className="w-full bg-slate-950 border border-darkBorder text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-bold shadow-sm"
               >
-                <optgroup label="Junior Secondary Arms">
-                  <option value="JSS 1 Gold">JSS 1 Gold</option>
-                  <option value="JSS 1 Silver">JSS 1 Silver</option>
-                  <option value="JSS 1 Diamond">JSS 1 Diamond</option>
-                  <option value="JSS 2 Gold">JSS 2 Gold</option>
-                  <option value="JSS 2 Silver">JSS 2 Silver</option>
-                  <option value="JSS 2 Diamond">JSS 2 Diamond</option>
-                  <option value="JSS 3 Gold">JSS 3 Gold</option>
-                  <option value="JSS 3 Silver">JSS 3 Silver</option>
-                  <option value="JSS 3 Diamond">JSS 3 Diamond</option>
+                <optgroup label="Junior Secondary Arms" className="bg-slate-900 text-slate-400 font-bold">
+                  <option value="JSS 1 Gold" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 1 Gold</option>
+                  <option value="JSS 1 Silver" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 1 Silver</option>
+                  <option value="JSS 1 Diamond" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 1 Diamond</option>
+                  <option value="JSS 2 Gold" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 2 Gold</option>
+                  <option value="JSS 2 Silver" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 2 Silver</option>
+                  <option value="JSS 2 Diamond" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 2 Diamond</option>
+                  <option value="JSS 3 Gold" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 3 Gold</option>
+                  <option value="JSS 3 Silver" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 3 Silver</option>
+                  <option value="JSS 3 Diamond" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 3 Diamond</option>
                 </optgroup>
-                <optgroup label="Senior Secondary Streams">
-                  <option value="SS 1 Science">SS 1 Science</option>
-                  <option value="SS 1 Art">SS 1 Art</option>
-                  <option value="SS 1 Commercial">SS 1 Commercial</option>
-                  <option value="SS 2 Science">SS 2 Science</option>
-                  <option value="SS 2 Art">SS 2 Art</option>
-                  <option value="SS 2 Commercial">SS 2 Commercial</option>
-                  <option value="SS 3 Science">SS 3 Science</option>
-                  <option value="SS 3 Art">SS 3 Art</option>
-                  <option value="SS 3 Commercial">SS 3 Commercial</option>
+                <optgroup label="Senior Secondary Streams" className="bg-slate-900 text-slate-400 font-bold">
+                  <option value="SS 1 Science" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 1 Science</option>
+                  <option value="SS 1 Art" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 1 Art</option>
+                  <option value="SS 1 Commercial" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 1 Commercial</option>
+                  <option value="SS 2 Science" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 2 Science</option>
+                  <option value="SS 2 Art" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 2 Art</option>
+                  <option value="SS 2 Commercial" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 2 Commercial</option>
+                  <option value="SS 3 Science" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 3 Science</option>
+                  <option value="SS 3 Art" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 3 Art</option>
+                  <option value="SS 3 Commercial" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 3 Commercial</option>
                 </optgroup>
               </select>
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                CBT Registration Number (7-Digit) *
+                Registration Number (Optional)
               </label>
               <input
                 type="text"
-                required
-                placeholder="e.g. 1009001"
+                placeholder="Auto-assigned (e.g. AWA26270051) or enter custom ID"
                 value={regNo}
                 onChange={(e) => setRegNo(e.target.value)}
                 className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-mono font-bold text-brand"
@@ -184,10 +183,10 @@ export default function AddStudentModal({
             <select
               value={gender}
               onChange={(e) => setGender(e.target.value)}
-              className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+              className="w-full bg-slate-950 border border-darkBorder text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-bold shadow-sm"
             >
-              <option value="Male">Male</option>
-              <option value="Female">Female</option>
+              <option value="Male" className="bg-slate-900 text-slate-100 py-1 font-medium">Male</option>
+              <option value="Female" className="bg-slate-900 text-slate-100 py-1 font-medium">Female</option>
             </select>
           </div>
 

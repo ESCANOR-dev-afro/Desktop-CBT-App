@@ -98,12 +98,18 @@ class _ExamScreenState extends State<ExamScreen> {
     });
 
     try {
-      final encodedSubject = Uri.encodeComponent(_assignedSubject.trim());
-      final url = ApiConfig.getUri(_serverIp, '/exam/questions/$encodedSubject', queryParameters: {
-        if (_studentClass.isNotEmpty) 'class': _studentClass.trim(),
-      });
-
-      final response = await http.get(url).timeout(const Duration(seconds: 10));
+      final url = ApiConfig.getUri(_serverIp, '/student/exam/start');
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'student_id': _studentId,
+              'subject': _assignedSubject.trim(),
+              if (_studentClass.isNotEmpty) 'class': _studentClass.trim(),
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -115,14 +121,31 @@ class _ExamScreenState extends State<ExamScreen> {
             _durationMinutes = (data['duration_minutes'] as num).toInt();
           }
 
-          // Restore locally cached answers if session was interrupted
+          int timerSeconds = _durationMinutes * 60;
+          if (data['duration_seconds'] != null) {
+            timerSeconds = (data['duration_seconds'] as num).toInt();
+          }
+
+          // Restore server-persisted selected answers
+          if (data['selected_answers'] != null && data['selected_answers'] is Map) {
+            final Map selMap = data['selected_answers'];
+            selMap.forEach((k, v) {
+              final qId = int.tryParse(k.toString());
+              if (qId != null && v != null) {
+                _userAnswers[qId] = v.toString();
+              }
+            });
+          }
+
+          // Restore locally cached answers as secondary backup
           await _restoreCachedAnswers();
 
           if (mounted) {
             setState(() {
               _isLoadingQuestions = false;
+              _secondsRemaining = timerSeconds;
             });
-            _startExamTimer(_durationMinutes);
+            _startExamTimerSeconds(timerSeconds);
           }
           return;
         }
@@ -142,6 +165,27 @@ class _ExamScreenState extends State<ExamScreen> {
         });
       }
     }
+  }
+
+  void _startExamTimerSeconds(int totalSeconds) {
+    _examTimer?.cancel();
+    _secondsRemaining = totalSeconds;
+
+    _examTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+
+      if (_secondsRemaining <= 1) {
+        timer.cancel();
+        setState(() {
+          _secondsRemaining = 0;
+        });
+        _submitExamToBackend(isAutoSubmitted: true);
+      } else {
+        setState(() {
+          _secondsRemaining--;
+        });
+      }
+    });
   }
 
   // ===========================================================================
@@ -291,18 +335,15 @@ class _ExamScreenState extends State<ExamScreen> {
 
   Future<void> _sendBackgroundAutosave(int questionId, String option) async {
     try {
-      final url = ApiConfig.getUri(_serverIp, '/exam/autosave');
-      await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'student_id': _studentId,
-          'question_id': questionId,
-          'selected_option': option,
-        }),
-      ).timeout(const Duration(seconds: 4));
+      await AuthService.saveExamProgress(
+        serverIp: _serverIp,
+        sessionId: widget.sessionId,
+        studentId: _studentId,
+        selectedAnswers: _userAnswers,
+        questionId: questionId,
+        selectedOption: option,
+      );
     } catch (e) {
-      // Silent failover - answer is safely stored in local device cache
       debugPrint('Background autosave network retry pending: $e');
     }
   }
@@ -348,7 +389,7 @@ class _ExamScreenState extends State<ExamScreen> {
                 'Are you sure you want to submit your test paper? You cannot change your answers after submission.',
                 style: TextStyle(fontSize: 14, color: AppTheme.darkCharcoal, height: 1.4),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -359,20 +400,23 @@ class _ExamScreenState extends State<ExamScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
+                    _buildSummaryStatItem('Total Questions', totalCount, AppTheme.darkCharcoal),
                     _buildSummaryStatItem('Answered', answeredCount, Colors.green),
-                    Container(height: 36, width: 1, color: AppTheme.borderGrey),
-                    _buildSummaryStatItem('Unanswered', unansweredCount, unansweredCount > 0 ? AppTheme.errorRed : AppTheme.textSecondary),
-                    Container(height: 36, width: 1, color: AppTheme.borderGrey),
-                    _buildSummaryStatItem('Total', totalCount, AppTheme.darkCharcoal),
+                    _buildSummaryStatItem('Unanswered', unansweredCount, AppTheme.primaryOrange),
                   ],
                 ),
               ),
             ],
           ),
+          actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
           actions: [
-            TextButton(
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('CANCEL & REVIEW', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
+              child: const Text('CONTINUE TEST', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
             ),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
@@ -419,6 +463,9 @@ class _ExamScreenState extends State<ExamScreen> {
     });
 
     try {
+      final formattedUserAnswers = <String, String>{};
+      _userAnswers.forEach((k, v) => formattedUserAnswers[k.toString()] = v);
+
       final url = ApiConfig.getUri(_serverIp, '/exam/submit');
       final response = await http
           .post(
@@ -427,6 +474,7 @@ class _ExamScreenState extends State<ExamScreen> {
             body: jsonEncode({
               'student_id': _studentId,
               'session_id': widget.sessionId,
+              'user_answers': formattedUserAnswers,
             }),
           )
           .timeout(const Duration(seconds: 10));
@@ -558,6 +606,183 @@ class _ExamScreenState extends State<ExamScreen> {
     );
   }
 
+  String? _getDiagramUrl(Map<String, dynamic> question) {
+    final rawUrl = question['diagram_image_url'] ??
+                   question['diagram_filename'] ??
+                   question['diagram_url'] ??
+                   question['diagram'];
+
+    if (rawUrl == null || rawUrl.toString().trim().isEmpty) {
+      return null;
+    }
+
+    final pathStr = rawUrl.toString().trim();
+    if (pathStr.startsWith('http://') || pathStr.startsWith('https://')) {
+      return pathStr;
+    }
+
+    final cleanPath = pathStr.startsWith('/') ? pathStr : '/$pathStr';
+    final serverBase = ApiConfig.getBaseUrl(_serverIp).replaceAll('/api', '');
+    return '$serverBase$cleanPath';
+  }
+
+  void _showDiagramLightboxModal(String fullImageUrl) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(16),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 1000, maxHeight: 800),
+            decoration: BoxDecoration(
+              color: AppTheme.darkCharcoal,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppTheme.primaryOrange, width: 2),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  blurRadius: 20,
+                  spreadRadius: 4,
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Modal Header Bar
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.image_search_rounded, color: AppTheme.primaryOrange, size: 22),
+                          SizedBox(width: 10),
+                          Text(
+                            'Diagram Full-Size Inspection Lightbox',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                          ),
+                        ],
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        icon: const Icon(Icons.close_rounded, color: Colors.white, size: 24),
+                        tooltip: 'Close Modal',
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1, color: Colors.white24),
+                // Zoomable & Scrollable Image Viewer
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: InteractiveViewer(
+                      minScale: 0.5,
+                      maxScale: 4.0,
+                      child: Image.network(
+                        fullImageUrl,
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) => const Center(
+                          child: Text(
+                            'Failed to render full-size diagram',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDiagramWidget(String fullImageUrl) {
+    return InkWell(
+      onTap: () => _showDiagramLightboxModal(fullImageUrl),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(maxHeight: 240),
+        decoration: BoxDecoration(
+          color: AppTheme.backgroundGrey.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.borderGrey),
+        ),
+        padding: const EdgeInsets.all(8),
+        child: Stack(
+          children: [
+            Center(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.network(
+                  fullImageUrl,
+                  fit: BoxFit.contain,
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return const Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          color: AppTheme.primaryOrange,
+                          strokeWidth: 2,
+                        ),
+                      ),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    padding: const EdgeInsets.all(12),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.broken_image_rounded, color: AppTheme.textSecondary, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'Diagram asset unavailable',
+                          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                    SizedBox(width: 4),
+                    Text(
+                      'Click to Expand',
+                      style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ===========================================================================
   // MAIN BUILD DISPATCHER
   // ===========================================================================
@@ -663,7 +888,7 @@ class _ExamScreenState extends State<ExamScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Anthony White Bridge Academy',
+                'Anthony Whitebridge Academy',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -786,93 +1011,95 @@ class _ExamScreenState extends State<ExamScreen> {
     return Row(
       children: [
         // ---------------------------------------------------------------------
-        // LEFT MAIN AREA: QUESTION TEXT & OPTIONS CARDS
+        // LEFT MAIN AREA: QUESTION TEXT, OPTIONS & NAVIGATION FOOTER SCROLLVIEW
         // ---------------------------------------------------------------------
         Expanded(
-          child: Container(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Top Indicator Header
-                Card(
-                  elevation: 0,
-                  color: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    side: const BorderSide(color: AppTheme.borderGrey),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: AppTheme.primaryOrange,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                'Question ${_currentQuestionIndex + 1} of ${_questions.length}',
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+          child: Scrollbar(
+            thumbVisibility: true,
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Top Indicator Header
+                  Card(
+                    elevation: 0,
+                    color: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      side: const BorderSide(color: AppTheme.borderGrey),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primaryOrange,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  'Question ${_currentQuestionIndex + 1} of ${_questions.length}',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: selectedOption != null
-                                    ? Colors.green.withValues(alpha: 0.12)
-                                    : AppTheme.textSecondary.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    selectedOption != null ? Icons.check_circle : Icons.circle_outlined,
-                                    size: 14,
-                                    color: selectedOption != null ? Colors.green : AppTheme.textSecondary,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    selectedOption != null ? 'ANSWERED ($selectedOption)' : 'UNANSWERED',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
+                              const SizedBox(width: 12),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: selectedOption != null
+                                      ? Colors.green.withValues(alpha: 0.12)
+                                      : AppTheme.textSecondary.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      selectedOption != null ? Icons.check_circle : Icons.circle_outlined,
+                                      size: 14,
                                       color: selectedOption != null ? Colors.green : AppTheme.textSecondary,
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      selectedOption != null ? 'ANSWERED ($selectedOption)' : 'UNANSWERED',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: selectedOption != null ? Colors.green : AppTheme.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-
-                        Text(
-                          'SESSION #${widget.sessionId}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: AppTheme.textSecondary,
+                            ],
                           ),
-                        ),
-                      ],
+
+                          Text(
+                            'SESSION #${widget.sessionId}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
 
-                const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-                // Question Card & Options Scrollable Container
-                Expanded(
-                  child: Card(
+                  // Question Card & Options Container
+                  Card(
                     elevation: 4,
                     shadowColor: Colors.black.withValues(alpha: 0.06),
                     shape: RoundedRectangleBorder(
@@ -894,106 +1121,107 @@ class _ExamScreenState extends State<ExamScreen> {
                               letterSpacing: -0.2,
                             ),
                           ),
-                          const SizedBox(height: 24),
+                          const SizedBox(height: 16),
+
+                          // Render Diagram Asset if present on question (capped to 240px)
+                          if (_getDiagramUrl(currentQuestion) != null) ...[
+                            _buildDiagramWidget(_getDiagramUrl(currentQuestion)!),
+                            const SizedBox(height: 12),
+                          ],
+
                           const Divider(height: 1),
-                          const SizedBox(height: 24),
+                          const SizedBox(height: 16),
 
                           // Selectable Options List (A, B, C, D)
-                          Expanded(
-                            child: ListView(
-                              children: [
-                                _buildOptionCard(
-                                  questionId: questionId,
-                                  letter: 'A',
-                                  text: currentQuestion['option_a'] ?? '',
-                                  isSelected: selectedOption == 'A',
-                                ),
-                                const SizedBox(height: 14),
-                                _buildOptionCard(
-                                  questionId: questionId,
-                                  letter: 'B',
-                                  text: currentQuestion['option_b'] ?? '',
-                                  isSelected: selectedOption == 'B',
-                                ),
-                                const SizedBox(height: 14),
-                                _buildOptionCard(
-                                  questionId: questionId,
-                                  letter: 'C',
-                                  text: currentQuestion['option_c'] ?? '',
-                                  isSelected: selectedOption == 'C',
-                                ),
-                                const SizedBox(height: 14),
-                                _buildOptionCard(
-                                  questionId: questionId,
-                                  letter: 'D',
-                                  text: currentQuestion['option_d'] ?? '',
-                                  isSelected: selectedOption == 'D',
-                                ),
-                              ],
-                            ),
+                          _buildOptionCard(
+                            questionId: questionId,
+                            letter: 'A',
+                            text: currentQuestion['option_a'] ?? '',
+                            isSelected: selectedOption == 'A',
+                          ),
+                          const SizedBox(height: 14),
+                          _buildOptionCard(
+                            questionId: questionId,
+                            letter: 'B',
+                            text: currentQuestion['option_b'] ?? '',
+                            isSelected: selectedOption == 'B',
+                          ),
+                          const SizedBox(height: 14),
+                          _buildOptionCard(
+                            questionId: questionId,
+                            letter: 'C',
+                            text: currentQuestion['option_c'] ?? '',
+                            isSelected: selectedOption == 'C',
+                          ),
+                          const SizedBox(height: 14),
+                          _buildOptionCard(
+                            questionId: questionId,
+                            letter: 'D',
+                            text: currentQuestion['option_d'] ?? '',
+                            isSelected: selectedOption == 'D',
                           ),
                         ],
                       ),
                     ),
                   ),
-                ),
 
-                const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-                // Bottom Navigation Bar (Previous, Clear, Next)
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
-                        side: const BorderSide(color: AppTheme.borderGrey),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  // Bottom Navigation Bar (Previous, Clear, Next)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+                          side: const BorderSide(color: AppTheme.borderGrey),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: _currentQuestionIndex > 0
+                            ? () => setState(() => _currentQuestionIndex--)
+                            : null,
+                        icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                        label: const Text('PREVIOUS QUESTION', style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
-                      onPressed: _currentQuestionIndex > 0
-                          ? () => setState(() => _currentQuestionIndex--)
-                          : null,
-                      icon: const Icon(Icons.arrow_back_rounded, size: 18),
-                      label: const Text('PREVIOUS QUESTION', style: TextStyle(fontWeight: FontWeight.bold)),
-                    ),
 
-                    if (selectedOption != null)
-                      TextButton.icon(
-                        style: TextButton.styleFrom(foregroundColor: AppTheme.textSecondary),
+                      if (selectedOption != null)
+                        TextButton.icon(
+                          style: TextButton.styleFrom(foregroundColor: AppTheme.textSecondary),
+                          onPressed: () {
+                            setState(() {
+                              _userAnswers.remove(questionId);
+                            });
+                          },
+                          icon: const Icon(Icons.clear_rounded, size: 16),
+                          label: const Text('Clear Selection', style: TextStyle(fontSize: 13)),
+                        ),
+
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryOrange,
+                          padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
                         onPressed: () {
-                          setState(() {
-                            _userAnswers.remove(questionId);
-                          });
+                          if (_currentQuestionIndex < _questions.length - 1) {
+                            setState(() => _currentQuestionIndex++);
+                          } else {
+                            _promptManualSubmitConfirmation();
+                          }
                         },
-                        icon: const Icon(Icons.clear_rounded, size: 16),
-                        label: const Text('Clear Selection', style: TextStyle(fontSize: 13)),
+                        label: Text(
+                          _currentQuestionIndex < _questions.length - 1 ? 'NEXT QUESTION' : 'FINISH & SUBMIT',
+                          style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                        ),
+                        icon: Icon(
+                          _currentQuestionIndex < _questions.length - 1 ? Icons.arrow_forward_rounded : Icons.check_circle_rounded,
+                          size: 18,
+                        ),
                       ),
-
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primaryOrange,
-                        padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: () {
-                        if (_currentQuestionIndex < _questions.length - 1) {
-                          setState(() => _currentQuestionIndex++);
-                        } else {
-                          _promptManualSubmitConfirmation();
-                        }
-                      },
-                      label: Text(
-                        _currentQuestionIndex < _questions.length - 1 ? 'NEXT QUESTION' : 'FINISH & SUBMIT',
-                        style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
-                      ),
-                      icon: Icon(
-                        _currentQuestionIndex < _questions.length - 1 ? Icons.arrow_forward_rounded : Icons.check_circle_rounded,
-                        size: 18,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1438,7 +1666,7 @@ class _ExamScreenState extends State<ExamScreen> {
                           SizedBox(width: 14),
                           Expanded(
                             child: Text(
-                              'Thank you, Anthony White Bridge Academy student. Please raise your hand and wait quietly for your supervisor.',
+                              'Thank you, Anthony Whitebridge Academy student. Please raise your hand and wait quietly for your supervisor.',
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,

@@ -36,7 +36,7 @@ export default function App() {
 
   // Academic Term & Session State
   const [activeTerm, setActiveTerm] = useState('2nd Term');
-  const [academicSession, setAcademicSession] = useState('2025/2026');
+  const [academicSession, setAcademicSession] = useState('2026/2027');
 
   // Modals state
   const [isAddSubjectOpen, setIsAddSubjectOpen] = useState(false);
@@ -64,6 +64,18 @@ export default function App() {
         }
       })
       .catch((err) => console.log('Notice: Academic terms API load fallback active', err));
+  }, []);
+
+  // Fetch dynamic class subjects mapping from database on load
+  React.useEffect(() => {
+    fetch('/api/admin/class-subjects')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.classSubjects && Object.keys(data.classSubjects).length > 0) {
+          setSubjectsByClass(data.classSubjects);
+        }
+      })
+      .catch((err) => console.log('Notice: Class subjects API load fallback active', err));
   }, []);
 
   // Academic Term Switch Handler with Backend Auto-Persistence
@@ -202,22 +214,56 @@ export default function App() {
   // Bulk Excel Student Roster handler
   const handleUploadRosterSuccess = (targetClass, newStudentsList) => {
     const formatted = newStudentsList.map((s, idx) => ({
-      id: `STU-EXCEL-${Date.now()}-${idx}`,
+      id: s.id || `STU-EXCEL-${Date.now()}-${idx}`,
       regNo: s.reg_number || s.regNo,
       reg_number: s.reg_number || s.regNo,
       surname: String(s.surname).toUpperCase(),
       firstName: s.first_name || s.firstName || '',
       name: s.first_name ? `${String(s.surname).toUpperCase()}, ${s.first_name}` : String(s.surname).toUpperCase(),
       class: targetClass,
-      gender: 'Male/Female',
+      gender: 'Candidate',
       assignedSubjects: typeof s.assigned_subject === 'string' ? s.assigned_subject.split(/[,;]/).map(x => x.trim()) : (s.assignedSubjects || ['Mathematics']),
       assigned_subject: typeof s.assigned_subject === 'string' ? s.assigned_subject : 'Mathematics',
       status: 'Exam Ready',
       recentScore: 'N/A',
     }));
 
-    setStudents((prev) => [...formatted, ...prev]);
-    showToast(`Successfully populated roster for ${targetClass} with ${formatted.length} candidates!`, 'success');
+    setStudents((prev) => {
+      const existingRegs = new Set(formatted.map((x) => x.reg_number));
+      const filteredPrev = prev.filter((m) => !existingRegs.has(m.regNo || m.reg_number));
+      return [...formatted, ...filteredPrev];
+    });
+
+    showToast(`${formatted.length} Students successfully enrolled into ${targetClass}`, 'success');
+
+    // Trigger reactive re-fetch of students list from backend
+    fetch('/api/admin/students')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.students)) {
+          const reloaded = data.students.map((s) => {
+            const surnameUpper = String(s.surname || '').toUpperCase();
+            const fName = s.first_name || '';
+            return {
+              id: s.id,
+              regNo: s.reg_number,
+              reg_number: s.reg_number,
+              surname: surnameUpper,
+              firstName: fName,
+              first_name: fName,
+              name: fName ? `${surnameUpper}, ${fName}` : surnameUpper,
+              class: s.class,
+              gender: 'Candidate',
+              assignedSubjects: s.assigned_subject ? s.assigned_subject.split(/[,;]/).map((x) => x.trim()) : ['Mathematics'],
+              assigned_subject: s.assigned_subject || 'Mathematics',
+              status: 'Exam Ready',
+              recentScore: 'N/A',
+            };
+          });
+          setStudents(reloaded);
+        }
+      })
+      .catch((err) => console.log('Notice: Refreshing students after upload fallback', err));
   };
 
   // Question addition handler
@@ -264,6 +310,7 @@ export default function App() {
           activeTerm={activeTerm}
           academicSession={academicSession}
           onSelectAcademicTerm={handleSelectAcademicTerm}
+          onShowToast={showToast}
         />
 
         {/* Scrollable Viewport Content Area */}
@@ -286,6 +333,9 @@ export default function App() {
               <LiveResults
                 students={students}
                 classesList={classesList}
+                subjectsByClass={subjectsByClass}
+                activeTerm={activeTerm}
+                academicSession={academicSession}
                 onShowToast={showToast}
               />
             )}

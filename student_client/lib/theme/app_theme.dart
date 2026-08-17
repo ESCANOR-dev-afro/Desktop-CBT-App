@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  // Official Anthony White Bridge Academy Branding Colors
+  // Official Anthony Whitebridge Academy Branding Colors
   static const Color primaryOrange = Color(0xFFF96302);
   static const Color primaryOrangeHover = Color(0xFFE05500);
   static const Color backgroundGrey = Color(0xFFF4F6F9);

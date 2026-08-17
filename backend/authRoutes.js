@@ -77,26 +77,27 @@ function normalizeSubjectName(rawSubject) {
  */
 router.get('/subjects', async (req, res, next) => {
     try {
-        const activeSubjects = await dbAll(`SELECT name FROM subjects WHERE is_active = 1 ORDER BY name ASC`);
-        let subjectsList = activeSubjects.map(s => s.name);
+        const className = req.query.class || req.query.class_name || req.query.className;
+        let subjectsList = [];
+
+        if (className) {
+            const mapped = await dbAll(
+                `SELECT subject_name FROM class_subjects WHERE LOWER(class_name) = LOWER(?) ORDER BY id ASC`,
+                [String(className).trim()]
+            );
+            if (mapped && mapped.length > 0) {
+                subjectsList = mapped.map(m => m.subject_name);
+            }
+        }
 
         if (subjectsList.length === 0) {
-            const defaultSubjects = [
-                'Mathematics',
-                'English Language',
-                'Biology',
-                'Chemistry',
-                'Physics',
-                'Civic Education',
-                'Computer Studies',
-                'Economics',
-                'Government'
-            ];
-            subjectsList = defaultSubjects;
+            const activeSubjects = await dbAll(`SELECT name FROM subjects WHERE is_active = 1 ORDER BY name ASC`);
+            subjectsList = activeSubjects.map(s => s.name);
         }
 
         return res.status(200).json({
             success: true,
+            class: className || 'ALL',
             count: subjectsList.length,
             subjects: subjectsList
         });
@@ -108,51 +109,71 @@ router.get('/subjects', async (req, res, next) => {
 });
 
 /**
- * POST /api/login
+ * POST /api/student/login (Alias: /api/login)
  * 
- * Authenticates a student using reg_number & surname (UPPERCASE), checks session status,
- * and initializes or resumes an active exam session.
+ * Authenticates student using registration_no (normalized uppercase e.g. AWA26270042) & password/surname (UPPERCASE).
+ * Unique registration numbers prevent collisions between students sharing identical surnames.
  */
-router.post('/login', async (req, res, next) => {
+const handleStudentLogin = async (req, res, next) => {
     try {
-        const { reg_number, surname, workstation_ip } = req.body;
+        const { reg_number, registration_no, regNo, surname, password, workstation_ip } = req.body;
 
-        // Step a: Validate required fields
-        if (!reg_number || !surname) {
+        const rawReg = registration_no || reg_number || regNo;
+        const rawPass = password || surname;
+
+        if (!rawReg || !rawPass) {
             return res.status(400).json({
                 success: false,
-                message: "Registration number and surname are required."
+                message: "Registration number and surname/password are required."
             });
         }
 
-        // Step b: Convert surname & reg number with strict whitespace trimming & UPPERCASE normalization
-        const formattedRegNumber = String(reg_number).trim();
-        const formattedSurname = String(surname).trim().toUpperCase();
+        // Step a: Normalize registration_no to UPPERCASE (e.g., awa26270042 -> AWA26270042)
+        const formattedRegNumber = String(rawReg).trim().toUpperCase();
+        const formattedSurname = String(rawPass).trim().toUpperCase();
         const clientIp = workstation_ip || req.ip || '127.0.0.1';
 
-        // Step c: Query matching student record with TRIM & UPPERCASE normalization
+        // Step b: Query matching student record strictly by registration_no (guarantees collision safety)
         const studentSql = `
-            SELECT id, reg_number, surname, first_name, class, assigned_subject 
+            SELECT id, reg_number, registration_no, surname, first_name, class, assigned_subject, class_id, academic_term_id, password
             FROM students 
-            WHERE TRIM(UPPER(reg_number)) = TRIM(UPPER(?)) AND TRIM(UPPER(surname)) = TRIM(UPPER(?))
+            WHERE (TRIM(UPPER(COALESCE(registration_no, reg_number))) = ? OR TRIM(UPPER(reg_number)) = ?)
         `;
-        let student = await dbGet(studentSql, [formattedRegNumber, formattedSurname]);
+        let student = await dbGet(studentSql, [formattedRegNumber, formattedRegNumber]);
 
-        // Step d: If no student matches directly, run diagnostic check for admin logging
-        if (!student) {
-            const regCheckSql = `SELECT id, reg_number, surname FROM students WHERE TRIM(UPPER(reg_number)) = TRIM(UPPER(?))`;
-            const regMatch = await dbGet(regCheckSql, [formattedRegNumber]);
-            
-            if (regMatch) {
-                console.log(`⚠️ [Login Surname Mismatch]: Candidate Reg Number "${formattedRegNumber}" exists, but entered surname "${formattedSurname}" did not match DB surname "${regMatch.surname}".`);
-            } else {
-                console.log(`⚠️ [Login Unknown Reg Number]: Registration Number "${formattedRegNumber}" not found in database.`);
+        // Step c: If student found by reg_no, verify surname/password
+        if (student) {
+            const dbSurname = String(student.surname || '').trim().toUpperCase();
+            const crypto = require('crypto');
+            const passHash = crypto.createHash('sha256').update(formattedSurname).digest('hex');
+
+            const isSurnameMatch = dbSurname === formattedSurname;
+            const isPasswordMatch = student.password && (student.password === passHash || student.password === formattedSurname);
+
+            if (!isSurnameMatch && !isPasswordMatch) {
+                console.log(`⚠️ [Login Password Mismatch]: Candidate Reg Number "${formattedRegNumber}" exists, but entered password/surname "${formattedSurname}" did not match DB surname "${dbSurname}".`);
+                return res.status(401).json({
+                    success: false,
+                    message: "Invalid Registration Number or Surname/Password. Please check your details and try again."
+                });
             }
-
+        } else {
+            console.log(`⚠️ [Login Unknown Reg Number]: Registration Number "${formattedRegNumber}" not found in database.`);
             return res.status(401).json({
                 success: false,
                 message: "Invalid Registration Number or Surname. Please check your details and try again."
             });
+        }
+
+        // Step d: Resolve active academic term & class_id if null on student record
+        if (!student.academic_term_id) {
+            const activeTerm = await dbGet(`SELECT id FROM academic_terms WHERE is_current = 1 ORDER BY id DESC LIMIT 1`);
+            if (activeTerm) student.academic_term_id = activeTerm.id;
+        }
+
+        if (!student.class_id && student.class) {
+            const classRow = await dbGet(`SELECT id FROM classes WHERE LOWER(name) = LOWER(?)`, [student.class.trim()]);
+            if (classRow) student.class_id = classRow.id;
         }
 
         // Step e: Check for existing exam sessions for this student
@@ -166,7 +187,6 @@ router.post('/login', async (req, res, next) => {
         const existingSession = await dbGet(sessionCheckSql, [student.id]);
 
         if (existingSession) {
-            // Block login if exam already submitted or locked by administrator
             if (existingSession.status === 'submitted' || existingSession.is_locked === 1) {
                 return res.status(403).json({
                     success: false,
@@ -177,9 +197,40 @@ router.post('/login', async (req, res, next) => {
 
         let sessionId;
 
-        // Step f: Create new active session or update workstation IP on active session
+        // Step f: Check for unexpired active exam session in student_exam_sessions
+        let activeSessionObj = null;
+        const activeSesRow = await dbGet(
+            `SELECT * FROM student_exam_sessions WHERE student_id = ? AND status = 'IN_PROGRESS' ORDER BY session_id DESC LIMIT 1`,
+            [student.id]
+        );
+
+        if (activeSesRow) {
+            const now = new Date();
+            const expiresAt = new Date(activeSesRow.expires_at || (new Date(activeSesRow.started_at).getTime() + (activeSesRow.duration_minutes || 45) * 60 * 1000));
+            if (expiresAt.getTime() > now.getTime()) {
+                const remainingSeconds = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
+                let deliveredQuestions = [];
+                try { deliveredQuestions = JSON.parse(activeSesRow.delivered_questions_json || '[]'); } catch (_) {}
+                let selectedAnswers = {};
+                try { selectedAnswers = JSON.parse(activeSesRow.selected_answers_json || '{}'); } catch (_) {}
+
+                activeSessionObj = {
+                    session_id: activeSesRow.session_id,
+                    student_id: student.id,
+                    subject: activeSesRow.subject_name,
+                    class: activeSesRow.class_name || student.class,
+                    started_at: activeSesRow.started_at,
+                    expires_at: activeSesRow.expires_at,
+                    duration_minutes: activeSesRow.duration_minutes || 45,
+                    duration_seconds: remainingSeconds,
+                    delivered_questions: deliveredQuestions,
+                    selected_answers: selectedAnswers
+                };
+            }
+        }
+
+        // Create new active session or update workstation IP on active session
         if (existingSession && existingSession.status === 'active' && existingSession.is_locked === 0) {
-            // Resume existing active session
             sessionId = existingSession.id;
             const updateSessionSql = `
                 UPDATE exam_sessions 
@@ -187,16 +238,15 @@ router.post('/login', async (req, res, next) => {
                 WHERE id = ?
             `;
             await dbRun(updateSessionSql, [clientIp, sessionId]);
-            console.log(`🔑 [Session Resumed] Student ID ${student.id} resumed Session #${sessionId} from IP ${clientIp}`);
+            console.log(`🔑 [Session Resumed] Student ID ${student.id} (${student.registration_no || student.reg_number}) resumed Session #${sessionId} from IP ${clientIp}`);
         } else {
-            // Insert new session
             const insertSessionSql = `
-                INSERT INTO exam_sessions (student_id, workstation_ip, login_time, status, is_locked)
-                VALUES (?, ?, CURRENT_TIMESTAMP, 'active', 0)
+                INSERT INTO exam_sessions (student_id, workstation_ip, login_time, status, is_locked, term_id)
+                VALUES (?, ?, CURRENT_TIMESTAMP, 'active', 0, ?)
             `;
-            const result = await dbRun(insertSessionSql, [student.id, clientIp]);
+            const result = await dbRun(insertSessionSql, [student.id, clientIp, student.academic_term_id || null]);
             sessionId = result.lastID;
-            console.log(`🔑 [New Session Created] Student ID ${student.id} started Session #${sessionId} from IP ${clientIp}`);
+            console.log(`🔑 [New Session Created] Student ID ${student.id} (${student.registration_no || student.reg_number}) started Session #${sessionId} from IP ${clientIp}`);
         }
 
         // Step g: Return success response with student metadata & session_id
@@ -205,20 +255,28 @@ router.post('/login', async (req, res, next) => {
             message: "Login successful",
             student: {
                 id: student.id,
-                reg_number: student.reg_number,
+                reg_number: student.registration_no || student.reg_number,
+                registration_no: student.registration_no || student.reg_number,
                 surname: student.surname,
                 first_name: student.first_name || '',
                 class: student.class,
+                class_id: student.class_id || null,
+                academic_term_id: student.academic_term_id || null,
                 assigned_subject: student.assigned_subject
             },
-            session_id: sessionId
+            session_id: sessionId,
+            has_active_session: activeSessionObj !== null,
+            active_session: activeSessionObj
         });
 
     } catch (error) {
         console.error('❌ [Login Route Error]:', error);
         next(error);
     }
-});
+};
+
+router.post('/login', handleStudentLogin);
+router.post('/student/login', handleStudentLogin);
 
 /**
  * POST /api/student/verify-session
@@ -333,36 +391,57 @@ router.get('/student/:student_id/dashboard', async (req, res, next) => {
             activeSessions.map(s => s.subject ? s.subject.trim().toLowerCase() : '')
         );
 
-        // Parse student assigned subjects (supports comma or semicolon delimited list)
-        const rawAssigned = (student.assigned_subject || 'Mathematics').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+        // Fetch stream-isolated subjects for candidate's class from `class_subjects` mapping table
+        const mappedSubjectsRows = await dbAll(
+            `SELECT subject_name FROM class_subjects WHERE LOWER(class_name) = LOWER(?) ORDER BY id ASC`,
+            [String(student.class || '').trim()]
+        );
+        let streamSubjects = mappedSubjectsRows.map(m => m.subject_name);
 
-        // Standard default subjects list for CBT Portal Hub
-        const baseSubjects = [
-            'Mathematics',
-            'English Language',
-            'Biology',
-            'Chemistry',
-            'Physics',
-            'Computer Studies',
-            'Civic Education'
-        ];
+        // Fallback stream logic if class mapping isn't directly matched
+        if (streamSubjects.length === 0) {
+            const clsUpper = String(student.class || '').toUpperCase();
+            if (clsUpper.startsWith('JSS')) {
+                streamSubjects = [
+                    "English Language", "Mathematics", "Yoruba", "French", "Fine Art", "Music",
+                    "Basic Science", "Basic Technology", "PHE", "Digital Technology", "Social Studies",
+                    "Civic Education", "Home Economics", "Agricultural Science", "Business Studies", "History"
+                ];
+            } else if (clsUpper.includes('COMMERCIAL')) {
+                streamSubjects = ["Mathematics", "English Language", "Civic Education", "Further Mathematics", "Economics", "Digital Technology", "Account", "Commerce"];
+            } else if (clsUpper.includes('ART')) {
+                streamSubjects = ["Mathematics", "English Language", "Civic Education", "Economics", "Digital Technology", "Government", "CRS", "Literature in English"];
+            } else {
+                streamSubjects = ["Mathematics", "English Language", "Biology", "Chemistry", "Physics", "Civic Education", "Further Mathematics", "Economics", "Digital Technology", "Geography", "Agricultural Science"];
+            }
+        }
 
-        // Merge student specific assigned subjects with base subjects
+        // Parse candidate specific assigned subjects (if explicitly specified on candidate record)
+        const rawAssigned = (student.assigned_subject || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+
+        // Build stream-isolated subject set for this student
         const subjectSet = new Set();
-        rawAssigned.forEach(s => subjectSet.add(s));
-        baseSubjects.forEach(s => subjectSet.add(s));
+        const streamLowerSet = new Set(streamSubjects.map(s => s.toLowerCase()));
 
-        // Fetch subject activation states
-        const dbSubjects = await dbAll(`SELECT name, is_active FROM subjects`);
-        const activeSubjectMap = new Map();
-        dbSubjects.forEach(s => activeSubjectMap.set(s.name.toLowerCase(), s.is_active));
+        if (rawAssigned.length > 0) {
+            rawAssigned.forEach(s => {
+                if (streamLowerSet.has(s.toLowerCase())) {
+                    subjectSet.add(s);
+                }
+            });
+        }
 
-        // Format subjects with real-time status
-        const formattedSubjects = Array.from(subjectSet).map(subName => {
+        // Default to full allocated stream subjects if candidate specific list was empty or generic
+        if (subjectSet.size === 0) {
+            streamSubjects.forEach(s => subjectSet.add(s));
+        }
+
+        // Format subjects with class-isolated real-time status
+        const formattedSubjects = await Promise.all(Array.from(subjectSet).map(async (subName) => {
             const lowerName = subName.toLowerCase();
             const isCompleted = completedSubjects.has(lowerName);
             const isActive = activeSubjects.has(lowerName);
-            const isSubjectConfigActive = activeSubjectMap.has(lowerName) ? activeSubjectMap.get(lowerName) === 1 : true;
+            const isSubjectConfigActive = await isSubjectActiveForClass(student.class, subName);
 
             let status = 'available';
             let message = 'Ready to Start';
@@ -384,7 +463,7 @@ router.get('/student/:student_id/dashboard', async (req, res, next) => {
                 status: status, // 'available', 'active', 'completed', 'not_scheduled'
                 message: message
             };
-        });
+        }));
 
         return res.status(200).json({
             success: true,
@@ -401,6 +480,171 @@ router.get('/student/:student_id/dashboard', async (req, res, next) => {
 
     } catch (error) {
         console.error('❌ [Student Dashboard Route Error]:', error);
+        next(error);
+    }
+});
+
+/**
+ * Resolves active status for a specific class and subject combination.
+ */
+async function isSubjectActiveForClass(studentClass, subject) {
+    try {
+        const normSub = String(subject || '').trim();
+        if (studentClass) {
+            const normClass = String(studentClass).trim();
+            const classCfg = await dbGet(
+                `SELECT is_active FROM exam_configs WHERE LOWER(class) = LOWER(?) AND LOWER(subject) = LOWER(?)`,
+                [normClass, normSub]
+            );
+            if (classCfg && classCfg.is_active !== undefined && classCfg.is_active !== null) {
+                return classCfg.is_active === 1;
+            }
+
+            const baseTier = normClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
+            const tierCfg = await dbGet(
+                `SELECT is_active FROM exam_configs WHERE LOWER(class) = LOWER(?) AND LOWER(subject) = LOWER(?)`,
+                [baseTier, normSub]
+            );
+            if (tierCfg && tierCfg.is_active !== undefined && tierCfg.is_active !== null) {
+                return tierCfg.is_active === 1;
+            }
+        }
+
+        const generalCfg = await dbGet(
+            `SELECT is_active FROM exam_configs WHERE (class IS NULL OR TRIM(class) = '') AND LOWER(subject) = LOWER(?)`,
+            [normSub]
+        );
+        if (generalCfg && generalCfg.is_active !== undefined && generalCfg.is_active !== null) {
+            return generalCfg.is_active === 1;
+        }
+
+        const subRec = await dbGet(`SELECT is_active FROM subjects WHERE LOWER(name) = LOWER(?)`, [normSub]);
+        if (subRec && subRec.is_active !== undefined && subRec.is_active !== null) {
+            return subRec.is_active === 1;
+        }
+
+        return true;
+    } catch (e) {
+        return true;
+    }
+}
+
+// --------------------------------------------------------------------------
+// GET /api/student/assigned-papers
+// Returns class-isolated assigned exam papers for a student
+// --------------------------------------------------------------------------
+router.get('/student/assigned-papers', async (req, res, next) => {
+    try {
+        const studentId = req.query.student_id || req.query.studentId;
+        const regNo = req.query.registration_no || req.query.reg_number;
+
+        if (!studentId && !regNo) {
+            return res.status(400).json({ success: false, message: "student_id or registration_no required." });
+        }
+
+        let student;
+        if (studentId) {
+            student = await dbGet(`SELECT * FROM students WHERE id = ?`, [studentId]);
+        } else {
+            student = await dbGet(`SELECT * FROM students WHERE LOWER(registration_no) = LOWER(?) OR LOWER(reg_number) = LOWER(?)`, [regNo.trim(), regNo.trim()]);
+        }
+
+        if (!student) {
+            return res.status(404).json({ success: false, message: "Student not found." });
+        }
+
+        // Fetch completed and active sessions from both student_exam_sessions and legacy exam_sessions
+        const completedSessions = await dbAll(
+            `SELECT LOWER(subject_name) as subject FROM student_exam_sessions WHERE student_id = ? AND status = 'SUBMITTED'
+             UNION
+             SELECT LOWER(subject) as subject FROM exam_sessions WHERE student_id = ? AND status = 'submitted'`,
+            [student.id, student.id]
+        );
+        const completedSubjects = new Set(completedSessions.map(s => s.subject));
+
+        const activeSessions = await dbAll(
+            `SELECT LOWER(subject_name) as subject FROM student_exam_sessions WHERE student_id = ? AND status = 'IN_PROGRESS' AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+             UNION
+             SELECT LOWER(subject) as subject FROM exam_sessions WHERE student_id = ? AND status = 'active' AND is_locked = 0`,
+            [student.id, student.id]
+        );
+        const activeSubjects = new Set(activeSessions.map(s => s.subject));
+
+        let streamSubjects = [];
+        const studentClassUpper = (student.class || '').toUpperCase();
+        if (studentClassUpper.startsWith('JSS')) {
+            streamSubjects = ["Mathematics", "English Language", "Basic Science", "Basic Technology", "Civic Education", "Social Studies", "Agricultural Science", "Business Studies", "Home Economics", "Computer Studies / ICT"];
+        } else {
+            if (studentClassUpper.includes('SCIENCE')) {
+                streamSubjects = ["Mathematics", "English Language", "Biology", "Chemistry", "Physics", "Civic Education", "Further Mathematics", "Computer Studies / ICT", "Agricultural Science"];
+            } else if (studentClassUpper.includes('ART')) {
+                streamSubjects = ["Mathematics", "English Language", "Literature in English", "Government", "CRS / IRS", "Civic Education", "Economics", "History", "Computer Studies / ICT"];
+            } else if (studentClassUpper.includes('COMMERCIAL')) {
+                streamSubjects = ["Mathematics", "English Language", "Financial Accounting", "Commerce", "Economics", "Civic Education", "Office Practice", "Computer Studies / ICT"];
+            } else {
+                streamSubjects = ["Mathematics", "English Language", "Biology", "Chemistry", "Physics", "Civic Education", "Further Mathematics", "Economics", "Computer Studies / ICT"];
+            }
+        }
+
+        const rawAssigned = (student.assigned_subject || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+        const subjectSet = new Set();
+        if (rawAssigned.length > 0) {
+            rawAssigned.forEach(s => subjectSet.add(s));
+        } else {
+            streamSubjects.forEach(s => subjectSet.add(s));
+        }
+
+        activeSessions.forEach(s => {
+            if (s.subject) {
+                const formatted = s.subject.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+                subjectSet.add(formatted);
+            }
+        });
+        completedSessions.forEach(s => {
+            if (s.subject) {
+                const formatted = s.subject.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+                subjectSet.add(formatted);
+            }
+        });
+
+        const papers = await Promise.all(Array.from(subjectSet).map(async (subName) => {
+            const lowerName = subName.toLowerCase();
+            const isCompleted = completedSubjects.has(lowerName);
+            const isActive = activeSubjects.has(lowerName);
+            const isSubjectConfigActive = await isSubjectActiveForClass(student.class, subName);
+
+            let status = 'available';
+            let message = 'Ready to Start';
+
+            if (!isSubjectConfigActive) {
+                status = 'not_scheduled';
+                message = 'Exam paper is currently inactive / disabled by administrator.';
+            } else if (isCompleted) {
+                status = 'completed';
+                message = 'Exam Completed';
+            } else if (isActive) {
+                status = 'active';
+                message = 'Session Active (In Progress)';
+            }
+
+            return {
+                subject: subName,
+                class: student.class,
+                is_active: isSubjectConfigActive,
+                status: status,
+                message: message
+            };
+        }));
+
+        return res.status(200).json({
+            success: true,
+            student_id: student.id,
+            class: student.class,
+            papers: papers
+        });
+
+    } catch (error) {
+        console.error('❌ [Get Assigned Papers Error]:', error);
         next(error);
     }
 });

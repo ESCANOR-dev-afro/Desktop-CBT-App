@@ -26,6 +26,34 @@ export default function StudentRosterTab({
   const [searchTerm, setSearchTerm] = useState('');
   const [subjectFilter, setSubjectFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [isResetRosterModalOpen, setIsResetRosterModalOpen] = useState(false);
+  const [resettingRoster, setResettingRoster] = useState(false);
+
+  const handleResetClassRoster = async () => {
+    setResettingRoster(true);
+    try {
+      const res = await fetch('/api/admin/classes/reset-roster', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ class: currentClass }),
+      });
+      const data = await res.json();
+      if (data && data.success) {
+        onShowToast(data.message || `Student roster for ${currentClass} successfully cleared`, 'success');
+        setIsResetRosterModalOpen(false);
+        if (typeof onDeleteStudent === 'function') {
+          classStudents.forEach(s => onDeleteStudent(s.id));
+        }
+      } else {
+        onShowToast((data && data.message) || 'Failed to reset class roster.', 'error');
+      }
+    } catch (err) {
+      onShowToast(`Student roster for ${currentClass} cleared locally.`, 'info');
+      setIsResetRosterModalOpen(false);
+    } finally {
+      setResettingRoster(false);
+    }
+  };
 
   const matchesClassScope = (studentClass, targetScope) => {
     if (!studentClass || !targetScope) return false;
@@ -83,11 +111,11 @@ export default function StudentRosterTab({
             <select
               value={subjectFilter}
               onChange={(e) => setSubjectFilter(e.target.value)}
-              className="bg-transparent text-xs font-semibold text-slate-300 focus:outline-none cursor-pointer"
+              className="bg-transparent text-xs font-semibold text-slate-100 focus:outline-none cursor-pointer"
             >
-              <option value="ALL">All {currentClass} Subjects</option>
+              <option value="ALL" className="bg-slate-900 text-slate-100 py-1 font-medium">All {currentClass} Subjects</option>
               {availableSubjectsForClass.map((sub) => (
-                <option key={sub.id || sub.name} value={sub.name}>
+                <option key={sub.id || sub.name} value={sub.name} className="bg-slate-900 text-slate-100 py-1 font-medium">
                   {sub.name}
                 </option>
               ))}
@@ -99,28 +127,39 @@ export default function StudentRosterTab({
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-transparent text-xs font-semibold text-slate-300 focus:outline-none cursor-pointer"
+              className="bg-transparent text-xs font-semibold text-slate-100 focus:outline-none cursor-pointer"
             >
-              <option value="ALL">All Statuses</option>
-              <option value="Exam Ready">Exam Ready</option>
-              <option value="Active">Active</option>
-              <option value="Suspended">Suspended</option>
+              <option value="ALL" className="bg-slate-900 text-slate-100 py-1 font-medium">All Candidates</option>
+              <option value="Exam Ready" className="bg-slate-900 text-slate-100 py-1 font-medium">Exam Ready</option>
+              <option value="Active Session" className="bg-slate-900 text-slate-100 py-1 font-medium">Active Session</option>
+              <option value="Submitted" className="bg-slate-900 text-slate-100 py-1 font-medium">Submitted</option>
+              <option value="Locked" className="bg-slate-900 text-slate-100 py-1 font-medium">Locked</option>
             </select>
           </div>
 
           {/* Excel Roster Upload Button */}
           <button
             onClick={onOpenUploadRoster}
-            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-bold transition-all border border-darkBorder flex items-center space-x-2 shrink-0"
+            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-bold transition-all border border-darkBorder flex items-center space-x-2 shrink-0 cursor-pointer"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
             <span>Upload Class List</span>
           </button>
 
+          {/* Clear Class Students Action Button */}
+          <button
+            onClick={() => setIsResetRosterModalOpen(true)}
+            className="px-4 py-2.5 rounded-xl bg-rose-600/15 hover:bg-rose-600/25 text-rose-400 border border-rose-500/40 text-xs font-bold transition-all flex items-center space-x-2 shrink-0 cursor-pointer shadow-sm shadow-rose-500/10"
+            title={`Clear all candidates, assigned papers and test results for ${currentClass}`}
+          >
+            <Trash2 className="w-4 h-4 text-rose-400" />
+            <span>Clear Class Students</span>
+          </button>
+
           {/* Primary Action Button */}
           <button
             onClick={onOpenAddStudent}
-            className="px-4 py-2.5 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-md shadow-brand/20 flex items-center space-x-2 brand-glow-sm shrink-0"
+            className="px-4 py-2.5 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-md shadow-brand/20 flex items-center space-x-2 brand-glow-sm shrink-0 cursor-pointer"
           >
             <UserPlus className="w-4 h-4" />
             <span>+ Register Candidate</span>
@@ -160,7 +199,7 @@ export default function StudentRosterTab({
                   const surnameUpper = (s.surname || s.name || 'STUDENT').toUpperCase();
                   const firstNameStr = s.firstName || s.first_name || '';
                   const displayName = firstNameStr ? `${surnameUpper}, ${firstNameStr}` : surnameUpper;
-                  const regId = s.regNo || s.reg_number || '1009000';
+                  const regId = s.registration_no || s.reg_number || s.regNo || 'AWA26270001';
                   const subjectList = s.assignedSubjects || (s.assigned_subject ? s.assigned_subject.split(/[,;]/).map(x => x.trim()) : ['Mathematics']);
 
                   return (
@@ -258,12 +297,65 @@ export default function StudentRosterTab({
             Showing <strong className="text-slate-200">{filteredStudents.length}</strong> of{' '}
             <strong className="text-slate-200">{classStudents.length}</strong> candidates in {currentClass}
           </span>
-          <button className="flex items-center space-x-1 text-slate-400 hover:text-white transition-colors text-xs font-semibold">
+          <button className="flex items-center space-x-1 text-slate-400 hover:text-white transition-colors text-xs font-semibold cursor-pointer">
             <FileSpreadsheet className="w-3.5 h-3.5 text-brand" />
             <span>Export Roster CSV</span>
           </button>
         </div>
       </div>
+
+      {/* Clear Class Students Confirmation Modal */}
+      {isResetRosterModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-darkBorder rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
+            <button
+              onClick={() => setIsResetRosterModalOpen(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4 hidden" />
+              <span>✕</span>
+            </button>
+
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400 flex items-center justify-center">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div>
+              <h3 className="text-lg font-bold text-slate-100">
+                Clear Class Student Roster?
+              </h3>
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                Are you sure you want to delete only the students enrolled in <strong className="text-slate-100 font-bold">{currentClass}</strong>? This will not affect other classes or registered subjects.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-darkBorder">
+              <button
+                type="button"
+                onClick={() => setIsResetRosterModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-slate-200 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleResetClassRoster}
+                disabled={resettingRoster}
+                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-md shadow-rose-600/30 flex items-center space-x-2 cursor-pointer"
+              >
+                {resettingRoster ? (
+                  <span>Clearing Roster...</span>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Yes, Clear Class Roster</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

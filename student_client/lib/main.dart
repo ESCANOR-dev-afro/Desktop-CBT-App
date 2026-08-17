@@ -6,6 +6,54 @@ import 'theme/app_theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Global Error Boundary to prevent blank white screens on runtime/rendering errors
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
+      home: Scaffold(
+        backgroundColor: AppTheme.darkCharcoal,
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.warning_amber_rounded, size: 56, color: AppTheme.primaryOrange),
+                const SizedBox(height: 16),
+                const Text(
+                  'CBT Portal Initialization Notice',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  details.exceptionAsString(),
+                  textAlign: TextAlign.center,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, color: Colors.white70),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryOrange,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  ),
+                  icon: const Icon(Icons.refresh, color: Colors.white),
+                  label: const Text('RESET & RETRY', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  onPressed: () {
+                    AuthService.logout();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  };
+
   runApp(const CBTStudentApp());
 }
 
@@ -68,10 +116,14 @@ class _CBTStudentAppState extends State<CBTStudentApp> {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('⚠️ Error checking active session: $e');
+    }
 
     // Explicitly purge stale local storage tokens when verification fails
-    await AuthService.logout();
+    try {
+      await AuthService.logout();
+    } catch (_) {}
 
     if (mounted) {
       setState(() {
@@ -85,7 +137,7 @@ class _CBTStudentAppState extends State<CBTStudentApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Anthony White Bridge Academy CBT Portal',
+      title: 'Anthony Whitebridge Academy CBT Portal',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       home: _isLoadingSession

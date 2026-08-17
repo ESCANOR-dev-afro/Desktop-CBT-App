@@ -19,6 +19,8 @@ class AuthResult {
   final String? errorMessage;
   final Map<String, dynamic>? studentData;
   final int? sessionId;
+  final bool hasActiveSession;
+  final Map<String, dynamic>? activeSession;
 
   AuthResult({
     required this.success,
@@ -26,6 +28,8 @@ class AuthResult {
     this.errorMessage,
     this.studentData,
     this.sessionId,
+    this.hasActiveSession = false,
+    this.activeSession,
   });
 }
 
@@ -37,7 +41,7 @@ class AuthService {
     required String surname,
   }) async {
     try {
-      final url = ApiConfig.getUri(serverIp, '/login');
+      final url = ApiConfig.getUri(serverIp, '/student/login');
 
       // Attempt to get workstation hostname / IP (web safe)
       String workstationIdentifier = 'Web Workstation';
@@ -52,8 +56,10 @@ class AuthService {
             url,
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({
-              'reg_number': regNumber.trim(),
+              'registration_no': regNumber.trim().toUpperCase(),
+              'reg_number': regNumber.trim().toUpperCase(),
               'surname': surname.trim().toUpperCase(),
+              'password': surname.trim().toUpperCase(),
               'workstation_ip': workstationIdentifier,
             }),
           )
@@ -64,6 +70,8 @@ class AuthService {
       if (response.statusCode == 200 && data['success'] == true) {
         final student = data['student'] as Map<String, dynamic>;
         final sessionId = data['session_id'] as int;
+        final hasActiveSession = data['has_active_session'] == true;
+        final activeSession = data['active_session'] as Map<String, dynamic>?;
 
         // Persist session & student data locally in SharedPreferences
         final prefs = await SharedPreferences.getInstance();
@@ -79,6 +87,8 @@ class AuthService {
           success: true,
           studentData: student,
           sessionId: sessionId,
+          hasActiveSession: hasActiveSession,
+          activeSession: activeSession,
         );
       } else if (response.statusCode == 403 || (data['message'] != null && data['message'].toString().toLowerCase().contains('already'))) {
         return AuthResult(
@@ -108,10 +118,16 @@ class AuthService {
     }
   }
 
-  /// Dynamically fetches available exam subjects from backend GET /api/subjects
-  static Future<List<String>> fetchSubjects({required String serverIp}) async {
+  /// Dynamically fetches available exam subjects from backend GET /api/subjects?class=...
+  static Future<List<String>> fetchSubjects({
+    required String serverIp,
+    String? className,
+  }) async {
     try {
-      final url = ApiConfig.getUri(serverIp, '/subjects');
+      final path = (className != null && className.isNotEmpty)
+          ? '/subjects?class=${Uri.encodeComponent(className)}'
+          : '/subjects';
+      final url = ApiConfig.getUri(serverIp, path);
       final response = await http.get(url).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
@@ -131,9 +147,10 @@ class AuthService {
       'Chemistry',
       'Physics',
       'Civic Education',
-      'Computer Studies',
+      'Digital Technology',
       'Economics',
-      'Government'
+      'Geography',
+      'Agricultural Science'
     ];
   }
 
@@ -255,5 +272,61 @@ class AuthService {
       debugPrint('⚠️ Failed to start subject session: $e');
     }
     return null;
+  }
+
+  /// Real-time progress saving for crash recovery and power loss protection
+  static Future<bool> saveExamProgress({
+    required String serverIp,
+    required int sessionId,
+    required int studentId,
+    required Map<int, String> selectedAnswers,
+    int? questionId,
+    String? selectedOption,
+  }) async {
+    try {
+      final url = ApiConfig.getUri(serverIp, '/student/exam/save-progress');
+      final formattedAnswers = <String, String>{};
+      selectedAnswers.forEach((k, v) => formattedAnswers[k.toString()] = v);
+
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'session_id': sessionId,
+              'student_id': studentId,
+              'selected_answers': formattedAnswers,
+              if (questionId != null) 'question_id': questionId,
+              if (selectedOption != null) 'selected_option': selectedOption,
+            }),
+          )
+          .timeout(const Duration(seconds: 4));
+
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('⚠️ Failed to save exam progress: $e');
+      return false;
+    }
+  }
+
+  /// Checks for an unexpired active exam session for auto-resume
+  static Future<Map<String, dynamic>?> fetchActiveSession({
+    required String serverIp,
+    required int studentId,
+  }) async {
+    try {
+      final url = ApiConfig.getUri(serverIp, '/student/active-session?student_id=$studentId');
+      final response = await http.get(url).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        if (data['success'] == true && data['has_active_session'] == true) {
+          return data['active_session'] as Map<String, dynamic>?;
+        }
+      }
+      return null;
+    } catch (e) {
+      debugPrint('⚠️ Failed to fetch active session: $e');
+      return null;
+    }
   }
 }

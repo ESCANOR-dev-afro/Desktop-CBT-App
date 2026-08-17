@@ -36,16 +36,16 @@ export default function Sidebar({
         <div className="w-12 h-12 rounded-xl bg-slate-900 border border-brand/40 p-1 flex items-center justify-center shrink-0 shadow-md shadow-brand/10 group overflow-hidden">
           <img
             src="school_logo.jpg"
-            alt="Anthony White Bridge Academy Logo"
+            alt="Anthony Whitebridge Academy Logo"
             className="w-full h-full object-contain rounded-lg transform group-hover:scale-105 transition-transform duration-200"
           />
         </div>
         <div className="flex-1 min-w-0">
           <h1 className="font-black text-xs tracking-tight text-white truncate leading-tight uppercase">
-            ANTHONY WHITE
+            ANTHONY WHITEBRIDGE
           </h1>
           <p className="text-[11px] font-bold text-brand tracking-wider uppercase truncate">
-            BRIDGE ACADEMY CBT
+            ACADEMY CBT
           </p>
           <span className="text-[9px] text-slate-500 font-semibold block truncate">
             Official Control Center v3.4

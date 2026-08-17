@@ -5,6 +5,7 @@ import '../services/api_config.dart';
 import '../theme/app_theme.dart';
 import '../utils/uppercase_formatter.dart';
 import 'student_dashboard_screen.dart';
+import 'exam_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -69,9 +70,26 @@ class _LoginScreenState extends State<LoginScreen> {
     if (result.success &&
         result.studentData != null &&
         result.sessionId != null) {
-      // Smooth navigation to Student Subject Dashboard / Exam Portal Hub
       final studentDataWithIp = Map<String, dynamic>.from(result.studentData!);
       studentDataWithIp['server_ip'] = _serverIpController.text.trim();
+
+      if (result.hasActiveSession && result.activeSession != null) {
+        final activeSes = result.activeSession!;
+        final activeSubject = (activeSes['subject'] ?? 'Subject').toString();
+        studentDataWithIp['assigned_subject'] = activeSubject;
+
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (context) => ExamScreen(
+              studentData: studentDataWithIp,
+              sessionId: (activeSes['session_id'] is int)
+                  ? activeSes['session_id']
+                  : int.parse(activeSes['session_id'].toString()),
+            ),
+          ),
+        );
+        return;
+      }
 
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
@@ -613,7 +631,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
             const SizedBox(height: 32),
 
-            // 7-Digit Registration Number Input
+            // Academic Session Registration Number Input (e.g. AWA26270001)
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -628,14 +646,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _regNumberController,
-                  keyboardType: TextInputType.number,
-                  maxLength: 7,
+                  keyboardType: TextInputType.text,
+                  textCapitalization: TextCapitalization.characters,
                   inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(7),
+                    UpperCaseTextFormatter(), // Forces typed input into UPPERCASE (e.g. awa26270050 -> AWA26270050)
                   ],
                   decoration: const InputDecoration(
-                    hintText: 'Enter 7-digit Reg Number (e.g. 1234567)',
+                    hintText: 'Enter Reg Number (e.g. AWA26270001)',
                     prefixIcon: Icon(
                       Icons.badge_outlined,
                       color: AppTheme.primaryOrange,
@@ -646,8 +663,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     if (value == null || value.trim().isEmpty) {
                       return 'Please enter your Registration Number';
                     }
-                    if (value.trim().length != 7) {
-                      return 'Registration Number must be exactly 7 digits';
+                    if (value.trim().length < 4) {
+                      return 'Please enter a valid Registration Number';
                     }
                     return null;
                   },
@@ -678,7 +695,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     UpperCaseTextFormatter(), // Forces typed input into UPPERCASE
                   ],
                   decoration: const InputDecoration(
-                    hintText: 'Enter Surname (e.g. SAMUEL)',
+                    hintText: 'Enter Surname (e.g. SAMUEL / EKEH)',
                     prefixIcon: Icon(
                       Icons.person_outline,
                       color: AppTheme.primaryOrange,

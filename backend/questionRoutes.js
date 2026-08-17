@@ -15,10 +15,12 @@ const fs = require('fs');
 const db = require('./database');
 const { logAuditAction } = require('./services/auditLogger');
 
+const AdmZip = require('adm-zip');
+
 // Configure Multer storage for uploaded files and diagram images
 const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 25 * 1024 * 1024 } // 25MB limit
+    limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit
 });
 
 /**
@@ -90,47 +92,117 @@ function runTransaction(callback) {
     });
 }
 
-// --------------------------------------------------------------------------
-// POST /api/questions/upload
-// Bulk Question Upload Endpoint accepting .csv, .xlsx, .xls and optional diagram files
-// --------------------------------------------------------------------------
-router.post('/upload', upload.any(), async (req, res, next) => {
+/**
+ * Core handler function for Bulk Question & Diagram Asset Upload Pipeline
+ */
+async function handleQuestionBankUpload(req, res, next) {
     try {
         const files = req.files || [];
-        const spreadsheetFile = files.find(f => f.fieldname === 'file') || files.find(f => {
-            const name = (f.originalname || '').toLowerCase();
-            return name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.csv');
-        });
 
-        if (!spreadsheetFile) {
-            return res.status(400).json({
-                success: false,
-                message: "No spreadsheet file uploaded. Please upload a .csv, .xlsx, or .xls file."
-            });
-        }
+        // Directories for diagrams: ensure both backend/public/uploads/diagrams and backend/uploads/diagrams exist
+        const publicDiagramsDir = path.join(__dirname, 'public/uploads/diagrams');
+        const backendDiagramsDir = path.join(__dirname, 'uploads/diagrams');
 
-        // Process attached diagram images if provided
-        const imageFilesMap = new Map();
-        const diagramUploadsDir = path.join(__dirname, 'uploads/diagrams');
-        if (!fs.existsSync(diagramUploadsDir)) {
-            fs.mkdirSync(diagramUploadsDir, { recursive: true });
-        }
-
-        files.forEach(f => {
-            if (f !== spreadsheetFile && f.mimetype && f.mimetype.startsWith('image/')) {
-                const safeName = Date.now() + '_' + path.basename(f.originalname).replace(/[^a-zA-Z0-9_\.-]/g, '_');
-                const destPath = path.join(diagramUploadsDir, safeName);
-                fs.writeFileSync(destPath, f.buffer);
-                const publicUrl = `/uploads/diagrams/${safeName}`;
-                imageFilesMap.set(f.originalname.toLowerCase(), publicUrl);
-                imageFilesMap.set(path.basename(f.originalname).toLowerCase(), publicUrl);
+        [publicDiagramsDir, backendDiagramsDir].forEach(dir => {
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
             }
         });
+
+        const imageFilesMap = new Map();
+        let spreadsheetBuffer = null;
+        let spreadsheetName = 'upload_package';
+        let registeredImagesCount = 0;
+
+        // 1. Process ZIP archives (can be diagram zip OR complete package containing spreadsheet + diagrams)
+        const zipFiles = files.filter(f => {
+            const name = (f.originalname || '').toLowerCase();
+            return name.endsWith('.zip') || f.mimetype === 'application/zip' || f.mimetype === 'application/x-zip-compressed';
+        });
+
+        zipFiles.forEach(zipFile => {
+            try {
+                const zip = new AdmZip(zipFile.buffer);
+                const zipEntries = zip.getEntries();
+                zipEntries.forEach(entry => {
+                    if (entry.isDirectory || entry.entryName.includes('__MACOSX')) return;
+
+                    const baseName = path.basename(entry.entryName);
+                    const ext = path.extname(baseName).toLowerCase();
+
+                    // If zip contains a spreadsheet file and we haven't found one yet
+                    if (['.xlsx', '.xls', '.csv'].includes(ext) && !spreadsheetBuffer) {
+                        spreadsheetBuffer = entry.getData();
+                        spreadsheetName = baseName;
+                    } else if (['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext)) {
+                        const safeName = baseName.replace(/[^a-zA-Z0-9_\.-]/g, '_');
+                        const destPublic = path.join(publicDiagramsDir, safeName);
+                        const destBackend = path.join(backendDiagramsDir, safeName);
+                        const data = entry.getData();
+                        fs.writeFileSync(destPublic, data);
+                        fs.writeFileSync(destBackend, data);
+
+                        const publicUrl = `/uploads/diagrams/${safeName}`;
+                        imageFilesMap.set(baseName.toLowerCase(), publicUrl);
+                        imageFilesMap.set(safeName.toLowerCase(), publicUrl);
+                        imageFilesMap.set(cleanKey(baseName), publicUrl);
+                        imageFilesMap.set(cleanKey(path.parse(baseName).name), publicUrl);
+                        registeredImagesCount++;
+                    }
+                });
+            } catch (zipErr) {
+                console.warn('⚠️ [Zip Extraction Warning]:', zipErr.message);
+            }
+        });
+
+        // 2. Check directly attached spreadsheet file if not extracted from zip package
+        if (!spreadsheetBuffer) {
+            const directSpreadsheet = files.find(f => {
+                const name = (f.originalname || '').toLowerCase();
+                return f.fieldname === 'file' || f.fieldname === 'spreadsheet' || name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.csv');
+            });
+            if (directSpreadsheet) {
+                spreadsheetBuffer = directSpreadsheet.buffer;
+                spreadsheetName = directSpreadsheet.originalname;
+            }
+        }
+
+        // 3. Process directly attached image files
+        const directImages = files.filter(f => {
+            const name = (f.originalname || '').toLowerCase();
+            return !zipFiles.includes(f) && (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.webp') || name.endsWith('.gif') || name.endsWith('.svg') || (f.mimetype && f.mimetype.startsWith('image/')));
+        });
+
+        directImages.forEach(f => {
+            const baseName = path.basename(f.originalname);
+            const ext = path.extname(baseName).toLowerCase();
+            if (['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext) || (f.mimetype && f.mimetype.startsWith('image/'))) {
+                const safeName = baseName.replace(/[^a-zA-Z0-9_\.-]/g, '_');
+                const destPublic = path.join(publicDiagramsDir, safeName);
+                const destBackend = path.join(backendDiagramsDir, safeName);
+                fs.writeFileSync(destPublic, f.buffer);
+                fs.writeFileSync(destBackend, f.buffer);
+
+                const publicUrl = `/uploads/diagrams/${safeName}`;
+                imageFilesMap.set(baseName.toLowerCase(), publicUrl);
+                imageFilesMap.set(safeName.toLowerCase(), publicUrl);
+                imageFilesMap.set(cleanKey(baseName), publicUrl);
+                imageFilesMap.set(cleanKey(path.parse(baseName).name), publicUrl);
+                registeredImagesCount++;
+            }
+        });
+
+        if (!spreadsheetBuffer) {
+            return res.status(400).json({
+                success: false,
+                message: "No spreadsheet file found. Please upload a .csv or .xlsx file, or a .zip package containing a spreadsheet file."
+            });
+        }
 
         // Parse buffer into XLSX workbook
         let workbook;
         try {
-            workbook = XLSX.read(spreadsheetFile.buffer, { type: 'buffer' });
+            workbook = XLSX.read(spreadsheetBuffer, { type: 'buffer' });
         } catch (parseError) {
             return res.status(400).json({
                 success: false,
@@ -172,7 +244,7 @@ router.post('/upload', upload.any(), async (req, res, next) => {
             const optionB = getRowValue(row, ['option_b', 'option b', 'b', 'optb', 'opt_b', 'option2']);
             const optionC = getRowValue(row, ['option_c', 'option c', 'c', 'optc', 'opt_c', 'option3']);
             const optionD = getRowValue(row, ['option_d', 'option d', 'd', 'optd', 'opt_d', 'option4']);
-            let diagramRef = getRowValue(row, ['diagram_image_url', 'diagram_image', 'diagram', 'image_url', 'image', 'figure', 'img', 'diagram_file', 'diagram_path']);
+            let diagramRef = getRowValue(row, ['diagram_filename', 'diagramfilename', 'diagram_image_url', 'diagram_image', 'diagram', 'image_url', 'image', 'figure', 'img', 'diagram_file', 'diagram_path']);
 
             let rawAnswer = getRowValue(row, ['correct_answer', 'correct answer', 'answer', 'correct', 'ans', 'correctanswer']);
             let marksRaw = getRowValue(row, ['marks', 'mark', 'score', 'points']);
@@ -183,12 +255,19 @@ router.post('/upload', upload.any(), async (req, res, next) => {
             let diagramUrl = null;
             if (diagramRef) {
                 const lowerRef = diagramRef.toLowerCase();
+                const baseRef = path.basename(diagramRef).toLowerCase();
+                const cleanedRef = cleanKey(diagramRef);
+
                 if (imageFilesMap.has(lowerRef)) {
                     diagramUrl = imageFilesMap.get(lowerRef);
+                } else if (imageFilesMap.has(baseRef)) {
+                    diagramUrl = imageFilesMap.get(baseRef);
+                } else if (imageFilesMap.has(cleanedRef)) {
+                    diagramUrl = imageFilesMap.get(cleanedRef);
                 } else if (diagramRef.startsWith('http://') || diagramRef.startsWith('https://') || diagramRef.startsWith('/')) {
                     diagramUrl = diagramRef;
                 } else {
-                    diagramUrl = `/uploads/diagrams/${diagramRef}`;
+                    diagramUrl = `/uploads/diagrams/${path.basename(diagramRef)}`;
                 }
             }
 
@@ -246,6 +325,37 @@ router.post('/upload', upload.any(), async (req, res, next) => {
                 invalidRowsCount: invalidRows.length,
                 invalidRowsDetails: invalidRows
             });
+        }
+        // Option to purge/overwrite existing questions for this subject & class before insertion
+        const shouldOverwrite = req.body.overwrite !== 'false' && req.body.overwrite !== false && req.query.overwrite !== 'false';
+        if (shouldOverwrite && validQuestions.length > 0 && fallbackSubject) {
+            const normSub = normalizeSubjectName(fallbackSubject);
+            const targetCls = fallbackClass ? String(fallbackClass).trim() : null;
+            try {
+                if (targetCls) {
+                    await new Promise((resP, rejP) => {
+                        db.run(`DELETE FROM question_options WHERE question_id IN (SELECT id FROM questions WHERE LOWER(subject) = LOWER(?) AND (class IS NULL OR TRIM(class) = '' OR LOWER(class) = LOWER(?)))`, [normSub, targetCls], (err) => {
+                            if (err) return rejP(err);
+                            db.run(`DELETE FROM questions WHERE LOWER(subject) = LOWER(?) AND (class IS NULL OR TRIM(class) = '' OR LOWER(class) = LOWER(?))`, [normSub, targetCls], (err2) => {
+                                if (err2) return rejP(err2);
+                                resP();
+                            });
+                        });
+                    });
+                } else {
+                    await new Promise((resP, rejP) => {
+                        db.run(`DELETE FROM question_options WHERE question_id IN (SELECT id FROM questions WHERE LOWER(subject) = LOWER(?))`, [normSub], (err) => {
+                            if (err) return rejP(err);
+                            db.run(`DELETE FROM questions WHERE LOWER(subject) = LOWER(?)`, [normSub], (err2) => {
+                                if (err2) return rejP(err2);
+                                resP();
+                            });
+                        });
+                    });
+                }
+            } catch (purgeErr) {
+                console.warn('⚠️ [Question Bank Overwrite Notice]:', purgeErr.message);
+            }
         }
 
         // Execute bulk insertion in SQLite transaction & populate `question_options`
@@ -335,15 +445,21 @@ router.post('/upload', upload.any(), async (req, res, next) => {
                 subject: normalizeSubjectName(fallbackSubject),
                 class: fallbackClass,
                 importedCount: insertedCount,
-                filename: spreadsheetFile.originalname
+                imagesCount: registeredImagesCount,
+                filename: spreadsheetName
             },
             ip_address: req.ip || '127.0.0.1'
         });
 
+        const feedbackMsg = registeredImagesCount > 0
+            ? `${insertedCount} Question(s) and ${registeredImagesCount} Diagram(s) imported successfully.`
+            : `${insertedCount} Question(s) imported successfully.`;
+
         return res.status(201).json({
             success: true,
-            message: `Successfully imported ${insertedCount} question(s) into database.`,
+            message: feedbackMsg,
             importedCount: insertedCount,
+            imagesCount: registeredImagesCount,
             totalRowsProcessed: rawRows.length,
             invalidRowsCount: invalidRows.length,
             invalidRowsDetails: invalidRows.length > 0 ? invalidRows : undefined
@@ -357,6 +473,11 @@ router.post('/upload', upload.any(), async (req, res, next) => {
             error: error.message
         });
     }
-});
+}
+
+router.post('/upload-bank', upload.any(), handleQuestionBankUpload);
+router.post('/upload', upload.any(), handleQuestionBankUpload);
 
 module.exports = router;
+module.exports.handleQuestionBankUpload = handleQuestionBankUpload;
+module.exports.uploadMiddleware = upload;

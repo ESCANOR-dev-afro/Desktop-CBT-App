@@ -1,17 +1,17 @@
-# Anthony White Bridge Academy — Zero-Installation Local Network Web CBT System
+# Anthony Whitebridge Academy — Zero-Installation Local Network Web CBT System
 
 [![Platform](https://img.shields.io/badge/Platform-Web--Browser%20%7C%20Zero--Installation-F96302?style=for-the-badge&logo=googlechrome&logoColor=white)](https://google.com/chrome)
 [![Backend](https://img.shields.io/badge/Backend-Node.js%20%2B%20SQLite%20WAL-0284C7?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![Dashboard](https://img.shields.io/badge/Dashboard-React%2019%20%2B%20Tailwind-38BDF8?style=for-the-badge&logo=react&logoColor=white)](https://react.dev)
 [![Student%20Client](https://img.shields.io/badge/Student%20Web%20App-Flutter%20Web-02569B?style=for-the-badge&logo=flutter&logoColor=white)](https://flutter.dev)
 
-A secure, high-performance, offline local-area-network (LAN) Computer-Based Testing (CBT) platform engineered specifically for **Anthony White Bridge Academy**. Designed to conduct zero-latency objective examinations across school computer laboratories and mobile Wi-Fi workstations without requiring an active internet connection or any client-side desktop software installation.
+A secure, high-performance, offline local-area-network (LAN) Computer-Based Testing (CBT) platform engineered specifically for **Anthony Whitebridge Academy**. Designed to conduct zero-latency objective examinations across school computer laboratories and mobile Wi-Fi workstations without requiring an active internet connection or any client-side desktop software installation.
 
 ---
 
 ## 🏛️ Brand Identity & Design System
 
-The platform strictly adheres to the official **Anthony White Bridge Academy** brand identity:
+The platform strictly adheres to the official **Anthony Whitebridge Academy** brand identity:
 - **Primary Brand Color:** `#F96302` Orange
 - **Design Aesthetic:** High-contrast corporate executive layout, crisp slate cards, and child-friendly JSS 1 student interfaces.
 - **Logo Integration:** Official school crest asset (`school_logo.jpg`) integrated across the Student Web Application and Admin Control Center.
@@ -76,7 +76,7 @@ graph TD
 ### 🙈 5. Strict Score Privacy Rule
 - Scores are computed exclusively server-side and **never** returned in student API responses or displayed on client screens.
 - Candidates see a clean completion confirmation screen:
-  > *"Exam Submitted Successfully! Thank you, Anthony White Bridge Academy student. Please raise your hand and wait quietly for your supervisor."*
+  > *"Exam Submitted Successfully! Thank you, Anthony Whitebridge Academy student. Please raise your hand and wait quietly for your supervisor."*
 
 ---
 
@@ -229,5 +229,5 @@ git push origin main
 
 ## 🏫 Credits & Copyright
 
-Developed for **Anthony White Bridge Academy**.  
-© 2026 Anthony White Bridge Academy — All Rights Reserved.
+Developed for **Anthony Whitebridge Academy**.  
+© 2026 Anthony Whitebridge Academy — All Rights Reserved.
