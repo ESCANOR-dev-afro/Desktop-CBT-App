@@ -505,8 +505,9 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
         ),
         child: const Center(
           child: Text(
-            'No examination papers assigned yet. Please consult your supervisor.',
-            style: TextStyle(fontSize: 15, color: AppTheme.textSecondary),
+            'No active examination papers scheduled at this moment. Please wait for the invigilator/admin to activate your paper.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 15, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
           ),
         ),
       );

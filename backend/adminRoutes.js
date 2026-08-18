@@ -268,31 +268,47 @@ router.get('/subjects', async (req, res, next) => {
 // --------------------------------------------------------------------------
 router.post('/subjects/toggle', async (req, res, next) => {
     try {
-        const { id, name, subject, is_active } = req.body;
-        let targetName = name || subject;
-        let newActiveState = (is_active === 1 || is_active === true || is_active === '1' || is_active === 'true') ? 1 : 0;
+        const { id, name, subject, class: reqClass, is_active } = req.body;
+        let targetName = String(subject || name || '').trim();
+        let targetClass = reqClass ? String(reqClass).trim() : null;
+        let activeFlag = (is_active === 1 || is_active === true || is_active === '1' || is_active === 'true') ? 1 : 0;
 
-        if (id) {
-            await dbRun(`UPDATE subjects SET is_active = ? WHERE id = ?`, [newActiveState, id]);
-        } else if (targetName) {
-            const norm = normalizeSubjectName(targetName);
-            await dbRun(
-                `INSERT INTO subjects (name, is_active) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET is_active = excluded.is_active`,
-                [norm, newActiveState]
-            );
-        } else {
+        if (!targetName && !id) {
             return res.status(400).json({
                 success: false,
-                message: "Subject ID or name is required."
+                message: "Subject name or ID is required."
             });
         }
 
-        console.log(`⚙️ [Subject Activation Toggled] Subject "${targetName || id}" active status updated to ${newActiveState}.`);
+        if (id && !targetName) {
+            const subRow = await dbGet(`SELECT name FROM subjects WHERE id = ?`, [id]);
+            if (subRow) targetName = subRow.name;
+        }
+
+        const normSubject = normalizeSubjectName(targetName) || targetName;
+
+        await dbRun(
+            `INSERT INTO exam_configs (class, subject, duration_minutes, is_active, assessment_mode, delivery_count)
+             VALUES (?, ?, 45, ?, 'TEST', 30)
+             ON CONFLICT(class, subject) DO UPDATE SET is_active = excluded.is_active`,
+            [targetClass, normSubject, activeFlag]
+        );
+
+        if (!targetClass) {
+            await dbRun(
+                `INSERT INTO subjects (name, is_active) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET is_active = excluded.is_active`,
+                [normSubject, activeFlag]
+            );
+        }
+
+        console.log(`⚙️ [Subject Activation Toggled] ${targetClass ? targetClass + ' - ' : ''}"${normSubject}" active status updated to ${activeFlag}.`);
 
         return res.status(200).json({
             success: true,
-            message: `Subject active status updated successfully.`,
-            is_active: newActiveState
+            message: `Subject ${normSubject} activation status set to ${activeFlag} for ${targetClass || 'ALL'}`,
+            class: targetClass,
+            subject: normSubject,
+            is_active: activeFlag
         });
     } catch (error) {
         console.error('❌ [Toggle Subject Error]:', error);
@@ -2017,7 +2033,89 @@ router.post('/live-monitor/unlock', async (req, res, next) => {
 });
 
 // --------------------------------------------------------------------------
-// 15. POST /api/admin/system/purge-production-data
+// 15. Assessment Mode & Activation Toggle Endpoints
+// GET /api/admin/exam-config
+// POST /api/admin/exam-config
+// POST /api/admin/subjects/toggle
+// --------------------------------------------------------------------------
+router.get('/exam-config', async (req, res, next) => {
+    try {
+        const targetClass = req.query.class ? String(req.query.class).trim() : null;
+        const targetSubject = req.query.subject ? String(req.query.subject).trim() : null;
+
+        let sql = `SELECT * FROM exam_configs WHERE 1=1`;
+        const params = [];
+
+        if (targetSubject) {
+            sql += ` AND LOWER(subject) = LOWER(?)`;
+            params.push(targetSubject);
+        }
+        if (targetClass) {
+            const baseTier = targetClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
+            sql += ` AND (LOWER(class) = LOWER(?) OR LOWER(class) = LOWER(?) OR class IS NULL)`;
+            params.push(targetClass, baseTier);
+        }
+
+        sql += ` ORDER BY class DESC, id DESC`;
+
+        const configs = await dbAll(sql, params);
+        return res.json({
+            success: true,
+            configs: configs
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
+router.post('/exam-config', async (req, res, next) => {
+    try {
+        const { class: reqClass, subject, duration_minutes, is_active, assessment_mode, delivery_count, shuffle_questions, shuffle_options } = req.body;
+
+        if (!subject) {
+            return res.status(400).json({ success: false, message: "subject is required." });
+        }
+
+        const targetClass = reqClass ? String(reqClass).trim() : null;
+        const targetSubject = String(subject).trim();
+        const duration = parseInt(duration_minutes, 10) || 45;
+        const activeFlag = is_active !== undefined ? (is_active ? 1 : 0) : 1;
+        const mode = (assessment_mode && ['TEST', 'EXAM', 'CUSTOM'].includes(String(assessment_mode).toUpperCase())) ? String(assessment_mode).toUpperCase() : 'TEST';
+        const delivery = parseInt(delivery_count, 10) || (mode === 'EXAM' ? 50 : 30);
+        const shuffleQ = shuffle_questions !== undefined ? (shuffle_questions ? 1 : 0) : 1;
+        const shuffleOpt = shuffle_options !== undefined ? (shuffle_options ? 1 : 0) : 1;
+
+        await dbRun(
+            `INSERT INTO exam_configs (class, subject, duration_minutes, is_active, assessment_mode, delivery_count, shuffle_questions, shuffle_options)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(class, subject) DO UPDATE SET
+                duration_minutes = excluded.duration_minutes,
+                is_active = excluded.is_active,
+                assessment_mode = excluded.assessment_mode,
+                delivery_count = excluded.delivery_count,
+                shuffle_questions = excluded.shuffle_questions,
+                shuffle_options = excluded.shuffle_options`,
+            [targetClass, targetSubject, duration, activeFlag, mode, delivery, shuffleQ, shuffleOpt]
+        );
+
+        return res.json({
+            success: true,
+            message: `Exam config saved for ${targetClass || 'ALL'} - ${targetSubject}`,
+            class: targetClass,
+            subject: targetSubject,
+            is_active: activeFlag,
+            assessment_mode: mode
+        });
+    } catch (err) {
+        console.error('❌ [Save Exam Config Error]:', err);
+        next(err);
+    }
+});
+
+
+
+// --------------------------------------------------------------------------
+// 16. POST /api/admin/system/purge-production-data
 // Triggers full production database wipe (mock students, sessions, questions)
 // --------------------------------------------------------------------------
 const { purgeDatabase } = require('./scripts/purge_production_db');

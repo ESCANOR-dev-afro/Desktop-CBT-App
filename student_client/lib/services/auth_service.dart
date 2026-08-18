@@ -209,6 +209,27 @@ class AuthService {
     };
   }
 
+  /// Queries GET /api/student/active-session to check for an ongoing IN_PROGRESS session
+  static Future<Map<String, dynamic>?> checkActiveExamSession({
+    required int studentId,
+    required String serverIp,
+  }) async {
+    try {
+      final url = ApiConfig.getUri(serverIp, '/student/active-session?student_id=$studentId');
+      final response = await http.get(url).timeout(const Duration(seconds: 4));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        if (data['success'] == true) {
+          return data;
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error checking active exam session: $e');
+    }
+    return null;
+  }
+
   /// Fetches real-time student profile and subject status list for Student Exam Portal Hub
   static Future<Map<String, dynamic>?> fetchStudentDashboard({
     required int studentId,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'screens/login_screen.dart';
 import 'screens/student_dashboard_screen.dart';
+import 'screens/exam_screen.dart';
 import 'services/auth_service.dart';
 import 'theme/app_theme.dart';
 
@@ -66,6 +67,7 @@ class CBTStudentApp extends StatefulWidget {
 
 class _CBTStudentAppState extends State<CBTStudentApp> {
   bool _isLoadingSession = true;
+  bool _directToExamScreen = false;
   Map<String, dynamic>? _activeStudentData;
   int? _activeSessionId;
 
@@ -105,10 +107,38 @@ class _CBTStudentAppState extends State<CBTStudentApp> {
             final student = Map<String, dynamic>.from(dashboardData['student']);
             student['server_ip'] = serverIp;
 
+            // 3. Check if there's an ongoing IN_PROGRESS exam paper for this student
+            final activeSessionResult = await AuthService.checkActiveExamSession(
+              studentId: studentId,
+              serverIp: serverIp,
+            );
+
+            if (activeSessionResult != null &&
+                activeSessionResult['has_active_session'] == true &&
+                activeSessionResult['active_session'] != null) {
+              final activeSes = Map<String, dynamic>.from(activeSessionResult['active_session']);
+              final activeSubject = activeSes['subject']?.toString();
+              if (activeSubject != null && activeSubject.isNotEmpty) {
+                student['assigned_subject'] = activeSubject;
+                final activeSessionId = (activeSes['session_id'] as num?)?.toInt() ?? sessionId;
+
+                if (mounted) {
+                  setState(() {
+                    _activeStudentData = student;
+                    _activeSessionId = activeSessionId;
+                    _directToExamScreen = true;
+                    _isLoadingSession = false;
+                  });
+                }
+                return;
+              }
+            }
+
             if (mounted) {
               setState(() {
                 _activeStudentData = student;
                 _activeSessionId = sessionId;
+                _directToExamScreen = false;
                 _isLoadingSession = false;
               });
             }
@@ -129,6 +159,7 @@ class _CBTStudentAppState extends State<CBTStudentApp> {
       setState(() {
         _activeStudentData = null;
         _activeSessionId = null;
+        _directToExamScreen = false;
         _isLoadingSession = false;
       });
     }
@@ -184,10 +215,15 @@ class _CBTStudentAppState extends State<CBTStudentApp> {
               ),
             )
           : (_activeStudentData != null && _activeSessionId != null
-              ? StudentDashboardScreen(
-                  studentData: _activeStudentData!,
-                  initialSessionId: _activeSessionId!,
-                )
+              ? (_directToExamScreen
+                  ? ExamScreen(
+                      studentData: _activeStudentData!,
+                      sessionId: _activeSessionId!,
+                    )
+                  : StudentDashboardScreen(
+                      studentData: _activeStudentData!,
+                      initialSessionId: _activeSessionId!,
+                    ))
               : const LoginScreen()),
     );
   }

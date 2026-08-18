@@ -844,22 +844,20 @@ const handleStartExamSession = async (req, res, next) => {
             let selectedAnswers = {};
             try { selectedAnswers = JSON.parse(activeSes.selected_answers_json || '{}'); } catch (_) {}
 
-            if (deliveredQuestions.length > 0) {
-                return res.status(200).json({
-                    success: true,
-                    is_resumed: true,
-                    session_id: activeSes.session_id,
-                    subject: normalizedSubject,
-                    class: studentClass,
-                    assessment_mode: examConfig.assessment_mode,
-                    delivery_count: deliveredQuestions.length,
-                    duration_minutes: durationMinutes,
-                    duration_seconds: remainingSeconds,
-                    questions: deliveredQuestions,
-                    question_order: deliveredQuestions.map(q => q.id),
-                    selected_answers: selectedAnswers
-                });
-            }
+            return res.status(200).json({
+                success: true,
+                is_resumed: true,
+                session_id: activeSes.session_id,
+                subject: normalizedSubject,
+                class: studentClass,
+                assessment_mode: examConfig.assessment_mode,
+                delivery_count: deliveredQuestions.length,
+                duration_minutes: durationMinutes,
+                duration_seconds: remainingSeconds,
+                questions: deliveredQuestions,
+                question_order: deliveredQuestions.map(q => q.id),
+                selected_answers: selectedAnswers
+            });
         }
 
         // If no active session, sample questions

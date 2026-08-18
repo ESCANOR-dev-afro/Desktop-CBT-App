@@ -370,26 +370,43 @@ router.get('/student/:student_id/dashboard', async (req, res, next) => {
         }
 
         // Fetch completed sessions for this student (CRITICAL: score is strictly omitted for student privacy)
-        const completedSessionsSql = `
-            SELECT id, subject, status, login_time 
-            FROM exam_sessions 
-            WHERE student_id = ? AND status = 'submitted'
-        `;
-        const completedSessions = await dbAll(completedSessionsSql, [student_id]);
+        const completedSessions = await dbAll(
+            `SELECT LOWER(subject_name) as subject FROM student_exam_sessions WHERE student_id = ? AND status = 'SUBMITTED'
+             UNION
+             SELECT LOWER(subject) as subject FROM exam_sessions WHERE student_id = ? AND status = 'submitted'`,
+            [student_id, student_id]
+        );
         const completedSubjects = new Set(
-            completedSessions.map(s => s.subject ? s.subject.trim().toLowerCase() : '')
+            completedSessions.map(s => s.subject ? s.subject.trim().toLowerCase() : '').filter(Boolean)
         );
 
         // Fetch active sessions for this student
-        const activeSessionsSql = `
-            SELECT id, subject 
-            FROM exam_sessions 
-            WHERE student_id = ? AND status = 'active' AND is_locked = 0
-        `;
-        const activeSessions = await dbAll(activeSessionsSql, [student_id]);
-        const activeSubjects = new Set(
-            activeSessions.map(s => s.subject ? s.subject.trim().toLowerCase() : '')
+        const activeSesRows = await dbAll(
+            `SELECT LOWER(subject_name) as subject, expires_at FROM student_exam_sessions WHERE student_id = ? AND status = 'IN_PROGRESS'`,
+            [student_id]
         );
+        const legacyActiveSesRows = await dbAll(
+            `SELECT LOWER(subject) as subject FROM exam_sessions WHERE student_id = ? AND status = 'active' AND is_locked = 0`,
+            [student_id]
+        );
+
+        const nowTime = Date.now();
+        const activeSubjects = new Set();
+
+        activeSesRows.forEach(s => {
+            if (s.subject) {
+                const exp = s.expires_at ? new Date(s.expires_at).getTime() : (nowTime + 10000);
+                if (exp > nowTime) {
+                    activeSubjects.add(s.subject.trim().toLowerCase());
+                }
+            }
+        });
+
+        legacyActiveSesRows.forEach(s => {
+            if (s.subject) {
+                activeSubjects.add(s.subject.trim().toLowerCase());
+            }
+        });
 
         // Fetch stream-isolated subjects for candidate's class from `class_subjects` mapping table
         const mappedSubjectsRows = await dbAll(
@@ -437,33 +454,35 @@ router.get('/student/:student_id/dashboard', async (req, res, next) => {
         }
 
         // Format subjects with class-isolated real-time status
-        const formattedSubjects = await Promise.all(Array.from(subjectSet).map(async (subName) => {
+        const formattedSubjects = (await Promise.all(Array.from(subjectSet).map(async (subName) => {
             const lowerName = subName.toLowerCase();
             const isCompleted = completedSubjects.has(lowerName);
             const isActive = activeSubjects.has(lowerName);
             const isSubjectConfigActive = await isSubjectActiveForClass(student.class, subName);
 
+            if (!isSubjectConfigActive && !isCompleted && !isActive) {
+                return null;
+            }
+
             let status = 'available';
             let message = 'Ready to Start';
 
-            if (!isSubjectConfigActive) {
-                status = 'not_scheduled';
-                message = 'Exam paper is currently inactive / disabled by administrator.';
-            } else if (isCompleted) {
+            if (isCompleted) {
                 status = 'completed';
-                message = 'Exam Completed';
+                message = 'You have already completed and submitted this examination.';
             } else if (isActive) {
-                status = 'active';
-                message = 'Session Active (In Progress)';
+                status = 'in_progress';
+                message = 'You have an ongoing exam session.';
             }
 
             return {
                 name: subName,
-                schedule: isCompleted ? 'Submitted' : (!isSubjectConfigActive ? 'Inactive' : 'Now Available'),
-                status: status, // 'available', 'active', 'completed', 'not_scheduled'
+                subject: subName,
+                schedule: isCompleted ? 'Submitted' : (isActive ? 'In Progress' : 'Now Available'),
+                status: status,
                 message: message
             };
-        }));
+        }))).filter(Boolean);
 
         return res.status(200).json({
             success: true,
@@ -497,6 +516,7 @@ async function isSubjectActiveForClass(studentClass, subject) {
                 [normClass, normSub]
             );
             if (classCfg && classCfg.is_active !== undefined && classCfg.is_active !== null) {
+                console.log(`🔍 [isSubjectActiveForClass] Class MATCH: ${normClass} - ${normSub} => is_active=${classCfg.is_active}`);
                 return classCfg.is_active === 1;
             }
 
@@ -506,6 +526,7 @@ async function isSubjectActiveForClass(studentClass, subject) {
                 [baseTier, normSub]
             );
             if (tierCfg && tierCfg.is_active !== undefined && tierCfg.is_active !== null) {
+                console.log(`🔍 [isSubjectActiveForClass] Tier MATCH: ${baseTier} - ${normSub} => is_active=${tierCfg.is_active}`);
                 return tierCfg.is_active === 1;
             }
         }
@@ -515,17 +536,14 @@ async function isSubjectActiveForClass(studentClass, subject) {
             [normSub]
         );
         if (generalCfg && generalCfg.is_active !== undefined && generalCfg.is_active !== null) {
+            console.log(`🔍 [isSubjectActiveForClass] General MATCH: ${normSub} => is_active=${generalCfg.is_active}`);
             return generalCfg.is_active === 1;
         }
 
-        const subRec = await dbGet(`SELECT is_active FROM subjects WHERE LOWER(name) = LOWER(?)`, [normSub]);
-        if (subRec && subRec.is_active !== undefined && subRec.is_active !== null) {
-            return subRec.is_active === 1;
-        }
-
-        return true;
+        console.log(`🔍 [isSubjectActiveForClass] NO MATCH: ${studentClass} - ${normSub} => false`);
+        return false;
     } catch (e) {
-        return true;
+        return false;
     }
 }
 
@@ -607,24 +625,25 @@ router.get('/student/assigned-papers', async (req, res, next) => {
             }
         });
 
-        const papers = await Promise.all(Array.from(subjectSet).map(async (subName) => {
+        const papers = (await Promise.all(Array.from(subjectSet).map(async (subName) => {
             const lowerName = subName.toLowerCase();
             const isCompleted = completedSubjects.has(lowerName);
             const isActive = activeSubjects.has(lowerName);
             const isSubjectConfigActive = await isSubjectActiveForClass(student.class, subName);
 
+            if (!isSubjectConfigActive && !isCompleted && !isActive) {
+                return null;
+            }
+
             let status = 'available';
             let message = 'Ready to Start';
 
-            if (!isSubjectConfigActive) {
-                status = 'not_scheduled';
-                message = 'Exam paper is currently inactive / disabled by administrator.';
-            } else if (isCompleted) {
+            if (isCompleted) {
                 status = 'completed';
-                message = 'Exam Completed';
+                message = 'You have already completed and submitted this examination.';
             } else if (isActive) {
-                status = 'active';
-                message = 'Session Active (In Progress)';
+                status = 'in_progress';
+                message = 'You have an ongoing exam session.';
             }
 
             return {
@@ -634,7 +653,7 @@ router.get('/student/assigned-papers', async (req, res, next) => {
                 status: status,
                 message: message
             };
-        }));
+        }))).filter(Boolean);
 
         return res.status(200).json({
             success: true,

@@ -710,7 +710,7 @@ class _ExamScreenState extends State<ExamScreen> {
       borderRadius: BorderRadius.circular(14),
       child: Container(
         width: double.infinity,
-        constraints: const BoxConstraints(maxHeight: 240),
+        constraints: const BoxConstraints(maxHeight: 260),
         decoration: BoxDecoration(
           color: AppTheme.backgroundGrey.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(14),
