@@ -378,6 +378,7 @@ function initDatabase() {
                 duration_minutes INTEGER DEFAULT 45,
                 delivered_questions_json TEXT NOT NULL DEFAULT '[]',
                 selected_answers_json TEXT DEFAULT '{}',
+                current_question_index INTEGER DEFAULT 0,
                 score INTEGER DEFAULT NULL,
                 workstation_ip TEXT,
                 FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
@@ -387,6 +388,7 @@ function initDatabase() {
             if (err) console.error('❌ Error creating "student_exam_sessions" table:', err.message);
             else {
                 console.log('📋 [Table Created] "student_exam_sessions" entity is ready.');
+                db.run(`ALTER TABLE student_exam_sessions ADD COLUMN current_question_index INTEGER DEFAULT 0;`, () => {});
                 db.run(`CREATE INDEX IF NOT EXISTS idx_ses_student_status ON student_exam_sessions(student_id, status);`, () => {});
                 db.run(`CREATE INDEX IF NOT EXISTS idx_ses_student_subject_status ON student_exam_sessions(student_id, subject_name, status);`, () => {});
             }

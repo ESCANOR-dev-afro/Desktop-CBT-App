@@ -642,6 +642,7 @@ router.post('/submit', handleExamSubmit);
 router.post('/student/exam/submit', handleExamSubmit);
 
 // --------------------------------------------------------------------------
+// --------------------------------------------------------------------------
 // 4. GET /api/student/active-session
 // Returns active unexpired exam session for auto-resume upon login / refresh
 // --------------------------------------------------------------------------
@@ -671,7 +672,13 @@ router.get('/student/active-session', async (req, res, next) => {
         );
 
         if (!activeSes) {
-            return res.status(200).json({ success: true, has_active_session: false });
+            return res.status(200).json({
+                success: true,
+                hasActiveSession: false,
+                has_active_session: false,
+                session: null,
+                active_session: null
+            });
         }
 
         const now = new Date();
@@ -679,7 +686,13 @@ router.get('/student/active-session', async (req, res, next) => {
 
         if (expiresAt.getTime() <= now.getTime()) {
             await dbRun(`UPDATE student_exam_sessions SET status = 'EXPIRED' WHERE session_id = ?`, [activeSes.session_id]);
-            return res.status(200).json({ success: true, has_active_session: false });
+            return res.status(200).json({
+                success: true,
+                hasActiveSession: false,
+                has_active_session: false,
+                session: null,
+                active_session: null
+            });
         }
 
         const remainingSeconds = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
@@ -689,21 +702,32 @@ router.get('/student/active-session', async (req, res, next) => {
         let selectedAnswers = {};
         try { selectedAnswers = JSON.parse(activeSes.selected_answers_json || '{}'); } catch (_) {}
 
+        const subjRec = await dbGet(`SELECT id FROM subjects WHERE LOWER(name) = LOWER(?)`, [activeSes.subject_name]);
+
+        const sessionData = {
+            id: activeSes.session_id,
+            session_id: activeSes.session_id,
+            student_id: student.id,
+            subject_id: activeSes.subject_id || (subjRec ? subjRec.id : null),
+            subject_name: activeSes.subject_name,
+            subject: activeSes.subject_name,
+            class: activeSes.class_name || student.class,
+            status: 'IN_PROGRESS',
+            current_question_index: activeSes.current_question_index || 0,
+            started_at: activeSes.started_at,
+            expires_at: activeSes.expires_at,
+            duration_minutes: activeSes.duration_minutes || 45,
+            duration_seconds: remainingSeconds,
+            delivered_questions: deliveredQuestions,
+            selected_answers: selectedAnswers
+        };
+
         return res.status(200).json({
             success: true,
+            hasActiveSession: true,
             has_active_session: true,
-            active_session: {
-                session_id: activeSes.session_id,
-                student_id: student.id,
-                subject: activeSes.subject_name,
-                class: activeSes.class_name || student.class,
-                started_at: activeSes.started_at,
-                expires_at: activeSes.expires_at,
-                duration_minutes: activeSes.duration_minutes || 45,
-                duration_seconds: remainingSeconds,
-                delivered_questions: deliveredQuestions,
-                selected_answers: selectedAnswers
-            }
+            session: sessionData,
+            active_session: sessionData
         });
     } catch (error) {
         console.error('❌ [Active Session Check Error]:', error);
@@ -717,7 +741,7 @@ router.get('/student/active-session', async (req, res, next) => {
 // --------------------------------------------------------------------------
 router.post('/student/exam/save-progress', async (req, res, next) => {
     try {
-        const { session_id, student_id, selected_answers, question_id, selected_option } = req.body;
+        const { session_id, student_id, selected_answers, question_id, selected_option, current_question_index } = req.body;
 
         if (!session_id || !student_id) {
             return res.status(400).json({ success: false, message: "session_id and student_id are required." });
@@ -749,6 +773,16 @@ router.post('/student/exam/save-progress', async (req, res, next) => {
             `UPDATE student_exam_sessions SET selected_answers_json = ? WHERE session_id = ?`,
             [JSON.stringify(updatedAnswers), session_id]
         );
+
+        if (current_question_index !== undefined && current_question_index !== null) {
+            const idx = parseInt(current_question_index, 10);
+            if (!isNaN(idx) && idx >= 0) {
+                await dbRun(
+                    `UPDATE student_exam_sessions SET current_question_index = ? WHERE session_id = ?`,
+                    [idx, session_id]
+                );
+            }
+        }
 
         if (question_id && selected_option) {
             await dbRun(
@@ -854,6 +888,8 @@ const handleStartExamSession = async (req, res, next) => {
                 delivery_count: deliveredQuestions.length,
                 duration_minutes: durationMinutes,
                 duration_seconds: remainingSeconds,
+                expires_at: activeSes.expires_at,
+                current_question_index: activeSes.current_question_index || 0,
                 questions: deliveredQuestions,
                 question_order: deliveredQuestions.map(q => q.id),
                 selected_answers: selectedAnswers

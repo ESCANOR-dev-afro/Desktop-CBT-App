@@ -314,7 +314,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   onPressed: () {
                     final enteredPin = pinController.text.trim();
-                    if (enteredPin == '1234' ||
+                    if (enteredPin == '9876' ||
                         enteredPin == '9999' ||
                         enteredPin == '0000') {
                       Navigator.of(dialogContext).pop();

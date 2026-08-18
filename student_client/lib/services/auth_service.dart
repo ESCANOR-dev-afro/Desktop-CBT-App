@@ -303,6 +303,7 @@ class AuthService {
     required Map<int, String> selectedAnswers,
     int? questionId,
     String? selectedOption,
+    int? currentQuestionIndex,
   }) async {
     try {
       final url = ApiConfig.getUri(serverIp, '/student/exam/save-progress');
@@ -319,6 +320,7 @@ class AuthService {
               'selected_answers': formattedAnswers,
               if (questionId != null) 'question_id': questionId,
               if (selectedOption != null) 'selected_option': selectedOption,
+              if (currentQuestionIndex != null) 'current_question_index': currentQuestionIndex,
             }),
           )
           .timeout(const Duration(seconds: 4));

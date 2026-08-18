@@ -93,6 +93,7 @@ async function reseedDatabase() {
             { surname: 'OKAFOR', first_name: 'Chiamaka', class: 'SS 2 Commercial' },
 
             // SS 3 Streams
+            { surname: 'EZE', first_name: 'Stephanie', class: 'SS 3 Science' },
             { surname: 'DANJUMA', first_name: 'Ibrahim', class: 'SS 3 Science' },
             { surname: 'BALOGUN', first_name: 'Tunde', class: 'SS 3 Science' },
             { surname: 'FAYE', first_name: 'Fatou', class: 'SS 3 Art' },

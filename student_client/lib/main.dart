@@ -96,31 +96,56 @@ class _CBTStudentAppState extends State<CBTStudentApp> {
         );
 
         if (isValidSession) {
-          // 2. Fetch fresh student profile & subject statuses
-          final dashboardData = await AuthService.fetchStudentDashboard(
+          // 2. Fetch active session via GET /api/student/active-session
+          final activeSessionResult = await AuthService.checkActiveExamSession(
             studentId: studentId,
             serverIp: serverIp,
-            sessionId: sessionId,
           );
 
-          if (dashboardData != null && dashboardData['student'] != null) {
-            final student = Map<String, dynamic>.from(dashboardData['student']);
-            student['server_ip'] = serverIp;
+          if (activeSessionResult != null &&
+              (activeSessionResult['hasActiveSession'] == true || activeSessionResult['has_active_session'] == true)) {
+            final rawSes = activeSessionResult['session'] ?? activeSessionResult['active_session'];
+            if (rawSes != null) {
+              final activeSes = Map<String, dynamic>.from(rawSes);
+              final status = activeSes['status']?.toString();
+              final activeSubject = (activeSes['subject_name'] ?? activeSes['subject'])?.toString();
+              final expiresAtStr = activeSes['expires_at']?.toString();
 
-            // 3. Check if there's an ongoing IN_PROGRESS exam paper for this student
-            final activeSessionResult = await AuthService.checkActiveExamSession(
-              studentId: studentId,
-              serverIp: serverIp,
-            );
+              bool isUnexpired = true;
+              if (expiresAtStr != null && expiresAtStr.isNotEmpty) {
+                try {
+                  final expiresAt = DateTime.parse(expiresAtStr).toUtc();
+                  final nowUtc = DateTime.now().toUtc();
+                  if (expiresAt.isBefore(nowUtc) || expiresAt.isAtSameMomentAs(nowUtc)) {
+                    isUnexpired = false;
+                  }
+                } catch (_) {}
+              }
 
-            if (activeSessionResult != null &&
-                activeSessionResult['has_active_session'] == true &&
-                activeSessionResult['active_session'] != null) {
-              final activeSes = Map<String, dynamic>.from(activeSessionResult['active_session']);
-              final activeSubject = activeSes['subject']?.toString();
-              if (activeSubject != null && activeSubject.isNotEmpty) {
+              if (status == 'IN_PROGRESS' && isUnexpired && activeSubject != null && activeSubject.isNotEmpty) {
+                // Fetch student profile metadata
+                final dashboardData = await AuthService.fetchStudentDashboard(
+                  studentId: studentId,
+                  serverIp: serverIp,
+                  sessionId: sessionId,
+                );
+
+                final student = (dashboardData != null && dashboardData['student'] != null)
+                    ? Map<String, dynamic>.from(dashboardData['student'])
+                    : <String, dynamic>{
+                        'id': studentId,
+                        'reg_number': session['reg_number'],
+                        'surname': session['surname'],
+                        'class': session['class'],
+                      };
+
+                student['server_ip'] = serverIp;
                 student['assigned_subject'] = activeSubject;
-                final activeSessionId = (activeSes['session_id'] as num?)?.toInt() ?? sessionId;
+                student['current_question_index'] = (activeSes['current_question_index'] as num?)?.toInt() ?? 0;
+                student['selected_answers'] = activeSes['selected_answers'];
+                student['expires_at'] = expiresAtStr;
+
+                final activeSessionId = (activeSes['session_id'] ?? activeSes['id'] as num?)?.toInt() ?? sessionId;
 
                 if (mounted) {
                   setState(() {
@@ -133,6 +158,18 @@ class _CBTStudentAppState extends State<CBTStudentApp> {
                 return;
               }
             }
+          }
+
+          // 3. If no active IN_PROGRESS session, load student dashboard data
+          final dashboardData = await AuthService.fetchStudentDashboard(
+            studentId: studentId,
+            serverIp: serverIp,
+            sessionId: sessionId,
+          );
+
+          if (dashboardData != null && dashboardData['student'] != null) {
+            final student = Map<String, dynamic>.from(dashboardData['student']);
+            student['server_ip'] = serverIp;
 
             if (mounted) {
               setState(() {

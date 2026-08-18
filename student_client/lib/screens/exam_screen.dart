@@ -126,6 +126,18 @@ class _ExamScreenState extends State<ExamScreen> {
             timerSeconds = (data['duration_seconds'] as num).toInt();
           }
 
+          final expiresAtStr = (data['expires_at'] ?? widget.studentData['expires_at'])?.toString();
+          if (expiresAtStr != null && expiresAtStr.isNotEmpty) {
+            try {
+              final expiresAt = DateTime.parse(expiresAtStr).toUtc();
+              final nowUtc = DateTime.now().toUtc();
+              final calcSec = expiresAt.difference(nowUtc).inSeconds;
+              if (calcSec > 0) {
+                timerSeconds = calcSec;
+              }
+            } catch (_) {}
+          }
+
           // Restore server-persisted selected answers
           if (data['selected_answers'] != null && data['selected_answers'] is Map) {
             final Map selMap = data['selected_answers'];
@@ -140,10 +152,15 @@ class _ExamScreenState extends State<ExamScreen> {
           // Restore locally cached answers as secondary backup
           await _restoreCachedAnswers();
 
+          // Restore current question index
+          final restoredIdx = (data['current_question_index'] ?? widget.studentData['current_question_index'] as num?)?.toInt() ?? 0;
+          final targetIdx = (restoredIdx >= 0 && restoredIdx < _questions.length) ? restoredIdx : 0;
+
           if (mounted) {
             setState(() {
               _isLoadingQuestions = false;
               _secondsRemaining = timerSeconds;
+              _currentQuestionIndex = targetIdx;
             });
             _startExamTimerSeconds(timerSeconds);
           }
@@ -342,6 +359,7 @@ class _ExamScreenState extends State<ExamScreen> {
         selectedAnswers: _userAnswers,
         questionId: questionId,
         selectedOption: option,
+        currentQuestionIndex: _currentQuestionIndex,
       );
     } catch (e) {
       debugPrint('Background autosave network retry pending: $e');

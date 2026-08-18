@@ -380,31 +380,31 @@ router.get('/student/:student_id/dashboard', async (req, res, next) => {
             completedSessions.map(s => s.subject ? s.subject.trim().toLowerCase() : '').filter(Boolean)
         );
 
-        // Fetch active sessions for this student
+        // Fetch active sessions for this student with session IDs
         const activeSesRows = await dbAll(
-            `SELECT LOWER(subject_name) as subject, expires_at FROM student_exam_sessions WHERE student_id = ? AND status = 'IN_PROGRESS'`,
+            `SELECT session_id, LOWER(subject_name) as subject, expires_at FROM student_exam_sessions WHERE student_id = ? AND status = 'IN_PROGRESS'`,
             [student_id]
         );
         const legacyActiveSesRows = await dbAll(
-            `SELECT LOWER(subject) as subject FROM exam_sessions WHERE student_id = ? AND status = 'active' AND is_locked = 0`,
+            `SELECT id as session_id, LOWER(subject) as subject FROM exam_sessions WHERE student_id = ? AND status = 'active' AND is_locked = 0`,
             [student_id]
         );
 
         const nowTime = Date.now();
-        const activeSubjects = new Set();
+        const activeSubjectsMap = new Map();
 
         activeSesRows.forEach(s => {
             if (s.subject) {
                 const exp = s.expires_at ? new Date(s.expires_at).getTime() : (nowTime + 10000);
                 if (exp > nowTime) {
-                    activeSubjects.add(s.subject.trim().toLowerCase());
+                    activeSubjectsMap.set(s.subject.trim().toLowerCase(), s.session_id);
                 }
             }
         });
 
         legacyActiveSesRows.forEach(s => {
-            if (s.subject) {
-                activeSubjects.add(s.subject.trim().toLowerCase());
+            if (s.subject && !activeSubjectsMap.has(s.subject.trim().toLowerCase())) {
+                activeSubjectsMap.set(s.subject.trim().toLowerCase(), s.session_id);
             }
         });
 
@@ -457,7 +457,8 @@ router.get('/student/:student_id/dashboard', async (req, res, next) => {
         const formattedSubjects = (await Promise.all(Array.from(subjectSet).map(async (subName) => {
             const lowerName = subName.toLowerCase();
             const isCompleted = completedSubjects.has(lowerName);
-            const isActive = activeSubjects.has(lowerName);
+            const isActive = activeSubjectsMap.has(lowerName);
+            const activeSessionId = activeSubjectsMap.get(lowerName) || null;
             const isSubjectConfigActive = await isSubjectActiveForClass(student.class, subName);
 
             if (!isSubjectConfigActive && !isCompleted && !isActive) {
@@ -472,12 +473,18 @@ router.get('/student/:student_id/dashboard', async (req, res, next) => {
                 message = 'You have already completed and submitted this examination.';
             } else if (isActive) {
                 status = 'in_progress';
-                message = 'You have an ongoing exam session.';
+                message = 'Exam session active. Tap Resume to continue.';
             }
 
             return {
                 name: subName,
                 subject: subName,
+                is_active: isSubjectConfigActive,
+                hasActiveSession: isActive,
+                has_active_session: isActive,
+                sessionStatus: isActive ? 'IN_PROGRESS' : null,
+                sessionId: activeSessionId,
+                session_id: activeSessionId,
                 schedule: isCompleted ? 'Submitted' : (isActive ? 'In Progress' : 'Now Available'),
                 status: status,
                 message: message
@@ -516,7 +523,6 @@ async function isSubjectActiveForClass(studentClass, subject) {
                 [normClass, normSub]
             );
             if (classCfg && classCfg.is_active !== undefined && classCfg.is_active !== null) {
-                console.log(`🔍 [isSubjectActiveForClass] Class MATCH: ${normClass} - ${normSub} => is_active=${classCfg.is_active}`);
                 return classCfg.is_active === 1;
             }
 
@@ -526,7 +532,6 @@ async function isSubjectActiveForClass(studentClass, subject) {
                 [baseTier, normSub]
             );
             if (tierCfg && tierCfg.is_active !== undefined && tierCfg.is_active !== null) {
-                console.log(`🔍 [isSubjectActiveForClass] Tier MATCH: ${baseTier} - ${normSub} => is_active=${tierCfg.is_active}`);
                 return tierCfg.is_active === 1;
             }
         }
@@ -536,11 +541,9 @@ async function isSubjectActiveForClass(studentClass, subject) {
             [normSub]
         );
         if (generalCfg && generalCfg.is_active !== undefined && generalCfg.is_active !== null) {
-            console.log(`🔍 [isSubjectActiveForClass] General MATCH: ${normSub} => is_active=${generalCfg.is_active}`);
             return generalCfg.is_active === 1;
         }
 
-        console.log(`🔍 [isSubjectActiveForClass] NO MATCH: ${studentClass} - ${normSub} => false`);
         return false;
     } catch (e) {
         return false;
@@ -581,12 +584,12 @@ router.get('/student/assigned-papers', async (req, res, next) => {
         const completedSubjects = new Set(completedSessions.map(s => s.subject));
 
         const activeSessions = await dbAll(
-            `SELECT LOWER(subject_name) as subject FROM student_exam_sessions WHERE student_id = ? AND status = 'IN_PROGRESS' AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+            `SELECT session_id, LOWER(subject_name) as subject FROM student_exam_sessions WHERE student_id = ? AND status = 'IN_PROGRESS' AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
              UNION
-             SELECT LOWER(subject) as subject FROM exam_sessions WHERE student_id = ? AND status = 'active' AND is_locked = 0`,
+             SELECT id as session_id, LOWER(subject) as subject FROM exam_sessions WHERE student_id = ? AND status = 'active' AND is_locked = 0`,
             [student.id, student.id]
         );
-        const activeSubjects = new Set(activeSessions.map(s => s.subject));
+        const activeSubjectsMap = new Map(activeSessions.map(s => [s.subject, s.session_id]));
 
         let streamSubjects = [];
         const studentClassUpper = (student.class || '').toUpperCase();
@@ -628,7 +631,8 @@ router.get('/student/assigned-papers', async (req, res, next) => {
         const papers = (await Promise.all(Array.from(subjectSet).map(async (subName) => {
             const lowerName = subName.toLowerCase();
             const isCompleted = completedSubjects.has(lowerName);
-            const isActive = activeSubjects.has(lowerName);
+            const isActive = activeSubjectsMap.has(lowerName);
+            const activeSessionId = activeSubjectsMap.get(lowerName) || null;
             const isSubjectConfigActive = await isSubjectActiveForClass(student.class, subName);
 
             if (!isSubjectConfigActive && !isCompleted && !isActive) {
@@ -648,8 +652,14 @@ router.get('/student/assigned-papers', async (req, res, next) => {
 
             return {
                 subject: subName,
+                name: subName,
                 class: student.class,
                 is_active: isSubjectConfigActive,
+                hasActiveSession: isActive,
+                has_active_session: isActive,
+                sessionStatus: isActive ? 'IN_PROGRESS' : null,
+                sessionId: activeSessionId,
+                session_id: activeSessionId,
                 status: status,
                 message: message
             };

@@ -533,16 +533,23 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     );
   }
 
-  /// Individual Subject Card with 4 Explicit Status States (Available, In Progress, Completed, Not Scheduled)
+  /// Individual Subject Card with 4 Explicit Status States (Completed, In Progress, Available, Not Scheduled)
   Widget _buildSubjectCard(Map<String, dynamic> item) {
     final name = (item['name'] ?? item['subject'] ?? 'Subject').toString();
-    final status = (item['status'] ?? 'available').toString(); // 'available', 'active', 'in_progress', 'not_scheduled', 'completed'
+    final rawStatus = (item['status'] ?? '').toString(); // 'completed', 'in_progress', 'active', 'available', 'not_scheduled'
     final message = (item['message'] ?? '').toString();
+    final isActiveFlag = item['is_active'] == true || item['is_active'] == 1;
+    final hasActiveSession = item['hasActiveSession'] == true || item['has_active_session'] == true;
+    final sessionStatus = item['sessionStatus']?.toString();
 
-    final isAvailable = status == 'available';
-    final isInProgress = status == 'active' || status == 'in_progress';
-    final isCompleted = status == 'completed';
-    final isNotScheduled = status == 'not_scheduled';
+    final isCompleted = rawStatus == 'completed' || rawStatus == 'SUBMITTED';
+    final isInProgress = !isCompleted &&
+        ((hasActiveSession && sessionStatus == 'IN_PROGRESS') ||
+            rawStatus == 'in_progress' ||
+            rawStatus == 'active' ||
+            hasActiveSession);
+    final isAvailable = !isCompleted && !isInProgress && (isActiveFlag || rawStatus == 'available');
+    final isNotScheduled = !isCompleted && !isInProgress && !isAvailable;
 
     Color badgeBgColor;
     Color badgeTextColor;
@@ -559,16 +566,16 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       badgeTextColor = Colors.orange.shade900;
       statusLabel = 'IN PROGRESS';
       statusIcon = Icons.hourglass_top_rounded;
-    } else if (isNotScheduled) {
-      badgeBgColor = Colors.amber.withValues(alpha: 0.15);
-      badgeTextColor = Colors.amber.shade900;
-      statusLabel = 'INACTIVE / NOT SCHEDULED';
-      statusIcon = Icons.lock_rounded;
-    } else {
-      badgeBgColor = AppTheme.primaryOrange.withValues(alpha: 0.12);
-      badgeTextColor = AppTheme.primaryOrange;
+    } else if (isAvailable) {
+      badgeBgColor = Colors.green.withValues(alpha: 0.12);
+      badgeTextColor = Colors.green.shade800;
       statusLabel = 'AVAILABLE';
       statusIcon = Icons.play_circle_fill_rounded;
+    } else {
+      badgeBgColor = Colors.grey.withValues(alpha: 0.15);
+      badgeTextColor = Colors.grey.shade700;
+      statusLabel = 'NOT SCHEDULED';
+      statusIcon = Icons.lock_rounded;
     }
 
     return Card(
@@ -638,24 +645,23 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             ),
 
             // Middle Info Notice Message
-            if (isNotScheduled)
+            if (isCompleted)
               Container(
                 margin: const EdgeInsets.symmetric(vertical: 4),
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.amber.withValues(alpha: 0.08),
+                  color: Colors.green.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.amber.withValues(alpha: 0.25)),
+                  border: Border.all(color: Colors.green.withValues(alpha: 0.2)),
                 ),
-                child: Row(
+                child: const Row(
                   children: [
-                    Icon(Icons.info_outline_rounded, size: 14, color: Colors.amber.shade900),
-                    const SizedBox(width: 6),
+                    Icon(Icons.check_circle_outline_rounded, size: 14, color: Colors.green),
+                    SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        message.isNotEmpty ? message : 'Paper is inactive.',
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.amber.shade900),
-                        overflow: TextOverflow.ellipsis,
+                        'Exam paper completed and submitted to server.',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.green),
                       ),
                     ),
                   ],
@@ -684,80 +690,96 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                   ],
                 ),
               )
-            else if (isCompleted)
+            else if (isAvailable)
+              const Text(
+                'Status: Ready to launch examination paper.',
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+              )
+            else
               Container(
                 margin: const EdgeInsets.symmetric(vertical: 4),
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.green.withValues(alpha: 0.08),
+                  color: Colors.grey.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.green.withValues(alpha: 0.2)),
+                  border: Border.all(color: Colors.grey.withValues(alpha: 0.25)),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(Icons.check_circle_outline_rounded, size: 14, color: Colors.green),
-                    SizedBox(width: 6),
+                    Icon(Icons.info_outline_rounded, size: 14, color: Colors.grey.shade700),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Exam paper completed and submitted to server.',
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.green),
+                        message.isNotEmpty ? message : 'Paper is not scheduled yet.',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey.shade700),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
                 ),
-              )
-            else
-              const Text(
-                'Status: Ready to launch examination paper.',
-                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
               ),
 
             // Bottom Action Trigger
             SizedBox(
               width: double.infinity,
               height: 42,
-              child: (isAvailable || isInProgress)
-                  ? ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primaryOrange,
-                        foregroundColor: Colors.white,
-                        elevation: 2,
+              child: isCompleted
+                  ? OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.green,
+                        side: const BorderSide(color: Colors.green),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
-                      onPressed: () => _startSubjectExam(item),
-                      icon: Icon(isInProgress ? Icons.replay_rounded : Icons.play_arrow_rounded, size: 18),
-                      label: Text(
-                        isInProgress ? 'RESUME EXAM' : 'START EXAM',
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                      onPressed: null, // Disabled
+                      icon: const Icon(Icons.check_circle_rounded, size: 18),
+                      label: const Text(
+                        'EXAM COMPLETED',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                       ),
                     )
-                  : isCompleted
-                      ? OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.green,
-                            side: const BorderSide(color: Colors.green),
+                  : isInProgress
+                      ? ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange.shade800,
+                            foregroundColor: Colors.white,
+                            elevation: 2,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
-                          onPressed: null, // Disabled
-                          icon: const Icon(Icons.check_circle_rounded, size: 18),
+                          onPressed: () => _startSubjectExam(item),
+                          icon: const Icon(Icons.replay_rounded, size: 18),
                           label: const Text(
-                            '✅ EXAM COMPLETED',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                            'RESUME EXAM',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 0.5),
                           ),
                         )
-                      : OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppTheme.textSecondary,
-                            side: const BorderSide(color: AppTheme.borderGrey),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          onPressed: null, // Disabled
-                          icon: const Icon(Icons.lock_rounded, size: 18),
-                          label: const Text(
-                            'INACTIVE / NOT SCHEDULED',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                          ),
-                        ),
+                      : isAvailable
+                          ? ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.primaryOrange,
+                                foregroundColor: Colors.white,
+                                elevation: 2,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              onPressed: () => _startSubjectExam(item),
+                              icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                              label: const Text(
+                                'START EXAM',
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                              ),
+                            )
+                          : OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.grey.shade600,
+                                side: BorderSide(color: Colors.grey.shade400),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              onPressed: null, // Disabled
+                              icon: const Icon(Icons.lock_rounded, size: 18),
+                              label: const Text(
+                                'NOT SCHEDULED YET',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                              ),
+                            ),
             ),
           ],
         ),
