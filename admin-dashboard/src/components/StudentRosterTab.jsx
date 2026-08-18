@@ -188,9 +188,9 @@ export default function StudentRosterTab({
                     <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-brand/30 p-1 mx-auto mb-3 opacity-60 flex items-center justify-center">
                       <img src="school_logo.jpg" alt="AWBA Crest" className="w-full h-full object-contain rounded-xl" />
                     </div>
-                    <p className="text-sm font-semibold text-slate-400">No candidates found for {currentClass}</p>
+                    <p className="text-sm font-semibold text-slate-400">No candidates found for {currentClass}. Use 'Upload Class List' to bulk register candidates.</p>
                     <p className="text-xs text-slate-500 mt-1">
-                      Try adjusting your search criteria or register a new candidate.
+                      Or click '+ Register Candidate' to add a student manually.
                     </p>
                   </td>
                 </tr>

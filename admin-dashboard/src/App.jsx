@@ -138,7 +138,7 @@ export default function App() {
     fetch('/api/admin/students')
       .then((res) => res.json())
       .then((data) => {
-        if (data.success && Array.isArray(data.students) && data.students.length > 0) {
+        if (data.success && Array.isArray(data.students)) {
           const formatted = data.students.map((s) => {
             const surnameUpper = String(s.surname || '').toUpperCase();
             const fName = s.first_name || '';
@@ -158,12 +158,7 @@ export default function App() {
               recentScore: 'N/A',
             };
           });
-          setStudents((prev) => {
-            // Deduplicate against mockData based on reg_number
-            const existingRegs = new Set(formatted.map((x) => x.reg_number));
-            const mockFiltered = prev.filter((m) => !existingRegs.has(m.regNo || m.reg_number));
-            return [...formatted, ...mockFiltered];
-          });
+          setStudents(formatted);
         }
       })
       .catch((err) => console.log('Notice: DB students load fallback active', err));

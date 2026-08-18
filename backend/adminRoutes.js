@@ -651,6 +651,55 @@ router.post('/classes/upload-roster', upload.single('file'), handleUploadRosterP
 // End-of-Exam Score Aggregator & Isolated Report View
 // GET /api/admin/reports/class-subject-summary
 // --------------------------------------------------------------------------
+async function getObtainableScore(className, subjectName, questionOrderStr = null) {
+    if (questionOrderStr) {
+        try {
+            const parsed = typeof questionOrderStr === 'string' ? JSON.parse(questionOrderStr) : questionOrderStr;
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                return parsed.length;
+            }
+        } catch (e) {}
+    }
+
+    if (subjectName && subjectName !== 'ALL') {
+        const normSubject = normalizeSubjectName(subjectName);
+        let config = null;
+        if (className && className !== 'ALL') {
+            config = await dbGet(
+                `SELECT delivery_count FROM exam_configs WHERE LOWER(class) = LOWER(?) AND LOWER(subject) = LOWER(?)`,
+                [className.trim(), normSubject]
+            );
+        }
+        if (!config) {
+            config = await dbGet(
+                `SELECT delivery_count FROM exam_configs WHERE (class IS NULL OR class = '') AND LOWER(subject) = LOWER(?)`,
+                [normSubject]
+            );
+        }
+        if (config && config.delivery_count && config.delivery_count > 0) {
+            return config.delivery_count;
+        }
+
+        let qCountRow = null;
+        if (className && className !== 'ALL') {
+            qCountRow = await dbGet(
+                `SELECT COUNT(*) AS cnt FROM questions WHERE (class IS NULL OR LOWER(class) = LOWER(?)) AND LOWER(subject) = LOWER(?)`,
+                [className.trim(), normSubject]
+            );
+        } else {
+            qCountRow = await dbGet(
+                `SELECT COUNT(*) AS cnt FROM questions WHERE LOWER(subject) = LOWER(?)`,
+                [normSubject]
+            );
+        }
+        if (qCountRow && qCountRow.cnt > 0) {
+            return qCountRow.cnt;
+        }
+    }
+
+    return 50;
+}
+
 router.get('/reports/class-subject-summary', async (req, res, next) => {
     try {
         const { class_id, class: classParam, subject_id, subject: subjectParam, academic_term_id, term: termParam } = req.query;
@@ -700,7 +749,9 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
                 s.assigned_subject,
                 es.id AS session_id,
                 es.score,
-                es.status AS session_status
+                es.status AS session_status,
+                es.question_order,
+                es.login_time
             FROM students s
             LEFT JOIN exam_sessions es ON s.id = es.student_id AND LOWER(es.subject) = LOWER(?)
             WHERE (LOWER(s.class) = LOWER(?) OR s.class_id = ?)
@@ -708,14 +759,16 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
         `;
 
         const candidatesRaw = await dbAll(querySql, [subjectName, className, resolvedClassId]);
+        const defaultObtainable = await getObtainableScore(className, subjectName);
 
         let submissionsCount = 0;
-        const formattedCandidates = candidatesRaw.map((c, idx) => {
+        const formattedCandidates = await Promise.all(candidatesRaw.map(async (c, idx) => {
             const hasSubmitted = c.session_status === 'submitted' || (c.score !== null && c.score !== undefined);
             if (hasSubmitted) submissionsCount++;
 
+            const obtainable = await getObtainableScore(c.class || className, subjectName, c.question_order) || defaultObtainable;
             const rawScore = c.score !== null && c.score !== undefined ? c.score : null;
-            const pct = rawScore !== null ? Number(((rawScore / 50) * 100).toFixed(1)) : null;
+            const pct = rawScore !== null ? Number(((rawScore / obtainable) * 100).toFixed(1)) : null;
             let statusStr = 'Not Taken';
             if (c.session_status === 'submitted' || rawScore !== null) {
                 statusStr = 'Submitted';
@@ -735,12 +788,13 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
                 first_name: firstNameTrim,
                 full_name: firstNameTrim ? `${surnameUpper}, ${firstNameTrim}` : surnameUpper,
                 raw_score: rawScore,
-                total_marks: 50,
+                total_marks: obtainable,
                 percentage: pct !== null ? `${pct}%` : 'N/A',
                 pct_value: pct,
-                status: statusStr
+                status: statusStr,
+                submission_time: c.login_time || null
             };
-        });
+        }));
 
         return res.status(200).json({
             success: true,
@@ -753,7 +807,8 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
                 academic_term: activeTerm.name,
                 academic_term_id: activeTerm.id,
                 total_candidates: formattedCandidates.length,
-                submissions_count: submissionsCount
+                submissions_count: submissionsCount,
+                total_obtainable_marks: defaultObtainable
             },
             candidates: formattedCandidates
         });
@@ -921,8 +976,11 @@ router.get('/results', async (req, res, next) => {
             }
         });
 
-        const studentRosterWithScores = allStudents.map(s => {
+        const studentRosterWithScores = await Promise.all(allStudents.map(async s => {
             const sess = latestSessionMap.get(s.id);
+            const rawSub = sess ? sess.subject : s.assigned_subject;
+            const normSub = rawSub ? normalizeSubjectName(String(rawSub).split(/[,;]/)[0]) : 'Mathematics';
+            const obtainable = await getObtainableScore(s.class, normSub, sess ? sess.question_order : null);
             return {
                 id: s.id,
                 reg_number: s.reg_number,
@@ -933,14 +991,15 @@ router.get('/results', async (req, res, next) => {
                 name: s.first_name ? `${String(s.surname).toUpperCase()}, ${s.first_name}` : String(s.surname).toUpperCase(),
                 class: s.class,
                 assigned_subject: s.assigned_subject,
-                subject: sess ? sess.subject : s.assigned_subject,
+                subject: normSub,
                 status: sess ? sess.status : 'not_taken',
                 score: sess ? sess.score : null,
+                obtainable_score: obtainable,
                 session_id: sess ? sess.session_id : null,
                 duration_minutes: sess ? sess.duration_minutes : 45,
                 login_time: sess ? sess.login_time : null
             };
-        });
+        }));
 
         return res.status(200).json({
             success: true,
@@ -957,121 +1016,373 @@ router.get('/results', async (req, res, next) => {
 });
 
 // --------------------------------------------------------------------------
-// 5. GET /api/admin/export-csv (and /api/admin/results/export-csv)
-// Streams clean RFC-4180 standard CSV file filtered strictly by class and subject
+// 5. GET /api/admin/reports/export (and aliases /export-excel, /export-csv)
 // --------------------------------------------------------------------------
-const handleExportCsv = async (req, res, next) => {
+// GET /api/admin/reports/check-availability
+// Checks if exam results/submissions exist for a specific class and subject
+// --------------------------------------------------------------------------
+router.get('/reports/check-availability', async (req, res, next) => {
     try {
-        const { class: targetClass, subject: targetSubject } = req.query;
+        const { class_id, class: classParam, subject_id, subject: subjectParam } = req.query;
 
+        let targetClass = null;
+        if (class_id && class_id !== 'ALL') {
+            const cRow = await dbGet(`SELECT name FROM classes WHERE id = ?`, [class_id]);
+            if (cRow) targetClass = cRow.name;
+        }
+        if (!targetClass && classParam && classParam !== 'ALL') {
+            targetClass = classParam.trim();
+        }
+
+        let targetSubject = null;
+        if (subject_id && subject_id !== 'ALL') {
+            const sRow = await dbGet(`SELECT name FROM subjects WHERE id = ?`, [subject_id]);
+            if (sRow) targetSubject = sRow.name;
+        }
+        if (!targetSubject && subjectParam && subjectParam !== 'ALL') {
+            targetSubject = subjectParam.trim();
+        }
+
+        if (!targetClass) {
+            return res.status(200).json({
+                success: false,
+                has_results: false,
+                submissions_count: 0,
+                message: 'Please select a specific Class before exporting results.'
+            });
+        }
+
+        if (!targetSubject) {
+            return res.status(200).json({
+                success: false,
+                has_results: false,
+                submissions_count: 0,
+                message: 'Please select a specific Subject to generate a score sheet.'
+            });
+        }
+
+        const normSubject = normalizeSubjectName(targetSubject);
+
+        const countRow = await dbGet(`
+            SELECT COUNT(*) AS count
+            FROM student_exam_sessions es
+            JOIN students s ON es.student_id = s.id
+            WHERE (LOWER(s.class) = LOWER(?) OR s.class_id = ?)
+              AND LOWER(es.subject_name) = LOWER(?)
+              AND (es.status = 'SUBMITTED' OR es.score IS NOT NULL)
+        `, [targetClass.toLowerCase(), parseInt(class_id, 10) || -1, normSubject.toLowerCase()]);
+
+        const submissionsCount = countRow ? countRow.count : 0;
+
+        return res.status(200).json({
+            success: true,
+            has_results: submissionsCount > 0,
+            submissions_count: submissionsCount,
+            class_name: targetClass,
+            subject_name: normSubject
+        });
+    } catch (error) {
+        console.error('❌ [Check Availability Error]:', error);
+        next(error);
+    }
+});
+
+// --------------------------------------------------------------------------
+// Streams Subject-Specific Dynamic Excel & CSV Score Sheet
+// --------------------------------------------------------------------------
+const handleExportReport = async (req, res, next) => {
+    try {
+        const { class_id, class: classParam, subject_id, subject: subjectParam, format: formatParam } = req.query;
+
+        // Resolve Class Name
+        let targetClass = null;
+        if (class_id && class_id !== 'ALL') {
+            const classRow = await dbGet(`SELECT name FROM classes WHERE id = ?`, [class_id]);
+            if (classRow) targetClass = classRow.name;
+        }
+        if (!targetClass && classParam && classParam !== 'ALL') {
+            targetClass = classParam.trim();
+        }
+
+        // Resolve Subject Name
+        let targetSubject = null;
+        if (subject_id && subject_id !== 'ALL') {
+            const subRow = await dbGet(`SELECT name FROM subjects WHERE id = ?`, [subject_id]);
+            if (subRow) targetSubject = subRow.name;
+        }
+        if (!targetSubject && subjectParam && subjectParam !== 'ALL') {
+            targetSubject = subjectParam.trim();
+        }
+
+        // Strict Validation: Class & Subject required
+        if (!targetClass) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please select a specific Class before exporting results.'
+            });
+        }
+
+        if (!targetSubject) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please select a specific Subject to generate a score sheet.'
+            });
+        }
+
+        const classNameLabel = targetClass;
+        const subjectNameLabel = normalizeSubjectName(targetSubject);
+
+        // Strict Validation: Check Result Submissions Availability
+        const countRow = await dbGet(`
+            SELECT COUNT(*) AS count
+            FROM student_exam_sessions es
+            JOIN students s ON es.student_id = s.id
+            WHERE (LOWER(s.class) = LOWER(?) OR s.class_id = ?)
+              AND LOWER(es.subject_name) = LOWER(?)
+              AND (es.status = 'SUBMITTED' OR es.score IS NOT NULL)
+        `, [classNameLabel.toLowerCase(), parseInt(class_id, 10) || -1, subjectNameLabel.toLowerCase()]);
+
+        const submissionsCount = countRow ? countRow.count : 0;
+        if (submissionsCount === 0) {
+            return res.status(400).json({
+                success: false,
+                message: `No examination results available yet for ${classNameLabel} - ${subjectNameLabel}.`
+            });
+        }
+
+        // Query students and optional student_exam_sessions
         let sql = `
             SELECT 
-                es.id AS session_id,
-                es.student_id,
-                s.reg_number,
+                s.id AS student_id,
+                COALESCE(s.registration_no, s.reg_number) AS reg_number,
                 s.surname,
                 s.first_name,
                 s.class,
-                COALESCE(es.subject, s.assigned_subject) AS subject,
-                es.workstation_ip,
-                es.login_time,
-                es.status,
+                s.assigned_subject,
+                es.session_id,
                 es.score,
-                COALESCE(es.duration_minutes, 45) AS duration_minutes
-            FROM exam_sessions es
-            JOIN students s ON es.student_id = s.id
-            WHERE 1=1
+                es.status AS session_status,
+                es.subject_name AS session_subject,
+                es.delivered_questions_json AS question_order,
+                es.started_at AS login_time
+            FROM students s
         `;
+
         const params = [];
-        if (targetClass && targetClass !== 'ALL') {
-            sql += ` AND (LOWER(s.class) = LOWER(?) OR LOWER(s.class) LIKE LOWER(?))`;
-            params.push(targetClass.trim(), `${targetClass.trim()} %`);
+        if (targetSubject) {
+            sql += ` LEFT JOIN student_exam_sessions es ON s.id = es.student_id AND LOWER(es.subject_name) = LOWER(?)`;
+            params.push(subjectNameLabel);
+        } else {
+            sql += ` LEFT JOIN student_exam_sessions es ON s.id = es.student_id`;
         }
-        if (targetSubject && targetSubject !== 'ALL') {
-            sql += ` AND LOWER(COALESCE(es.subject, s.assigned_subject)) = LOWER(?)`;
-            params.push(targetSubject.trim());
+
+        sql += ` WHERE 1=1`;
+        if (targetClass) {
+            sql += ` AND (LOWER(s.class) = LOWER(?) OR s.class_id = ?)`;
+            params.push(targetClass.toLowerCase(), parseInt(class_id, 10) || -1);
         }
-        sql += ` ORDER BY s.class ASC, s.surname ASC, s.first_name ASC`;
 
-        const results = await dbAll(sql, params);
+        sql += ` ORDER BY s.class ASC, UPPER(s.surname) ASC, UPPER(s.first_name) ASC`;
 
-        // Helper to escape CSV cell value according to RFC-4180
-        const escapeCsv = (val) => {
-            if (val === null || val === undefined) return '""';
-            const str = String(val).trim();
-            if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
-                return `"${str.replace(/"/g, '""')}"`;
+        const rows = await dbAll(sql, params);
+        const defaultObtainable = await getObtainableScore(classNameLabel, subjectNameLabel);
+
+        const reportData = [];
+        let sn = 1;
+
+        for (const row of rows) {
+            const surnameUpper = String(row.surname || '').toUpperCase().trim();
+            const firstNameTrim = String(row.first_name || '').trim();
+            const classTierStream = row.class || 'Unassigned';
+
+            let subjectVal = subjectNameLabel;
+            if (subjectNameLabel === 'ALL') {
+                if (row.session_subject) {
+                    subjectVal = normalizeSubjectName(row.session_subject);
+                } else if (row.assigned_subject) {
+                    const firstSub = String(row.assigned_subject).split(/[,;]/)[0].trim();
+                    subjectVal = normalizeSubjectName(firstSub || 'Mathematics');
+                } else {
+                    subjectVal = 'Mathematics';
+                }
             }
-            return `"${str}"`;
-        };
 
-        // CSV Headers
-        const headers = [
-            'Session ID',
-            'Registration Number',
-            'Surname',
-            'First Name',
-            'Full Candidate Name',
-            'Class',
-            'Subject',
-            'Workstation IP',
-            'Status',
-            'Score (/50)',
-            'Percentage (%)',
-            'Duration (Minutes)',
-            'Examination Date & Time'
-        ];
+            const obtainable = await getObtainableScore(classTierStream, subjectVal, row.question_order) || defaultObtainable;
 
-        const csvLines = [headers.join(',')];
+            let statusText = 'Not Taken';
+            const isSubmitted = row.session_status === 'submitted' || (row.score !== null && row.score !== undefined);
+            const isActive = row.session_status === 'active';
 
-        results.forEach(row => {
-            const surnameUpper = String(row.surname || '').toUpperCase();
-            const firstName = row.first_name || '';
-            const fullName = firstName ? `${surnameUpper}, ${firstName}` : surnameUpper;
-            const scoreVal = row.score !== null && row.score !== undefined ? row.score : '';
-            const percentage = scoreVal !== '' ? `${Math.round((Number(scoreVal) / 50) * 100)}%` : '';
-            const statusUpper = row.status ? row.status.toUpperCase() : 'ACTIVE';
-            const dateStr = row.login_time ? new Date(row.login_time).toLocaleString() : '';
+            if (isSubmitted) {
+                statusText = 'Submitted';
+            } else if (isActive) {
+                statusText = 'In Progress';
+            }
 
-            const line = [
-                escapeCsv(row.session_id),
-                escapeCsv(row.reg_number),
-                escapeCsv(surnameUpper),
-                escapeCsv(firstName),
-                escapeCsv(fullName),
-                escapeCsv(row.class),
-                escapeCsv(normalizeSubjectName(row.subject)),
-                escapeCsv(row.workstation_ip),
-                escapeCsv(statusUpper),
-                escapeCsv(scoreVal),
-                escapeCsv(percentage),
-                escapeCsv(row.duration_minutes || 45),
-                escapeCsv(dateStr)
+            const rawScore = (row.score !== null && row.score !== undefined) ? Number(row.score) : null;
+            let scoreStr = 'N/A';
+            let percentageStr = 'N/A';
+
+            if (rawScore !== null) {
+                scoreStr = `${rawScore} / ${obtainable}`;
+                const pctVal = ((rawScore / obtainable) * 100).toFixed(1);
+                percentageStr = `${pctVal}%`;
+            }
+
+            const dateTimeStr = row.login_time ? new Date(row.login_time).toLocaleString('en-GB', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            }).replace(',', '') : 'N/A';
+
+            reportData.push({
+                sn: sn++,
+                reg_number: row.reg_number || 'N/A',
+                surname: surnameUpper,
+                first_name: firstNameTrim,
+                class_tier_stream: classTierStream,
+                subject: subjectVal,
+                score: scoreStr,
+                percentage: percentageStr,
+                status: statusText,
+                date_time: dateTimeStr
+            });
+        }
+
+        const requestedFormat = (formatParam || (req.path.includes('csv') ? 'csv' : 'excel')).toLowerCase();
+        const fileClassPart = classNameLabel.replace(/[^a-zA-Z0-9_\-]/g, '_');
+        const fileSubPart = subjectNameLabel.replace(/[^a-zA-Z0-9_\-]/g, '_');
+
+        if (requestedFormat === 'csv') {
+            const headers = [
+                'S/N',
+                'Registration No',
+                'Surname',
+                'First Name',
+                'Class Tier & Stream',
+                'Subject',
+                'Score',
+                'Percentage',
+                'Status',
+                'Date & Time of Submission'
             ];
 
-            csvLines.push(line.join(','));
-        });
+            const escapeCsv = (val) => {
+                if (val === null || val === undefined) return '""';
+                const str = String(val).trim();
+                if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+                    return `"${str.replace(/"/g, '""')}"`;
+                }
+                return `"${str}"`;
+            };
 
-        const csvContent = '\uFEFF' + csvLines.join('\r\n'); // Add UTF-8 BOM for Excel compatibility
+            const csvLines = [headers.map(escapeCsv).join(',')];
+            reportData.forEach(item => {
+                csvLines.push([
+                    escapeCsv(item.sn),
+                    escapeCsv(item.reg_number),
+                    escapeCsv(item.surname),
+                    escapeCsv(item.first_name),
+                    escapeCsv(item.class_tier_stream),
+                    escapeCsv(item.subject),
+                    escapeCsv(item.score),
+                    escapeCsv(item.percentage),
+                    escapeCsv(item.status),
+                    escapeCsv(item.date_time)
+                ].join(','));
+            });
 
-        const classLabel = (targetClass && targetClass !== 'ALL') ? targetClass.replace(/[^a-zA-Z0-9_\-]/g, '_') : 'All_Classes';
-        const subjectLabel = (targetSubject && targetSubject !== 'ALL') ? targetSubject.replace(/[^a-zA-Z0-9_\-]/g, '_') : 'All_Subjects';
-        const filename = `cbt_score_report_${classLabel}_${subjectLabel}.csv`;
+            const csvContent = '\uFEFF' + csvLines.join('\r\n');
+            const filename = `cbt_score_report_${fileClassPart}_${fileSubPart}.csv`;
 
-        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.status(200).send(csvContent);
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            return res.status(200).send(csvContent);
+        } else {
+            const workbook = new ExcelJS.Workbook();
+            workbook.creator = 'Anthony Whitebridge Academy CBT System';
+            workbook.created = new Date();
 
-        console.log(`📊 [CSV Export] Generated and streamed clean CSV report "${filename}" (${results.length} rows).`);
+            const worksheet = workbook.addWorksheet('Score Report');
+
+            worksheet.columns = [
+                { header: 'S/N', key: 'sn', width: 8 },
+                { header: 'Registration No', key: 'reg_number', width: 20 },
+                { header: 'Surname', key: 'surname', width: 22 },
+                { header: 'First Name', key: 'first_name', width: 20 },
+                { header: 'Class Tier & Stream', key: 'class_tier_stream', width: 24 },
+                { header: 'Subject', key: 'subject', width: 22 },
+                { header: 'Score', key: 'score', width: 16 },
+                { header: 'Percentage', key: 'percentage', width: 16 },
+                { header: 'Status', key: 'status', width: 16 },
+                { header: 'Date & Time of Submission', key: 'date_time', width: 26 }
+            ];
+
+            const headerRow = worksheet.getRow(1);
+            headerRow.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFF' } };
+            headerRow.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: '1E293B' }
+            };
+            headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+            headerRow.height = 28;
+
+            const thinBorder = {
+                top: { style: 'thin', color: { argb: 'CBD5E1' } },
+                left: { style: 'thin', color: { argb: 'CBD5E1' } },
+                bottom: { style: 'thin', color: { argb: 'CBD5E1' } },
+                right: { style: 'thin', color: { argb: 'CBD5E1' } }
+            };
+
+            headerRow.eachCell((cell) => {
+                cell.border = thinBorder;
+            });
+
+            reportData.forEach(item => {
+                const row = worksheet.addRow(item);
+                row.height = 22;
+                row.eachCell((cell, colNumber) => {
+                    cell.border = thinBorder;
+                    cell.font = { name: 'Arial', size: 10 };
+                    if ([1, 2, 5, 6, 7, 8, 9, 10].includes(colNumber)) {
+                        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                    } else {
+                        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+                    }
+                });
+            });
+
+            worksheet.columns.forEach(col => {
+                let maxLen = col.header ? String(col.header).length : 10;
+                col.eachCell({ includeEmpty: false }, (cell) => {
+                    const len = cell.value ? String(cell.value).length : 0;
+                    if (len > maxLen) maxLen = len;
+                });
+                col.width = Math.max(maxLen + 4, col.width || 12);
+            });
+
+            const filename = `cbt_score_report_${fileClassPart}_${fileSubPart}.xlsx`;
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+            await workbook.xlsx.write(res);
+            return res.end();
+        }
 
     } catch (error) {
-        console.error('❌ [CSV Export Error]:', error);
+        console.error('❌ [Report Export Error]:', error);
         next(error);
     }
 };
 
-router.get('/export-csv', handleExportCsv);
-router.get('/results/export-csv', handleExportCsv);
+router.get('/reports/export', handleExportReport);
+router.get('/export-csv', handleExportReport);
+router.get('/results/export-csv', handleExportReport);
 
 // --------------------------------------------------------------------------
 // 6. GET & POST /api/admin/exam-config
@@ -1218,114 +1529,9 @@ router.post('/subjects/toggle', handleToggleSubjectStatus);
 router.patch('/subject-config/status', handleToggleSubjectStatus);
 
 // --------------------------------------------------------------------------
-// 7. GET /api/admin/export-excel
-// Generate and stream MS Excel (.xlsx) spreadsheet of all student results
+// 7. GET /api/admin/export-excel (Alias to handleExportReport)
 // --------------------------------------------------------------------------
-router.get('/export-excel', async (req, res, next) => {
-    try {
-        const { class: targetClass, subject: targetSubject } = req.query;
-
-        let sql = `
-            SELECT 
-                es.id AS session_id,
-                es.student_id,
-                s.reg_number,
-                s.surname,
-                s.class,
-                COALESCE(es.subject, s.assigned_subject) AS assigned_subject,
-                es.workstation_ip,
-                es.login_time,
-                es.status,
-                es.score,
-                COALESCE(es.duration_minutes, 45) AS duration_minutes
-            FROM exam_sessions es
-            JOIN students s ON es.student_id = s.id
-            WHERE 1=1
-        `;
-        const params = [];
-        if (targetClass && targetClass !== 'ALL') {
-            sql += ` AND (LOWER(s.class) = LOWER(?) OR LOWER(s.class) LIKE LOWER(?))`;
-            params.push(targetClass.trim(), `${targetClass.trim()} %`);
-        }
-        if (targetSubject && targetSubject !== 'ALL') {
-            sql += ` AND LOWER(COALESCE(es.subject, s.assigned_subject)) = LOWER(?)`;
-            params.push(targetSubject.trim());
-        }
-        sql += ` ORDER BY s.class ASC, es.id DESC`;
-
-        const results = await dbAll(sql, params);
-
-        // Create ExcelJS Workbook and Worksheet
-        const workbook = new ExcelJS.Workbook();
-        workbook.creator = 'Anthony Whitebridge Academy CBT Control Center';
-        workbook.created = new Date();
-
-        const worksheet = workbook.addWorksheet('CBT Exam Results');
-
-        // Define Columns
-        worksheet.columns = [
-            { header: 'Session ID', key: 'session_id', width: 12 },
-            { header: 'Student Name', key: 'surname', width: 22 },
-            { header: 'Reg Number', key: 'reg_number', width: 16 },
-            { header: 'Class', key: 'class', width: 14 },
-            { header: 'Subject', key: 'assigned_subject', width: 22 },
-            { header: 'Workstation IP', key: 'workstation_ip', width: 18 },
-            { header: 'Status', key: 'status', width: 15 },
-            { header: 'Score (/50)', key: 'score', width: 15 },
-            { header: 'Duration (Mins)', key: 'duration_minutes', width: 16 },
-            { header: 'Submission Time', key: 'login_time', width: 26 }
-        ];
-
-        // Format & Style Header Row
-        const headerRow = worksheet.getRow(1);
-        headerRow.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFF' } };
-        headerRow.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: '1E293B' } // Dark Slate
-        };
-        headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
-        headerRow.height = 28;
-
-        // Populate Data Rows
-        results.forEach(row => {
-            const addedRow = worksheet.addRow({
-                session_id: row.session_id,
-                surname: row.surname,
-                reg_number: row.reg_number,
-                class: row.class,
-                assigned_subject: row.assigned_subject ? normalizeSubjectName(row.assigned_subject) : '',
-                workstation_ip: row.workstation_ip,
-                status: row.status ? row.status.toUpperCase() : 'ACTIVE',
-                score: row.score !== null ? row.score : 'In Progress',
-                duration_minutes: row.duration_minutes || 45,
-                login_time: new Date(row.login_time).toLocaleString()
-            });
-
-            addedRow.alignment = { vertical: 'middle', horizontal: 'left' };
-        });
-
-        // Set response HTTP headers for file download streaming
-        res.setHeader(
-            'Content-Type',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        );
-        res.setHeader(
-            'Content-Disposition',
-            'attachment; filename="cbt_exam_results.xlsx"'
-        );
-
-        // Stream workbook directly back to Express response
-        await workbook.xlsx.write(res);
-        res.end();
-
-        console.log('📊 [Excel Export] Generated and streamed cbt_exam_results.xlsx to admin client.');
-
-    } catch (error) {
-        console.error('❌ [Excel Export Error]:', error);
-        next(error);
-    }
-});
+router.get('/export-excel', handleExportReport);
 
 /**
  * Parses raw text extracted from a Word document (.docx) to extract

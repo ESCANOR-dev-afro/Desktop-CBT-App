@@ -442,7 +442,7 @@ function seedDatabase() {
         'Home Economics',
         'Agricultural Science',
         'Business Studies',
-        'History',
+        'CRS',
         // Senior Secondary Stream Specific Subjects
         'Biology',
         'Chemistry',
@@ -532,10 +532,11 @@ async function runAutoNormalization() {
         }
 
         // 4. Populate Stream & Tier Subject Mappings into `class_subjects` Table
+        await runAsync('DELETE FROM class_subjects');
         const juniorSubjects = [
-            "English Language", "Mathematics", "Yoruba", "French", "Fine Art", "Music",
-            "Basic Science", "Basic Technology", "PHE", "Digital Technology", "Social Studies",
-            "Civic Education", "Home Economics", "Agricultural Science", "Business Studies", "History"
+            "English Language", "Mathematics", "Basic Science", "Basic Technology",
+            "Social Studies", "Civic Education", "Agricultural Science", "Business Studies",
+            "PHE", "Home Economics", "Music", "Fine Art", "French", "Yoruba", "CRS", "Digital Technology"
         ];
         const scienceSubjects = [
             "Mathematics", "English Language", "Biology", "Chemistry", "Physics",

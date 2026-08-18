@@ -36,6 +36,7 @@ export default function LiveResults({
   const [printTargetClass, setPrintTargetClass] = useState('');
   const [printTargetSubject, setPrintTargetSubject] = useState('');
   const [activePrintPayload, setActivePrintPayload] = useState(null);
+  const [isPreparingPrint, setIsPreparingPrint] = useState(false);
 
   // Purge Submissions Modal State
   const [isPurgeModalOpen, setIsPurgeModalOpen] = useState(false);
@@ -152,9 +153,51 @@ export default function LiveResults({
     return matchesClass && matchesSubject && matchesSearch;
   });
 
-  const handleDownloadClassCsv = () => {
+  const validateExportOrPrint = async () => {
+    if (!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes') {
+      if (onShowToast) onShowToast('Please select a specific Class before exporting results.', 'warning');
+      return false;
+    }
+
+    if (!selectedSubject || selectedSubject === 'ALL' || selectedSubject === 'All Subjects') {
+      if (onShowToast) onShowToast('Please select a specific Subject to generate a score sheet.', 'warning');
+      return false;
+    }
+
     try {
-      const exportUrl = `/api/admin/export-csv?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(selectedSubject)}`;
+      const res = await fetch(`/api/admin/reports/check-availability?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(selectedSubject)}`);
+      const data = await res.json();
+      if (!data.success || !data.has_results || data.submissions_count === 0) {
+        if (onShowToast) {
+          onShowToast(`No examination results available yet for ${selectedClass} - ${selectedSubject}.`, 'warning');
+        }
+        return false;
+      }
+    } catch (e) {
+      console.warn('Availability check notice:', e);
+      const submittedLocal = combinedRoster.filter(r => {
+        const matchesCls = (r.class || '').toLowerCase() === selectedClass.toLowerCase();
+        const matchesSubj = String(r.subject || r.assigned_subject || '').toLowerCase().includes(selectedSubject.toLowerCase());
+        const hasScore = r.raw_score !== null || r.score !== null || r.status === 'Submitted' || r.status === 'submitted';
+        return matchesCls && matchesSubj && hasScore;
+      });
+      if (submittedLocal.length === 0) {
+        if (onShowToast) {
+          onShowToast(`No examination results available yet for ${selectedClass} - ${selectedSubject}.`, 'warning');
+        }
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  const handleDownloadClassCsv = async () => {
+    const isValid = await validateExportOrPrint();
+    if (!isValid) return;
+
+    try {
+      const exportUrl = `/api/admin/reports/export?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(selectedSubject)}&format=csv`;
       window.location.href = exportUrl;
       if (onShowToast) {
         onShowToast(`Downloading clean CSV report for ${selectedClass} - ${selectedSubject}...`, 'success');
@@ -165,8 +208,11 @@ export default function LiveResults({
   };
 
   const handleExportExcel = async () => {
+    const isValid = await validateExportOrPrint();
+    if (!isValid) return;
+
     try {
-      const exportUrl = `/api/admin/export-excel?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(selectedSubject)}`;
+      const exportUrl = `/api/admin/reports/export?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(selectedSubject)}&format=excel`;
       window.location.href = exportUrl;
       if (onShowToast) onShowToast('Exporting official examination results spreadsheet (.xlsx)...', 'success');
     } catch (e) {
@@ -200,15 +246,49 @@ export default function LiveResults({
     return null;
   };
 
+  const triggerPrintWithDelay = (payload) => {
+    setActivePrintPayload(payload);
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        setIsPreparingPrint(false);
+        window.print();
+      }, 300);
+    });
+  };
+
   // Handle Initiating Print
   const handleInitiatePrint = async (targetClassArm) => {
-    const targetClass = targetClassArm || (selectedClass !== 'ALL' ? selectedClass : dynamicClasses[0] || 'JSS 1 Gold');
-    const targetSub = selectedSubject !== 'ALL' ? selectedSubject : 'Mathematics';
+    const targetClass = targetClassArm || selectedClass;
+    const targetSub = selectedSubject;
 
-    if (selectedSubject !== 'ALL') {
+    if (!targetClass || targetClass === 'ALL' || targetClass === 'All Classes') {
+      if (onShowToast) onShowToast('Please select a specific Class before printing score sheet.', 'warning');
+      return;
+    }
+
+    if (!targetSub || targetSub === 'ALL' || targetSub === 'All Subjects') {
+      if (onShowToast) onShowToast('Please select a specific Subject to print a score sheet.', 'warning');
+      return;
+    }
+
+    try {
+      const availRes = await fetch(`/api/admin/reports/check-availability?class=${encodeURIComponent(targetClass)}&subject=${encodeURIComponent(targetSub)}`);
+      const availData = await availRes.json();
+      if (!availData.success || !availData.has_results || availData.submissions_count === 0) {
+        if (onShowToast) {
+          onShowToast(`No examination results available yet for ${targetClass} - ${targetSub}.`, 'warning');
+        }
+        return;
+      }
+    } catch (e) {
+      console.warn('Availability notice:', e);
+    }
+
+    setIsPreparingPrint(true);
+    try {
       const serverReport = await fetchSummaryReport(targetClass, targetSub);
       if (serverReport) {
-        setActivePrintPayload({
+        triggerPrintWithDelay({
           class: targetClass,
           subject: targetSub,
           metadata: serverReport.metadata,
@@ -220,54 +300,47 @@ export default function LiveResults({
           const assignedStr = String(s.assigned_subject || s.subject || '').toLowerCase();
           return matchesCls && assignedStr.includes(targetSub.toLowerCase());
         });
-        setActivePrintPayload({
+        triggerPrintWithDelay({
           class: targetClass,
           subject: targetSub,
           roster: rosterForSubject
         });
       }
-
-      setTimeout(() => {
-        window.print();
-      }, 150);
-    } else {
-      const classSubjects = getSubjectsForClass(targetClass);
-      setPrintTargetClass(targetClass);
-      setPrintTargetSubject(classSubjects[0] || 'Mathematics');
-      setIsPrintModalOpen(true);
+    } catch (err) {
+      setIsPreparingPrint(false);
     }
   };
 
   // Confirm Print Subject Selection from Modal
   const handleConfirmModalPrint = async () => {
     if (!printTargetClass || !printTargetSubject) return;
-
-    const serverReport = await fetchSummaryReport(printTargetClass, printTargetSubject);
-    if (serverReport) {
-      setActivePrintPayload({
-        class: printTargetClass,
-        subject: printTargetSubject,
-        metadata: serverReport.metadata,
-        roster: serverReport.candidates
-      });
-    } else {
-      const rosterForSubject = combinedRoster.filter(s => {
-        const matchesCls = (s.class || '').toLowerCase() === printTargetClass.toLowerCase();
-        const assignedStr = String(s.assigned_subject || s.subject || '').toLowerCase();
-        return matchesCls && assignedStr.includes(printTargetSubject.toLowerCase());
-      });
-      setActivePrintPayload({
-        class: printTargetClass,
-        subject: printTargetSubject,
-        roster: rosterForSubject
-      });
+    setIsPreparingPrint(true);
+    try {
+      const serverReport = await fetchSummaryReport(printTargetClass, printTargetSubject);
+      setIsPrintModalOpen(false);
+      if (serverReport) {
+        triggerPrintWithDelay({
+          class: printTargetClass,
+          subject: printTargetSubject,
+          metadata: serverReport.metadata,
+          roster: serverReport.candidates
+        });
+      } else {
+        const rosterForSubject = combinedRoster.filter(s => {
+          const matchesCls = (s.class || '').toLowerCase() === printTargetClass.toLowerCase();
+          const assignedStr = String(s.assigned_subject || s.subject || '').toLowerCase();
+          return matchesCls && assignedStr.includes(printTargetSubject.toLowerCase());
+        });
+        triggerPrintWithDelay({
+          class: printTargetClass,
+          subject: printTargetSubject,
+          roster: rosterForSubject
+        });
+      }
+    } catch (err) {
+      setIsPreparingPrint(false);
+      setIsPrintModalOpen(false);
     }
-
-    setIsPrintModalOpen(false);
-
-    setTimeout(() => {
-      window.print();
-    }, 150);
   };
 
   // Group filtered roster by class for rendering class sections on screen
@@ -454,7 +527,7 @@ export default function LiveResults({
                         <th className="px-4 py-3">Candidate Name</th>
                         <th className="px-4 py-3">Assigned Subject</th>
                         <th className="px-4 py-3 text-center">Status</th>
-                        <th className="px-4 py-3 text-right">Score (/50)</th>
+                        <th className="px-4 py-3 text-right">Score</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-darkBorder/60 text-slate-200">
@@ -462,6 +535,7 @@ export default function LiveResults({
                         const isSubmitted = student.status === 'submitted' || student.score !== null;
                         const isActive = student.status === 'active';
                         const scoreVal = student.score !== null && student.score !== undefined ? student.score : null;
+                        const obtainableMark = student.obtainable_score || student.total_marks || 50;
 
                         return (
                           <tr key={student.id || idx} className="hover:bg-slate-800/40 transition-colors">
@@ -495,7 +569,7 @@ export default function LiveResults({
                             <td className="px-4 py-3 text-right font-black text-sm">
                               {scoreVal !== null ? (
                                 <span className="text-emerald-400">
-                                  {scoreVal} / 50 <span className="text-xs text-slate-400 font-normal">({Math.round((scoreVal / 50) * 100)}%)</span>
+                                  {scoreVal} / {obtainableMark} <span className="text-xs text-slate-400 font-normal">({Math.round((scoreVal / obtainableMark) * 100)}%)</span>
                                 </span>
                               ) : (
                                 <span className="text-slate-500 italic">N/A</span>
@@ -579,7 +653,7 @@ export default function LiveResults({
       )}
 
       {/* Strictly Isolated Dedicated Printable Score Sheet (Targeted by CSS @media print rules) */}
-      <div id="printable-score-sheet" className="hidden print:block bg-white text-black p-6 font-sans">
+      <div id="cbt-print-container" className="printable-score-sheet hidden print:block bg-white text-black p-6 font-sans">
         {/* Official Header */}
         <div className="border-b-2 border-black pb-4 mb-4 text-center">
           <div className="flex items-center justify-center space-x-4 mb-2">
@@ -598,13 +672,14 @@ export default function LiveResults({
             </div>
           </div>
 
-          <div className="grid grid-cols-6 gap-2 text-xs font-bold text-black border border-black p-2.5 bg-slate-50 mt-3 text-left">
+          <div className="grid grid-cols-7 gap-2 text-xs font-bold text-black border border-black p-2.5 bg-slate-50 mt-3 text-left">
             <div>Class/Arm: <span className="font-black text-sm">{printMetadata?.class_name || printClass}</span></div>
             <div>Subject Name: <span className="font-black text-sm">{printMetadata?.subject_name || printSubject}</span></div>
             <div>Academic Session: <span className="font-black">{printMetadata?.academic_session || academicSession}</span></div>
             <div>Term: <span className="font-black">{printMetadata?.academic_term || activeTerm}</span></div>
             <div>Total Candidates: <span className="font-black">{printMetadata?.total_candidates || printRoster.length}</span></div>
             <div>Submissions Count: <span className="font-black">{printMetadata?.submissions_count !== undefined ? printMetadata.submissions_count : printRoster.filter(r => r.raw_score !== null || r.status === 'Submitted' || r.status === 'submitted').length}</span></div>
+            <div>Total Obtainable Marks: <span className="font-black">{printMetadata?.total_obtainable_marks || 50}</span></div>
           </div>
         </div>
 
@@ -615,7 +690,9 @@ export default function LiveResults({
               <th className="border border-black px-3 py-2 text-center w-12">S/N</th>
               <th className="border border-black px-3 py-2 text-left">Reg No</th>
               <th className="border border-black px-3 py-2 text-left">Candidate Name (A-Z)</th>
-              <th className="border border-black px-3 py-2 text-center">Raw Score (/50)</th>
+              <th className="border border-black px-3 py-2 text-center">Class</th>
+              <th className="border border-black px-3 py-2 text-center">Subject</th>
+              <th className="border border-black px-3 py-2 text-center">Score (/{printMetadata?.total_obtainable_marks || 50})</th>
               <th className="border border-black px-3 py-2 text-center">Percentage</th>
               <th className="border border-black px-3 py-2 text-center">Status</th>
               <th className="border border-black px-3 py-2 text-left">Examiner / Invigilator Signature</th>
@@ -623,11 +700,14 @@ export default function LiveResults({
           </thead>
           <tbody className="divide-y divide-black font-medium text-black">
             {printRoster.map((student, idx) => {
+              const obtainable = student.total_marks || student.obtainable_score || printMetadata?.total_obtainable_marks || 50;
               const score = student.raw_score !== undefined ? student.raw_score : (student.score !== null && student.score !== undefined ? student.score : null);
-              const pctStr = student.percentage ? student.percentage : (score !== null ? `${Math.round((score / 50) * 100)}%` : 'N/A');
+              const pctStr = student.percentage ? student.percentage : (score !== null ? `${((score / obtainable) * 100).toFixed(1)}%` : 'N/A');
               const statusText = student.status || (score !== null ? 'Submitted' : 'Not Taken');
               const candidateName = student.full_name || (student.surname ? `${student.surname}, ${student.first_name || ''}` : student.name);
               const regNo = student.registration_no || student.reg_number || student.regNo;
+              const classStr = student.class || printMetadata?.class_name || printClass;
+              const subjectStr = printMetadata?.subject_name || (selectedSubject !== 'ALL' ? selectedSubject : student.subject || 'Mathematics');
 
               return (
                 <tr key={student.id || idx} className="border-b border-black">
@@ -636,8 +716,14 @@ export default function LiveResults({
                   <td className="border border-black px-3 py-2 font-extrabold uppercase">
                     {candidateName}
                   </td>
+                  <td className="border border-black px-3 py-2 text-center font-bold">
+                    {classStr}
+                  </td>
+                  <td className="border border-black px-3 py-2 text-center font-bold">
+                    {subjectStr}
+                  </td>
                   <td className="border border-black px-3 py-2 text-center font-black">
-                    {score !== null ? `${score} / 50` : 'N/A'}
+                    {score !== null ? `${score} / ${obtainable}` : 'N/A'}
                   </td>
                   <td className="border border-black px-3 py-2 text-center font-black">
                     {pctStr}

@@ -56,28 +56,40 @@ body {
 
 /* Print Media Formatting Rules */
 @media print {
-  body {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  html, body {
     background-color: #ffffff !important;
     color: #000000 !important;
-    font-size: 11pt !important;
+    font-size: 10pt !important;
+    overflow: visible !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
   body * {
     visibility: hidden !important;
   }
 
+  #cbt-print-container,
+  #cbt-print-container *,
   #printable-score-sheet,
   #printable-score-sheet * {
     visibility: visible !important;
   }
 
+  #cbt-print-container,
   #printable-score-sheet {
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
     width: 100% !important;
     margin: 0 !important;
-    padding: 0 !important;
+    padding: 10px !important;
     background: #ffffff !important;
     color: #000000 !important;
     display: block !important;
@@ -94,7 +106,7 @@ body {
 
   th, td {
     border: 1px solid #000000 !important;
-    padding: 6px 10px !important;
+    padding: 5px 8px !important;
     color: #000000 !important;
   }
 }

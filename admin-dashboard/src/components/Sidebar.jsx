@@ -22,7 +22,7 @@ export default function Sidebar({
   subjectsByClass,
 }) {
   const [classesOpen, setClassesOpen] = useState(true);
-  const [expandedTiers, setExpandedTiers] = useState({ 'SS 3': true, 'SS 1': true, 'JSS 1': true });
+  const [expandedTiers, setExpandedTiers] = useState({ 'JSS 1': true, 'JSS 2': true, 'JSS 3': true, 'SS 1': true, 'SS 2': true, 'SS 3': true });
 
   const handleSelectClass = (cls) => {
     setSelectedClass(cls);
