@@ -36,7 +36,7 @@ const junior16List = buildCurriculum(
     'Fine Art',
     'French',
     'Yoruba',
-    'CRS',
+    'History',
     'Digital Technology',
   ],
   'jss',
@@ -45,8 +45,8 @@ const junior16List = buildCurriculum(
 
 const scienceList = buildCurriculum(
   [
-    'Mathematics',
     'English Language',
+    'Mathematics',
     'Biology',
     'Chemistry',
     'Physics',
@@ -63,14 +63,15 @@ const scienceList = buildCurriculum(
 
 const commercialList = buildCurriculum(
   [
-    'Mathematics',
     'English Language',
+    'Mathematics',
     'Civic Education',
     'Further Mathematics',
     'Economics',
     'Digital Technology',
     'Account',
     'Commerce',
+    'Government',
   ],
   'com',
   'Commercial'
@@ -78,8 +79,8 @@ const commercialList = buildCurriculum(
 
 const artsList = buildCurriculum(
   [
-    'Mathematics',
     'English Language',
+    'Mathematics',
     'Civic Education',
     'Economics',
     'Digital Technology',

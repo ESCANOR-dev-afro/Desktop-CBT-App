@@ -32,6 +32,18 @@ function allAsync(sql, params = []) {
 }
 
 async function reseedDatabase() {
+    // SAFETY GUARD: Prevent accidental production data wipes
+    if (!process.argv.includes('--confirm-purge')) {
+        console.error('====================================================');
+        console.error('🛑 [SAFETY GUARD] This script will DELETE ALL student');
+        console.error('   candidates and exam sessions from the database.');
+        console.error('');
+        console.error('   To confirm, re-run with:');
+        console.error('     node seed.js --confirm-purge');
+        console.error('====================================================');
+        process.exit(1);
+    }
+
     console.log('----------------------------------------------------');
     console.log('🔄 RE-SEEDING CBT DATABASE WITH NEW AWA2627XXXX REG NO STANDARD');
     console.log('----------------------------------------------------');

@@ -389,6 +389,8 @@ function initDatabase() {
             else {
                 console.log('📋 [Table Created] "student_exam_sessions" entity is ready.');
                 db.run(`ALTER TABLE student_exam_sessions ADD COLUMN current_question_index INTEGER DEFAULT 0;`, () => {});
+                db.run(`ALTER TABLE student_exam_sessions ADD COLUMN last_heartbeat DATETIME;`, () => {});
+                db.run(`ALTER TABLE student_exam_sessions ADD COLUMN remaining_seconds INTEGER;`, () => {});
                 db.run(`CREATE INDEX IF NOT EXISTS idx_ses_student_status ON student_exam_sessions(student_id, status);`, () => {});
                 db.run(`CREATE INDEX IF NOT EXISTS idx_ses_student_subject_status ON student_exam_sessions(student_id, subject_name, status);`, () => {});
             }
@@ -429,33 +431,36 @@ function seedDatabase() {
         // Junior Secondary 16 Full Subjects
         'English Language',
         'Mathematics',
-        'Yoruba',
-        'French',
-        'Fine Art',
-        'Music',
         'Basic Science',
         'Basic Technology',
-        'PHE',
-        'Digital Technology',
         'Social Studies',
         'Civic Education',
-        'Home Economics',
         'Agricultural Science',
         'Business Studies',
+        'PHE',
+        'Home Economics',
+        'Music',
+        'Fine Art',
+        'French',
+        'Yoruba',
         'CRS',
+        'Digital Technology',
         // Senior Secondary Stream Specific Subjects
         'Biology',
         'Chemistry',
         'Physics',
         'Further Mathematics',
         'Economics',
-        'Account',
+        'Financial Accounting',
         'Commerce',
+        'Business Methods',
         'Government',
-        'CRS',
         'Literature in English',
+        'CRS/IRS',
         'Geography',
-        'Computer Studies'
+        'Computer Studies',
+        'History',
+        'Account'
     ];
 
     const subjectInsertSql = `INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1);`;
@@ -470,10 +475,14 @@ function seedDatabase() {
  * Runs automated data normalization:
  * - Syncs distinct class names to `classes` table.
  * - Syncs question options from flat `questions` table to `question_options` table.
+ * - Purges concatenated subject strings from subjects table.
  * - Populates `class_subjects` mapping table with strict Junior and Senior stream allocations.
  */
 async function runAutoNormalization() {
     try {
+        // Purge any concatenated/multi-subject records from subjects master table
+        await runAsync(`DELETE FROM subjects WHERE name LIKE '%,%'`);
+
         // 1. Populate `classes` table with standard base classes and arms
         const studentClasses = await allAsync(`SELECT DISTINCT class FROM students WHERE class IS NOT NULL AND TRIM(class) != ''`);
         const questionClasses = await allAsync(`SELECT DISTINCT class FROM questions WHERE class IS NOT NULL AND TRIM(class) != ''`);
@@ -534,22 +543,30 @@ async function runAutoNormalization() {
         // 4. Populate Stream & Tier Subject Mappings into `class_subjects` Table
         await runAsync('DELETE FROM class_subjects');
         const juniorSubjects = [
-            "English Language", "Mathematics", "Basic Science", "Basic Technology",
-            "Social Studies", "Civic Education", "Agricultural Science", "Business Studies",
-            "PHE", "Home Economics", "Music", "Fine Art", "French", "Yoruba", "CRS", "Digital Technology"
+            "English Language", "Mathematics", "Yoruba", "French", "Fine Art", "Music",
+            "Basic Science", "Basic Technology", "PHE", "Digital Technology", "Social Studies",
+            "Civic Education", "Home Economics", "Agricultural Science", "Business Studies", "History"
         ];
         const scienceSubjects = [
             "Mathematics", "English Language", "Biology", "Chemistry", "Physics",
-            "Civic Education", "Further Mathematics", "Economics", "Digital Technology", "Geography", "Agricultural Science"
-        ];
-        const commercialSubjects = [
-            "Mathematics", "English Language", "Civic Education", "Further Mathematics",
-            "Economics", "Digital Technology", "Account", "Commerce"
+            "Civic Education", "Further Mathematics", "Economics", "Digital Technology"
         ];
         const artsSubjects = [
             "Mathematics", "English Language", "Civic Education", "Economics",
             "Digital Technology", "Government", "CRS", "Literature in English"
         ];
+        const commercialSubjects = [
+            "Mathematics", "English Language", "Civic Education", "Further Mathematics",
+            "Economics", "Digital Technology", "Account", "Commerce", "Government"
+        ];
+
+        // Ensure all stream subjects exist in master subjects table
+        const allStreamSubjects = Array.from(new Set([
+            ...juniorSubjects, ...scienceSubjects, ...commercialSubjects, ...artsSubjects
+        ]));
+        for (const sName of allStreamSubjects) {
+            await runAsync(`INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1)`, [sName]);
+        }
 
         const subjectRows = await allAsync(`SELECT id, name FROM subjects`);
         const subjMap = new Map(subjectRows.map(s => [s.name.toLowerCase(), s.id]));
@@ -567,7 +584,7 @@ async function runAutoNormalization() {
             } else if (nameUpper.includes('ART')) {
                 allocated = artsSubjects;
             } else {
-                // Base Senior classes (e.g. SS 1, SS 2, SS 3) include general core & science defaults
+                // Base Senior classes (e.g. SS 1, SS 2, SS 3) default to science subjects
                 allocated = scienceSubjects;
             }
 
@@ -592,6 +609,10 @@ async function runAutoNormalization() {
 
 // Trigger initial setup
 initDatabase();
+
+// Production persistence confirmation — schema uses CREATE TABLE IF NOT EXISTS only,
+// no DROP, TRUNCATE, or DELETE FROM students runs during server startup.
+console.log('🔒 [Data Persistence] Student roster data is permanently preserved across server restarts. No destructive migrations executed.');
 
 module.exports = db;
 

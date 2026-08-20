@@ -39,14 +39,15 @@ const adminRoutes = require('./adminRoutes');
 const questionRoutes = require('./questionRoutes');
 
 // ----------------------------------------------------
-// Routes & SPA Static Web Hosting
+// Static Directory Resolution
 // ----------------------------------------------------
+const studentDist = fs.existsSync(path.join(__dirname, '../student_client_react/dist/index.html'))
+    ? path.join(__dirname, '../student_client_react/dist')
+    : path.join(__dirname, 'public');
 
-// Resolve static directories for builds
-const backendPublicPath = path.join(__dirname, 'public');
-const flutterBuildPath = path.join(__dirname, '../student_client/build/web');
-const adminDistPath = path.join(__dirname, 'public/admin');
-const adminFallbackPath = path.join(__dirname, '../admin-dashboard/dist');
+const adminDist = fs.existsSync(path.join(__dirname, '../admin-dashboard/dist/index.html'))
+    ? path.join(__dirname, '../admin-dashboard/dist')
+    : path.join(__dirname, 'public/admin');
 
 // Ensure upload directory exists for question diagrams
 const uploadsDir = path.join(__dirname, 'uploads/diagrams');
@@ -54,7 +55,9 @@ if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// 1. API Endpoints & Static Uploads
+// ----------------------------------------------------
+// 1. API Endpoints & Static Uploads (FIRST PRIORITY)
+// ----------------------------------------------------
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/exam', examRoutes);
 app.use('/api/admin', adminRoutes);
@@ -75,31 +78,30 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// 2. Admin Dashboard Static Assets (/admin)
-const activeAdminPath = fs.existsSync(path.join(adminDistPath, 'index.html'))
-    ? adminDistPath
-    : adminFallbackPath;
+// ----------------------------------------------------
+// 2. Admin Portal Static & SPA Fallback (/admin)
+// ----------------------------------------------------
+app.use('/admin', express.static(adminDist));
 
-app.use('/admin', express.static(activeAdminPath));
-
-// Admin Dashboard SPA Wildcard Fallback (/admin/*)
 app.use('/admin', (req, res, next) => {
-    if (req.path.startsWith('/api')) return next();
-    const adminIndex = path.join(activeAdminPath, 'index.html');
-    res.sendFile(adminIndex, (err) => {
-        if (err) {
-            console.error('⚠️ Could not serve Admin index.html:', err.message);
-            res.status(404).send('Admin Dashboard build not found. Please run "npm run build" in admin-dashboard directory.');
-        }
-    });
+    if (req.originalUrl.startsWith('/api')) return next();
+    const hasExtension = Boolean(path.extname(req.path));
+    if (hasExtension) {
+        return res.status(404).send(`Admin asset '${req.originalUrl}' not found.`);
+    }
+
+    const adminIndex = path.join(adminDist, 'index.html');
+    if (fs.existsSync(adminIndex)) {
+        return res.sendFile(adminIndex);
+    }
+    res.status(404).send('Admin Dashboard build not found. Please run "npm run build" in admin-dashboard directory.');
 });
 
-// 3. Student Client Static Web Assets (/)
-const activeStudentPath = fs.existsSync(path.join(backendPublicPath, 'index.html'))
-    ? backendPublicPath
-    : flutterBuildPath;
-
-app.use(express.static(activeStudentPath, {
+// ----------------------------------------------------
+// 3. Student Portal Static & SPA Fallback (/)
+// ----------------------------------------------------
+app.use(express.static(studentDist, {
+    maxAge: '1d',
     setHeaders: (res, filePath) => {
         if (filePath.endsWith('.wasm')) {
             res.setHeader('Content-Type', 'application/wasm');
@@ -111,28 +113,24 @@ app.use(express.static(activeStudentPath, {
     }
 }));
 
-// Student Client SPA Wildcard Fallback (/*)
 app.use((req, res, next) => {
-    // If request path begins with /api, return JSON 404
-    if (req.path.startsWith('/api')) {
-        return res.status(404).json({
-            status: "error",
-            message: `API route '${req.originalUrl}' not found.`
-        });
+    if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/admin')) {
+        return next();
+    }
+    const hasExtension = Boolean(path.extname(req.path));
+    if (hasExtension) {
+        return res.status(404).send(`Static asset '${req.originalUrl}' not found.`);
     }
 
-    // Serve Student Web index.html for all student web navigation
-    const studentIndex = path.join(activeStudentPath, 'index.html');
-    res.sendFile(studentIndex, (err) => {
-        if (err) {
-            console.error('⚠️ Could not serve Student web index.html:', err.message);
-            res.status(404).send('Student CBT Web App build not found. Please run "flutter build web" in student_client directory.');
-        }
-    });
+    const studentIndex = path.join(studentDist, 'index.html');
+    if (fs.existsSync(studentIndex)) {
+        return res.sendFile(studentIndex);
+    }
+    res.status(404).send('Student CBT Web App build not found. Please run "npm run build" in student_client_react directory.');
 });
 
 // ----------------------------------------------------
-// Global Error Handling Middleware (Crash-Proof Safeguards)
+// Global Error Handling Middleware
 // ----------------------------------------------------
 app.use((err, req, res, next) => {
     console.error('❌ [Unhandled Server Error]:', err.stack || err.message || err);
@@ -144,7 +142,6 @@ app.use((err, req, res, next) => {
     }
 });
 
-// Handle uncaught process exceptions gracefully without crashing the server process
 process.on('uncaughtException', (err) => {
     console.error('💥 [Uncaught Exception Safeguard]:', err.stack || err.message);
 });

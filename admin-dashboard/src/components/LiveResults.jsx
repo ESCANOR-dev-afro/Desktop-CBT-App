@@ -23,7 +23,7 @@ export default function LiveResults({
   onShowToast
 }) {
   const [selectedClass, setSelectedClass] = useState('ALL');
-  const [selectedSubject, setSelectedSubject] = useState('ALL');
+  const [selectedSubject, setSelectedSubject] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [backendResults, setBackendResults] = useState([]);
   const [backendClasses, setBackendClasses] = useState([]);
@@ -37,6 +37,11 @@ export default function LiveResults({
   const [printTargetSubject, setPrintTargetSubject] = useState('');
   const [activePrintPayload, setActivePrintPayload] = useState(null);
   const [isPreparingPrint, setIsPreparingPrint] = useState(false);
+
+  // Reset selectedSubject whenever selectedClass changes
+  useEffect(() => {
+    setSelectedSubject('');
+  }, [selectedClass]);
 
   // Purge Submissions Modal State
   const [isPurgeModalOpen, setIsPurgeModalOpen] = useState(false);
@@ -80,7 +85,8 @@ export default function LiveResults({
   const fetchResults = async () => {
     try {
       setLoading(true);
-      const url = `/api/admin/results?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(selectedSubject)}`;
+      const subParam = selectedSubject && selectedSubject !== 'Select Subject' ? selectedSubject : 'ALL';
+      const url = `/api/admin/results?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(subParam)}`;
       const res = await fetch(url);
       const data = await res.json();
       if (data.success) {
@@ -128,15 +134,64 @@ export default function LiveResults({
     return Array.from(classSet).sort((a, b) => a.localeCompare(b));
   }, [classesList, backendClasses, combinedRoster]);
 
-  // Extract distinct subjects dynamically
+  // Helper to resolve isolated atomic subjects for a given class
+  const getSubjectsForClass = (className) => {
+    if (!className || className === 'ALL') return [];
+    const baseTier = className.replace(/\s+(Science|Art|Arts|Commercial|Gold|Silver|Diamond)$/i, '').trim();
+    const mapped = (subjectsByClass && (subjectsByClass[className] || subjectsByClass[baseTier])) || [];
+    const names = mapped
+      .map(s => (typeof s === 'string' ? s : s.name))
+      .filter(Boolean)
+      .filter(n => !n.includes(','));
+
+    if (names.length > 0) return names;
+
+    const upper = className.toUpperCase();
+    if (upper.startsWith('JSS')) {
+      return [
+        'English Language', 'Mathematics', 'Basic Science', 'Basic Technology',
+        'Social Studies', 'Civic Education', 'Agricultural Science', 'Business Studies',
+        'PHE', 'Home Economics', 'Music', 'Fine Art', 'French', 'Yoruba', 'CRS', 'Digital Technology'
+      ];
+    }
+    if (upper.includes('SCIENCE')) {
+      return [
+        'English Language', 'Mathematics', 'Biology', 'Chemistry', 'Physics',
+        'Civic Education', 'Further Mathematics', 'Economics', 'Digital Technology', 'Geography', 'Agricultural Science'
+      ];
+    }
+    if (upper.includes('COMMERCIAL')) {
+      return [
+        'English Language', 'Mathematics', 'Civic Education', 'Further Mathematics',
+        'Economics', 'Digital Technology', 'Account', 'Commerce', 'Government'
+      ];
+    }
+    if (upper.includes('ART')) {
+      return [
+        'English Language', 'Mathematics', 'Civic Education', 'Economics',
+        'Digital Technology', 'Government', 'CRS', 'Literature in English'
+      ];
+    }
+    return [];
+  };
+
+  // Compute current class subjects based on selected class
+  const currentClassSubjects = useMemo(() => {
+    return getSubjectsForClass(selectedClass);
+  }, [selectedClass, subjectsByClass]);
+
+  // Extract distinct subjects dynamically, filtering out concatenated multi-subject strings
   const dynamicSubjects = useMemo(() => {
     const subSet = new Set();
-    backendSubjects.forEach(s => subSet.add(s));
+    backendSubjects.forEach(s => {
+      const name = typeof s === 'string' ? s : s.name;
+      if (name && !name.includes(',')) subSet.add(name);
+    });
     combinedRoster.forEach(s => {
       const assigned = String(s.assigned_subject || s.subject || '');
       assigned.split(/[,;]/).forEach(item => {
         const trimmed = item.trim();
-        if (trimmed) subSet.add(trimmed);
+        if (trimmed && !trimmed.includes(',')) subSet.add(trimmed);
       });
     });
     return Array.from(subSet).sort((a, b) => a.localeCompare(b));
@@ -146,7 +201,7 @@ export default function LiveResults({
   const filteredRoster = combinedRoster.filter((s) => {
     const matchesClass = selectedClass === 'ALL' || (s.class || '').toLowerCase() === selectedClass.toLowerCase();
     const assignedStr = String(s.assigned_subject || s.subject || '').toLowerCase();
-    const matchesSubject = selectedSubject === 'ALL' || assignedStr.includes(selectedSubject.toLowerCase());
+    const matchesSubject = !selectedSubject || selectedSubject === 'ALL' || selectedSubject === 'Select Subject' || assignedStr.includes(selectedSubject.toLowerCase());
     const matchesSearch =
       (s.name || `${s.surname || ''} ${s.first_name || ''}`).toLowerCase().includes(searchTerm.toLowerCase()) ||
       (s.reg_number || s.regNo || '').toLowerCase().includes(searchTerm.toLowerCase());
@@ -169,7 +224,7 @@ export default function LiveResults({
       const data = await res.json();
       if (!data.success || !data.has_results || data.submissions_count === 0) {
         if (onShowToast) {
-          onShowToast(`No examination results available yet for ${selectedClass} - ${selectedSubject}.`, 'warning');
+          onShowToast(`Cannot print: No submitted results found for ${selectedSubject} in ${selectedClass}.`, 'warning');
         }
         return false;
       }
@@ -183,7 +238,7 @@ export default function LiveResults({
       });
       if (submittedLocal.length === 0) {
         if (onShowToast) {
-          onShowToast(`No examination results available yet for ${selectedClass} - ${selectedSubject}.`, 'warning');
+          onShowToast(`Cannot print: No submitted results found for ${selectedSubject} in ${selectedClass}.`, 'warning');
         }
         return false;
       }
@@ -220,14 +275,6 @@ export default function LiveResults({
     }
   };
 
-  // Helper to resolve subjects for a given class
-  const getSubjectsForClass = (className) => {
-    if (!className) return dynamicSubjects;
-    const baseTier = className.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
-    const mapped = (subjectsByClass && (subjectsByClass[className] || subjectsByClass[baseTier])) || [];
-    const names = mapped.map(s => typeof s === 'string' ? s : s.name).filter(Boolean);
-    return names.length > 0 ? names : dynamicSubjects;
-  };
 
   // Fetch official class subject summary report from backend API
   const fetchSummaryReport = async (cls, subj) => {
@@ -257,37 +304,52 @@ export default function LiveResults({
   };
 
   // Handle Initiating Print
+  // Handle Initiating Print with Strict Single-Subject Scoping & Result Availability Guard
   const handleInitiatePrint = async (targetClassArm) => {
-    const targetClass = targetClassArm || selectedClass;
+    const targetClass = (targetClassArm && targetClassArm !== 'ALL') ? targetClassArm : selectedClass;
     const targetSub = selectedSubject;
 
     if (!targetClass || targetClass === 'ALL' || targetClass === 'All Classes') {
-      if (onShowToast) onShowToast('Please select a specific Class before printing score sheet.', 'warning');
+      if (onShowToast) onShowToast('Cannot print: Please select a specific Class before printing score sheet.', 'warning');
       return;
     }
 
-    if (!targetSub || targetSub === 'ALL' || targetSub === 'All Subjects') {
-      if (onShowToast) onShowToast('Please select a specific Subject to print a score sheet.', 'warning');
+    if (!targetSub || targetSub === '' || targetSub === 'ALL' || targetSub === 'Select Subject' || targetSub === 'All Subjects') {
+      if (onShowToast) onShowToast('Please select a specific Subject to generate a score sheet.', 'warning');
       return;
     }
 
+    // Availability Guard: Check if valid student submissions exist
     try {
       const availRes = await fetch(`/api/admin/reports/check-availability?class=${encodeURIComponent(targetClass)}&subject=${encodeURIComponent(targetSub)}`);
       const availData = await availRes.json();
       if (!availData.success || !availData.has_results || availData.submissions_count === 0) {
         if (onShowToast) {
-          onShowToast(`No examination results available yet for ${targetClass} - ${targetSub}.`, 'warning');
+          onShowToast(`Cannot print: No submitted results found for ${targetSub} in ${targetClass}.`, 'warning');
         }
-        return;
+        return; // BLOCK PRINT IMMEDIATELY (DO NOT CALL window.print())
       }
     } catch (e) {
       console.warn('Availability notice:', e);
+      const submittedCount = combinedRoster.filter(r => {
+        const matchesCls = (r.class || '').toLowerCase() === targetClass.toLowerCase();
+        const matchesSubj = String(r.subject || r.assigned_subject || '').toLowerCase().includes(targetSub.toLowerCase());
+        const hasScore = r.raw_score !== null || r.score !== null || r.status === 'Submitted' || r.status === 'submitted';
+        return matchesCls && matchesSubj && hasScore;
+      }).length;
+
+      if (submittedCount === 0) {
+        if (onShowToast) {
+          onShowToast(`Cannot print: No submitted results found for ${targetSub} in ${targetClass}.`, 'warning');
+        }
+        return; // BLOCK PRINT IMMEDIATELY
+      }
     }
 
     setIsPreparingPrint(true);
     try {
       const serverReport = await fetchSummaryReport(targetClass, targetSub);
-      if (serverReport) {
+      if (serverReport && serverReport.candidates && serverReport.candidates.length > 0) {
         triggerPrintWithDelay({
           class: targetClass,
           subject: targetSub,
@@ -314,11 +376,27 @@ export default function LiveResults({
   // Confirm Print Subject Selection from Modal
   const handleConfirmModalPrint = async () => {
     if (!printTargetClass || !printTargetSubject) return;
+
+    // Availability Guard for modal subject selection
+    try {
+      const availRes = await fetch(`/api/admin/reports/check-availability?class=${encodeURIComponent(printTargetClass)}&subject=${encodeURIComponent(printTargetSubject)}`);
+      const availData = await availRes.json();
+      if (!availData.success || !availData.has_results || availData.submissions_count === 0) {
+        if (onShowToast) {
+          onShowToast(`Cannot print: No submitted results found for ${printTargetSubject} in ${printTargetClass}.`, 'warning');
+        }
+        setIsPrintModalOpen(false);
+        return; // BLOCK PRINT IMMEDIATELY
+      }
+    } catch (e) {
+      console.warn('Modal availability notice:', e);
+    }
+
     setIsPreparingPrint(true);
     try {
       const serverReport = await fetchSummaryReport(printTargetClass, printTargetSubject);
       setIsPrintModalOpen(false);
-      if (serverReport) {
+      if (serverReport && serverReport.candidates && serverReport.candidates.length > 0) {
         triggerPrintWithDelay({
           class: printTargetClass,
           subject: printTargetSubject,
@@ -387,6 +465,7 @@ export default function LiveResults({
         </div>
 
         <div className="flex flex-wrap items-center gap-3 z-10 shrink-0">
+          {/* Purge Submissions Button */}
           <button
             onClick={() => setIsPurgeModalOpen(true)}
             className="px-4 py-2.5 rounded-xl bg-rose-600/15 hover:bg-rose-600/25 text-rose-400 border border-rose-500/40 text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer shadow-sm shadow-rose-500/10"
@@ -396,26 +475,76 @@ export default function LiveResults({
             <span>Purge Active & Trial Submissions</span>
           </button>
 
+          {/* Download CSV Report Button - Strictly guarded by selectedClass */}
           <button
-            onClick={handleDownloadClassCsv}
-            className="px-4 py-2.5 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-md shadow-brand/25 flex items-center space-x-2 brand-glow-sm cursor-pointer"
-            title="Download clean CSV report for selected class and subject"
+            onClick={() => {
+              if (!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes') {
+                if (onShowToast) onShowToast('Select a class first before generating reports.', 'warning');
+                return;
+              }
+              handleDownloadClassCsv();
+            }}
+            disabled={!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes'}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 shadow-md ${
+              selectedClass && selectedClass !== 'ALL' && selectedClass !== 'All Classes'
+                ? 'bg-brand hover:bg-brand-600 text-white shadow-brand/25 brand-glow-sm cursor-pointer'
+                : 'opacity-50 cursor-not-allowed bg-slate-700 text-slate-400 border border-slate-700'
+            }`}
+            title={
+              selectedClass && selectedClass !== 'ALL' && selectedClass !== 'All Classes'
+                ? 'Download clean CSV report for selected class and subject'
+                : 'Please select a specific class to generate score sheets and exports.'
+            }
           >
             <FileSpreadsheet className="w-4 h-4" />
             <span>Download Class Report (CSV)</span>
           </button>
 
+          {/* Print Score Sheet Button - Strictly guarded by selectedClass */}
           <button
-            onClick={() => handleInitiatePrint(selectedClass !== 'ALL' ? selectedClass : null)}
-            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-md flex items-center space-x-2 cursor-pointer"
+            onClick={() => {
+              if (!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes') {
+                if (onShowToast) onShowToast('Select a class first before generating reports.', 'warning');
+                return;
+              }
+              handleInitiatePrint(selectedClass);
+            }}
+            disabled={!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes'}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 shadow-md ${
+              selectedClass && selectedClass !== 'ALL' && selectedClass !== 'All Classes'
+                ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
+                : 'opacity-50 cursor-not-allowed bg-slate-700 text-slate-400 border border-slate-700'
+            }`}
+            title={
+              selectedClass && selectedClass !== 'ALL' && selectedClass !== 'All Classes'
+                ? 'Print official score sheet for selected class and subject'
+                : 'Please select a specific class to generate score sheets and exports.'
+            }
           >
             <Printer className="w-4 h-4" />
             <span>Print Score Sheet</span>
           </button>
 
+          {/* Excel (.xlsx) Export Button - Strictly guarded by selectedClass */}
           <button
-            onClick={handleExportExcel}
-            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-darkBorder text-slate-200 text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer"
+            onClick={() => {
+              if (!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes') {
+                if (onShowToast) onShowToast('Select a class first before generating reports.', 'warning');
+                return;
+              }
+              handleExportExcel();
+            }}
+            disabled={!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes'}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 ${
+              selectedClass && selectedClass !== 'ALL' && selectedClass !== 'All Classes'
+                ? 'bg-slate-800 hover:bg-slate-700 border border-darkBorder text-slate-200 cursor-pointer'
+                : 'opacity-50 cursor-not-allowed bg-slate-700 text-slate-400 border border-slate-700'
+            }`}
+            title={
+              selectedClass && selectedClass !== 'ALL' && selectedClass !== 'All Classes'
+                ? 'Export official examination results spreadsheet (.xlsx)'
+                : 'Please select a specific class to generate score sheets and exports.'
+            }
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
             <span>Excel (.xlsx)</span>
@@ -437,36 +566,38 @@ export default function LiveResults({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* Class Filter Dropdown */}
-          <div className="flex items-center space-x-2 bg-slate-950 border border-darkBorder px-3.5 py-2 rounded-xl">
+          {/* Class Filter Dropdown with High-Contrast Dark Theme Styling */}
+          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-700 px-3.5 py-2 rounded-xl text-white">
             <Filter className="w-4 h-4 text-brand shrink-0" />
             <label className="text-xs text-slate-400 font-medium shrink-0">Class:</label>
             <select
               value={selectedClass}
               onChange={(e) => setSelectedClass(e.target.value)}
-              className="bg-transparent text-xs font-bold text-slate-100 focus:outline-none cursor-pointer"
+              className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-orange-500 focus:outline-none cursor-pointer"
             >
-              <option value="ALL" className="bg-slate-900 text-slate-100 py-1 font-medium">All Classes ({dynamicClasses.length} Arms)</option>
+              <option value="ALL" className="bg-[#0f172a] text-white py-1 font-medium">All Classes ({dynamicClasses.length} Arms)</option>
               {dynamicClasses.map((cls) => (
-                <option key={cls} value={cls} className="bg-slate-900 text-slate-100 py-1 font-medium">
+                <option key={cls} value={cls} className="bg-[#0f172a] text-white py-1 font-medium">
                   {cls}
                 </option>
               ))}
             </select>
           </div>
 
-          {/* Subject Filter Dropdown */}
-          <div className="flex items-center space-x-2 bg-slate-950 border border-darkBorder px-3.5 py-2 rounded-xl">
+          {/* Subject Filter Dropdown with High-Contrast Dark Theme Styling */}
+          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-700 px-3.5 py-2 rounded-xl text-white">
             <Award className="w-4 h-4 text-brand shrink-0" />
             <label className="text-xs text-slate-400 font-medium shrink-0">Subject:</label>
             <select
               value={selectedSubject}
               onChange={(e) => setSelectedSubject(e.target.value)}
-              className="bg-transparent text-xs font-bold text-slate-100 focus:outline-none cursor-pointer"
+              className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-orange-500 focus:outline-none cursor-pointer"
             >
-              <option value="ALL" className="bg-slate-900 text-slate-100 py-1 font-medium">All Subjects ({dynamicSubjects.length})</option>
-              {dynamicSubjects.map((sub) => (
-                <option key={sub} value={sub} className="bg-slate-900 text-slate-100 py-1 font-medium">
+              <option value="" className="bg-[#0f172a] text-slate-400 py-1 font-medium">
+                {selectedClass === 'ALL' ? 'Select Class First' : `Select Subject (${currentClassSubjects.length} Available)`}
+              </option>
+              {(selectedClass === 'ALL' ? dynamicSubjects : currentClassSubjects).map((sub) => (
+                <option key={sub} value={sub} className="bg-[#0f172a] text-white py-1 font-medium">
                   {sub}
                 </option>
               ))}
@@ -620,10 +751,10 @@ export default function LiveResults({
                 <select
                   value={printTargetSubject}
                   onChange={(e) => setPrintTargetSubject(e.target.value)}
-                  className="w-full bg-slate-950 border border-darkBorder text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none font-bold"
+                  className="w-full bg-[#0f172a] border border-darkBorder text-white text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none font-bold"
                 >
                   {getSubjectsForClass(printTargetClass).map((sub) => (
-                    <option key={sub} value={sub} className="bg-slate-900 text-slate-100">
+                    <option key={sub} value={sub} className="bg-[#0f172a] text-white py-1 font-medium">
                       {sub}
                     </option>
                   ))}
@@ -664,22 +795,22 @@ export default function LiveResults({
             />
             <div className="text-left">
               <h1 className="text-2xl font-black uppercase text-black tracking-wide leading-none">
-                ANTHONY WHITEBRIDGE ACADEMY - OFFICIAL EXAMINATION SCORE SHEET
+                Anthony White Bridge Academy - Official CBT Performance Score Sheet
               </h1>
               <p className="text-xs font-extrabold uppercase text-slate-800 tracking-widest mt-1">
-                Class Roster & Examination Performance Summary
+                Class: <span className="font-mono text-black">{printMetadata?.class_name || printClass || selectedClass}</span> | Subject: <span className="font-mono text-black">{printMetadata?.subject_name || printSubject || selectedSubject}</span> | Date: <span className="font-mono text-black">{new Date().toLocaleDateString('en-GB')}</span> | Total Enrolled: <span className="font-mono text-black">{printMetadata?.total_candidates || printRoster.length}</span> | Completed: <span className="font-mono text-black">{printMetadata?.submissions_count !== undefined ? printMetadata.submissions_count : printRoster.filter(r => r.raw_score !== null || r.status === 'Submitted' || r.status === 'submitted').length}</span>
               </p>
             </div>
           </div>
 
           <div className="grid grid-cols-7 gap-2 text-xs font-bold text-black border border-black p-2.5 bg-slate-50 mt-3 text-left">
-            <div>Class/Arm: <span className="font-black text-sm">{printMetadata?.class_name || printClass}</span></div>
-            <div>Subject Name: <span className="font-black text-sm">{printMetadata?.subject_name || printSubject}</span></div>
+            <div>Class/Arm: <span className="font-black text-sm">{printMetadata?.class_name || printClass || selectedClass}</span></div>
+            <div>Subject Name: <span className="font-black text-sm">{printMetadata?.subject_name || printSubject || selectedSubject}</span></div>
             <div>Academic Session: <span className="font-black">{printMetadata?.academic_session || academicSession}</span></div>
             <div>Term: <span className="font-black">{printMetadata?.academic_term || activeTerm}</span></div>
             <div>Total Candidates: <span className="font-black">{printMetadata?.total_candidates || printRoster.length}</span></div>
             <div>Submissions Count: <span className="font-black">{printMetadata?.submissions_count !== undefined ? printMetadata.submissions_count : printRoster.filter(r => r.raw_score !== null || r.status === 'Submitted' || r.status === 'submitted').length}</span></div>
-            <div>Total Obtainable Marks: <span className="font-black">{printMetadata?.total_obtainable_marks || 50}</span></div>
+            <div>Total Marks: <span className="font-black">{printMetadata?.total_obtainable_marks || 50}</span></div>
           </div>
         </div>
 
@@ -688,26 +819,29 @@ export default function LiveResults({
           <thead>
             <tr className="bg-slate-100 border-b-2 border-black text-black font-extrabold uppercase text-[11px]">
               <th className="border border-black px-3 py-2 text-center w-12">S/N</th>
-              <th className="border border-black px-3 py-2 text-left">Reg No</th>
-              <th className="border border-black px-3 py-2 text-left">Candidate Name (A-Z)</th>
-              <th className="border border-black px-3 py-2 text-center">Class</th>
-              <th className="border border-black px-3 py-2 text-center">Subject</th>
-              <th className="border border-black px-3 py-2 text-center">Score (/{printMetadata?.total_obtainable_marks || 50})</th>
-              <th className="border border-black px-3 py-2 text-center">Percentage</th>
-              <th className="border border-black px-3 py-2 text-center">Status</th>
-              <th className="border border-black px-3 py-2 text-left">Examiner / Invigilator Signature</th>
+              <th className="border border-black px-3 py-2 text-left w-36">REG NO</th>
+              <th className="border border-black px-3 py-2 text-left">CANDIDATE NAME (A-Z)</th>
+              <th className="border border-black px-3 py-2 text-center w-40">SCORE (/{printMetadata?.total_obtainable_marks || 50})</th>
+              <th className="border border-black px-3 py-2 text-center w-32">STATUS</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-black font-medium text-black">
             {printRoster.map((student, idx) => {
               const obtainable = student.total_marks || student.obtainable_score || printMetadata?.total_obtainable_marks || 50;
               const score = student.raw_score !== undefined ? student.raw_score : (student.score !== null && student.score !== undefined ? student.score : null);
-              const pctStr = student.percentage ? student.percentage : (score !== null ? `${((score / obtainable) * 100).toFixed(1)}%` : 'N/A');
-              const statusText = student.status || (score !== null ? 'Submitted' : 'Not Taken');
-              const candidateName = student.full_name || (student.surname ? `${student.surname}, ${student.first_name || ''}` : student.name);
+              const isSubmitted = score !== null || (student.status && String(student.status).toLowerCase() === 'submitted');
+              const statusText = isSubmitted ? 'Submitted' : (student.status && String(student.status).toLowerCase().includes('active') ? 'Active Session' : 'Absent');
+
+              const surnameUpper = String(student.surname || '').toUpperCase().trim();
+              const firstNameUpper = String(student.first_name || student.firstName || '').toUpperCase().trim();
+              let candidateName = student.full_name || student.name || 'STUDENT';
+              if (surnameUpper && firstNameUpper) {
+                candidateName = `${surnameUpper}, ${firstNameUpper}`;
+              } else if (surnameUpper) {
+                candidateName = surnameUpper;
+              }
               const regNo = student.registration_no || student.reg_number || student.regNo;
-              const classStr = student.class || printMetadata?.class_name || printClass;
-              const subjectStr = printMetadata?.subject_name || (selectedSubject !== 'ALL' ? selectedSubject : student.subject || 'Mathematics');
+              const scoreDisplay = score !== null ? `${score}/${obtainable}` : 'Not Taken';
 
               return (
                 <tr key={student.id || idx} className="border-b border-black">
@@ -716,23 +850,11 @@ export default function LiveResults({
                   <td className="border border-black px-3 py-2 font-extrabold uppercase">
                     {candidateName}
                   </td>
-                  <td className="border border-black px-3 py-2 text-center font-bold">
-                    {classStr}
-                  </td>
-                  <td className="border border-black px-3 py-2 text-center font-bold">
-                    {subjectStr}
-                  </td>
                   <td className="border border-black px-3 py-2 text-center font-black">
-                    {score !== null ? `${score} / ${obtainable}` : 'N/A'}
-                  </td>
-                  <td className="border border-black px-3 py-2 text-center font-black">
-                    {pctStr}
+                    {scoreDisplay}
                   </td>
                   <td className="border border-black px-3 py-2 text-center font-bold">
                     {statusText}
-                  </td>
-                  <td className="border border-black px-3 py-2 text-left font-mono text-[10px] text-slate-400">
-                    _________________________
                   </td>
                 </tr>
               );

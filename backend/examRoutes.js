@@ -60,6 +60,23 @@ function fisherYatesShuffle(array) {
     return shuffled;
 }
 
+/**
+ * Sanitizes questions delivered to student clients by stripping correct answer keys.
+ * Ensures CBT exam integrity by keeping answer keys strictly server-side.
+ */
+function sanitizeQuestionsForClient(questionsList) {
+    if (!Array.isArray(questionsList)) return [];
+    return questionsList.map(q => {
+        if (!q) return null;
+        const copy = { ...q };
+        delete copy.correct_answer;
+        delete copy.correct_option;
+        delete copy.answer;
+        delete copy.key;
+        return copy;
+    }).filter(Boolean);
+}
+
 // --------------------------------------------------------------------------
 // 1. GET /api/exam/questions/:subject
 /**
@@ -247,6 +264,26 @@ router.get('/questions/:subject', async (req, res, next) => {
 
         const examConfig = await resolveExamConfig(targetClass, normalizedSubject);
 
+        // Check if candidate already submitted this specific subject
+        const targetStudentIdCheck = studentId || req.query.student_id;
+        if (targetStudentIdCheck) {
+            const submittedSession = await dbGet(
+                `SELECT session_id as id FROM student_exam_sessions WHERE student_id = ? AND LOWER(subject_name) = LOWER(?) AND status = 'SUBMITTED'
+                 UNION
+                 SELECT id FROM exam_sessions WHERE student_id = ? AND LOWER(subject) = LOWER(?) AND (status = 'submitted' OR is_locked = 1)
+                 UNION
+                 SELECT session_id as id FROM answers WHERE student_id = ? AND question_id IN (SELECT id FROM questions WHERE LOWER(subject) = LOWER(?))`,
+                [targetStudentIdCheck, normalizedSubject.toLowerCase(), targetStudentIdCheck, normalizedSubject.toLowerCase(), targetStudentIdCheck, normalizedSubject.toLowerCase()]
+            );
+
+            if (submittedSession) {
+                return res.status(403).json({
+                    success: false,
+                    message: `You have already submitted the examination for this specific subject (${normalizedSubject}).`
+                });
+            }
+        }
+
         // Check if subject is active for this class scope
         if (!examConfig.is_active) {
             return res.status(403).json({
@@ -330,7 +367,7 @@ router.get('/questions/:subject', async (req, res, next) => {
                             duration_minutes: durationMinutes,
                             duration_seconds: durationMinutes * 60,
                             count: orderedQuestions.length,
-                            questions: orderedQuestions
+                            questions: sanitizeQuestionsForClient(orderedQuestions)
                         });
                     }
                 }
@@ -427,7 +464,7 @@ router.get('/questions/:subject', async (req, res, next) => {
             duration_minutes: durationMinutes,
             duration_seconds: durationMinutes * 60,
             count: sampledQuestions.length,
-            questions: sampledQuestions
+            questions: sanitizeQuestionsForClient(sampledQuestions)
         });
 
     } catch (error) {
@@ -611,18 +648,27 @@ const handleExamSubmit = async (req, res, next) => {
             }
         });
 
+        let targetSubjectName = req.body.subject || req.body.subject_name || session.subject || null;
+        if (!targetSubjectName && user_answers && Object.keys(user_answers).length > 0) {
+            const firstQId = Object.keys(user_answers)[0];
+            const qRec = await dbGet(`SELECT subject FROM questions WHERE id = ?`, [firstQId]);
+            if (qRec && qRec.subject) {
+                targetSubjectName = qRec.subject;
+            }
+        }
+
         // Update session status = 'SUBMITTED' in both tables
         await dbRun(
-            `UPDATE student_exam_sessions SET status = 'SUBMITTED', score = ?, selected_answers_json = ? WHERE session_id = ? AND student_id = ?`,
-            [calculatedScore, JSON.stringify(user_answers || {}), session_id, student_id]
+            `UPDATE student_exam_sessions SET status = 'SUBMITTED', score = ?, selected_answers_json = ?, subject_name = COALESCE(?, subject_name) WHERE session_id = ? AND student_id = ?`,
+            [calculatedScore, JSON.stringify(user_answers || {}), targetSubjectName, session_id, student_id]
         );
 
         const lockSessionSql = `
             UPDATE exam_sessions 
-            SET status = 'submitted', is_locked = 1, score = ? 
+            SET status = 'submitted', is_locked = 1, score = ?, subject = COALESCE(?, subject)
             WHERE id = ? AND student_id = ?
         `;
-        await dbRun(lockSessionSql, [calculatedScore, session_id, student_id]);
+        await dbRun(lockSessionSql, [calculatedScore, targetSubjectName, session_id, student_id]);
 
         console.log(`🏁 [Exam Submitted] Student ID ${student_id} (Session #${session_id}) completed exam. Score recorded: ${calculatedScore}`);
 

@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "sync-web": "node -e \"const fs=require('fs'); const path=require('path'); const src=path.join(__dirname,'../student_client/build/web'); const dest=path.join(__dirname,'public'); fs.cpSync(src, dest, {recursive: true}); console.log('✅ Flutter web build copied to backend/public successfully');\"",
+    "sync-web": "node -e \"const fs=require('fs'); const path=require('path'); const src=path.join(__dirname,'../student_client_react/dist'); const dest=path.join(__dirname,'public'); fs.cpSync(src, dest, {recursive: true}); console.log('✅ React student client build copied to backend/public successfully');\"",
     "sync-admin": "node -e \"const fs=require('fs'); const path=require('path'); const src=path.join(__dirname,'../admin-dashboard/dist'); const dest=path.join(__dirname,'public/admin'); fs.cpSync(src, dest, {recursive: true}); console.log('✅ Admin dashboard build copied to backend/public/admin successfully');\"",
     "sync-all": "npm run sync-web && npm run sync-admin",
     "test": "echo \"Error: no test specified\" && exit 1"

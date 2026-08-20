@@ -1,11 +1,11 @@
 {
-    "name": "student_client",
-    "short_name": "student_client",
+    "name": "CBT Student Portal",
+    "short_name": "CBT Portal",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#F96302",
+    "theme_color": "#F96302",
+    "description": "Anthony Whitebridge Academy CBT Examination Portal - Student Client",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

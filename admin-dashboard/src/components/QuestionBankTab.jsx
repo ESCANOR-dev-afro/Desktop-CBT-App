@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   FileText,
   UploadCloud,
@@ -22,12 +22,15 @@ export default function QuestionBankTab({
   onAddQuestion = () => {},
   onShowToast = () => {},
 }) {
+  const getSubName = (s) => (typeof s === 'string' ? s : (s?.name || String(s || '')));
+
   const safeSubjectsByClass = subjectsByClass || {};
   const safeQuestionsData = questionsData || {};
 
-  const availableSubjects = safeSubjectsByClass[currentClass] || [];
+  const rawAvailable = safeSubjectsByClass[currentClass] || [];
+  const availableSubjects = Array.isArray(rawAvailable) ? rawAvailable : [];
   const [selectedSubject, setSelectedSubject] = useState(
-    availableSubjects[0]?.name || ''
+    getSubName(availableSubjects[0]) || ''
   );
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -92,12 +95,62 @@ export default function QuestionBankTab({
     }, 1200);
   };
 
+  const [isSubjectActive, setIsSubjectActive] = useState(false);
+  const [togglingStatus, setTogglingStatus] = useState(false);
+
+  // Check current subject active state from server
+  const checkActiveStatus = useCallback(async () => {
+    if (!selectedSubject) return;
+    try {
+      const res = await fetch(`/api/student/assigned-subjects?class=${encodeURIComponent(currentClass)}`).then(r => r.json());
+      if (res.success && Array.isArray(res.papers)) {
+        const match = res.papers.find(p => String(p.name || p.subject).toLowerCase() === selectedSubject.toLowerCase());
+        if (match) {
+          setIsSubjectActive(!!match.is_active);
+        }
+      }
+    } catch (_) {}
+  }, [currentClass, selectedSubject]);
+
+  useEffect(() => {
+    checkActiveStatus();
+  }, [checkActiveStatus]);
+
+  const handleToggleExamActivation = async () => {
+    if (!selectedSubject || togglingStatus) return;
+    setTogglingStatus(true);
+    const nextState = isSubjectActive ? 0 : 1;
+    try {
+      const res = await fetch('/api/admin/toggle-subject-active', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          class: currentClass,
+          subject: selectedSubject,
+          is_active: nextState
+        })
+      }).then(r => r.json());
+
+      if (res.success) {
+        setIsSubjectActive(nextState === 1);
+        onShowToast(
+          `Exam session for "${selectedSubject}" (${currentClass}) set to ${nextState === 1 ? 'ACTIVE (Live for Candidates)' : 'INACTIVE (Locked)'}!`,
+          nextState === 1 ? 'success' : 'info'
+        );
+      }
+    } catch (e) {
+      console.error('Toggle exam activation error:', e);
+    } finally {
+      setTogglingStatus(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Bar: Subject Selector & Docx Dropzone */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Isolated Subject Selector Card */}
-        <div className="bg-slate-900 border border-darkBorder p-5 rounded-2xl flex flex-col justify-between space-y-4">
+        {/* Isolated Subject Selector & Activation Card */}
+        <div className="bg-slate-900 border border-darkBorder p-5 rounded-2xl flex flex-col justify-between space-y-4 shadow-xl">
           <div>
             <div className="flex items-center space-x-2 text-brand font-bold text-xs uppercase tracking-wider mb-1">
               <BookOpen className="w-4 h-4" />
@@ -107,25 +160,58 @@ export default function QuestionBankTab({
               {currentClass} Question Bank
             </h3>
             <p className="text-xs text-slate-400 mt-1">
-              Select subject to view or upload questions isolated exclusively to {currentClass}.
+              Select subject to view questions or toggle candidate exam session activation.
             </p>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Target Subject *
-            </label>
-            <select
-              value={selectedSubject}
-              onChange={(e) => setSelectedSubject(e.target.value)}
-              className="w-full bg-slate-950 border border-darkBorder text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-bold shadow-sm"
-            >
-              {availableSubjects.map((sub) => (
-                <option key={sub.id || sub.name} value={sub.name} className="bg-slate-900 text-slate-100 py-1 font-medium">
-                  {sub.name}
-                </option>
-              ))}
-            </select>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Target Subject *
+              </label>
+              <select
+                value={selectedSubject}
+                onChange={(e) => setSelectedSubject(e.target.value)}
+                className="w-full bg-slate-950 border border-darkBorder text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-bold shadow-sm"
+              >
+                {availableSubjects.map((sub) => {
+                  const name = getSubName(sub);
+                  const key = typeof sub === 'string' ? sub : (sub?.id || name);
+                  return (
+                    <option key={key} value={name} className="bg-slate-900 text-slate-100 py-1 font-medium">
+                      {name}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            {/* Exam Activation Status Button Toggle */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                Exam Activation Status
+              </label>
+              <button
+                type="button"
+                onClick={handleToggleExamActivation}
+                disabled={togglingStatus || !selectedSubject}
+                className={`w-full py-2.5 px-3.5 rounded-xl border text-xs font-bold transition-all flex items-center justify-between shadow-md cursor-pointer ${
+                  isSubjectActive
+                    ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/20 shadow-emerald-500/10'
+                    : 'bg-slate-950 border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <span className={`w-2.5 h-2.5 rounded-full ${isSubjectActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`}></span>
+                  <span>{isSubjectActive ? 'ACTIVE (Live for Candidates)' : 'INACTIVE (Click to Enable)'}</span>
+                </div>
+                <span className={`text-[10px] uppercase px-2 py-0.5 rounded font-extrabold border ${
+                  isSubjectActive ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300' : 'bg-slate-800 border-slate-700 text-slate-400'
+                }`}>
+                  {togglingStatus ? 'Updating...' : (isSubjectActive ? 'TOGGLE OFF' : 'TOGGLE ON')}
+                </span>
+              </button>
+            </div>
           </div>
 
           <div className="pt-3 border-t border-darkBorder flex items-center justify-between text-xs text-slate-400">

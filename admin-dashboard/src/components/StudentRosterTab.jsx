@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Search,
   Filter,
@@ -39,8 +39,9 @@ export default function StudentRosterTab({
       });
       const data = await res.json();
       if (data && data.success) {
-        onShowToast(data.message || `Student roster for ${currentClass} successfully cleared`, 'success');
+        onShowToast(data.message || `All ${classStudents.length} candidates in ${currentClass} permanently deleted.`, 'success');
         setIsResetRosterModalOpen(false);
+        // Remove deleted students from local state immediately
         if (typeof onDeleteStudent === 'function') {
           classStudents.forEach(s => onDeleteStudent(s.id));
         }
@@ -106,34 +107,38 @@ export default function StudentRosterTab({
         {/* Filter controls group */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Subject Filter Dropdown (Isolated to current class) */}
-          <div className="flex items-center space-x-2 bg-slate-950 border border-darkBorder px-3 py-1.5 rounded-xl">
+          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-xl text-white">
             <Filter className="w-3.5 h-3.5 text-brand" />
             <select
               value={subjectFilter}
               onChange={(e) => setSubjectFilter(e.target.value)}
-              className="bg-transparent text-xs font-semibold text-slate-100 focus:outline-none cursor-pointer"
+              className="bg-slate-900 text-xs font-semibold text-white focus:outline-none cursor-pointer border-none"
             >
-              <option value="ALL" className="bg-slate-900 text-slate-100 py-1 font-medium">All {currentClass} Subjects</option>
-              {availableSubjectsForClass.map((sub) => (
-                <option key={sub.id || sub.name} value={sub.name} className="bg-slate-900 text-slate-100 py-1 font-medium">
-                  {sub.name}
-                </option>
-              ))}
+              <option value="ALL" className="bg-[#0f172a] text-white py-1 font-medium">All {currentClass} Subjects</option>
+              {availableSubjectsForClass.map((sub) => {
+                const subName = typeof sub === 'string' ? sub : sub.name;
+                const subKey = typeof sub === 'string' ? sub : (sub.id || sub.name);
+                return (
+                  <option key={subKey} value={subName} className="bg-[#0f172a] text-white py-1 font-medium">
+                    {subName}
+                  </option>
+                );
+              })}
             </select>
           </div>
 
           {/* Status Filter Dropdown */}
-          <div className="flex items-center space-x-2 bg-slate-950 border border-darkBorder px-3 py-1.5 rounded-xl">
+          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-xl text-white">
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-transparent text-xs font-semibold text-slate-100 focus:outline-none cursor-pointer"
+              className="bg-slate-900 text-xs font-semibold text-white focus:outline-none cursor-pointer border-none"
             >
-              <option value="ALL" className="bg-slate-900 text-slate-100 py-1 font-medium">All Candidates</option>
-              <option value="Exam Ready" className="bg-slate-900 text-slate-100 py-1 font-medium">Exam Ready</option>
-              <option value="Active Session" className="bg-slate-900 text-slate-100 py-1 font-medium">Active Session</option>
-              <option value="Submitted" className="bg-slate-900 text-slate-100 py-1 font-medium">Submitted</option>
-              <option value="Locked" className="bg-slate-900 text-slate-100 py-1 font-medium">Locked</option>
+              <option value="ALL" className="bg-[#0f172a] text-white py-1 font-medium">All Candidates</option>
+              <option value="Exam Ready" className="bg-[#0f172a] text-white py-1 font-medium">Exam Ready</option>
+              <option value="Active Session" className="bg-[#0f172a] text-white py-1 font-medium">Active Session</option>
+              <option value="Submitted" className="bg-[#0f172a] text-white py-1 font-medium">Submitted</option>
+              <option value="Locked" className="bg-[#0f172a] text-white py-1 font-medium">Locked</option>
             </select>
           </div>
 
@@ -200,7 +205,17 @@ export default function StudentRosterTab({
                   const firstNameStr = s.firstName || s.first_name || '';
                   const displayName = firstNameStr ? `${surnameUpper}, ${firstNameStr}` : surnameUpper;
                   const regId = s.registration_no || s.reg_number || s.regNo || 'AWA26270001';
-                  const subjectList = s.assignedSubjects || (s.assigned_subject ? s.assigned_subject.split(/[,;]/).map(x => x.trim()) : ['Mathematics']);
+
+                  const classValidSubjectNames = new Set(
+                    availableSubjectsForClass.map((sub) => (typeof sub === 'string' ? sub : sub.name).toLowerCase())
+                  );
+                  const rawSubjectList = s.assignedSubjects || (s.assigned_subject ? s.assigned_subject.split(/[,;]/).map(x => x.trim()) : []);
+                  const filteredSubjectList = classValidSubjectNames.size > 0
+                    ? rawSubjectList.filter(subName => classValidSubjectNames.has(subName.toLowerCase()))
+                    : rawSubjectList;
+                  const subjectList = filteredSubjectList.length > 0
+                    ? filteredSubjectList
+                    : availableSubjectsForClass.map(sub => typeof sub === 'string' ? sub : sub.name);
 
                   return (
                   <tr key={s.id || s.reg_number} className="hover:bg-slate-800/40 transition-colors group">
@@ -325,7 +340,7 @@ export default function StudentRosterTab({
                 Clear Class Student Roster?
               </h3>
               <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                Are you sure you want to delete only the students enrolled in <strong className="text-slate-100 font-bold">{currentClass}</strong>? This will not affect other classes or registered subjects.
+                Are you sure you want to delete all <strong className="text-rose-300 font-bold">{classStudents.length}</strong> candidates from <strong className="text-slate-100 font-bold">{currentClass}</strong>? This action is permanent and cannot be undone. Other class rosters will not be affected.
               </p>
             </div>
 

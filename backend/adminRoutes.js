@@ -55,6 +55,23 @@ function dbRun(sql, params = []) {
 }
 
 /**
+ * Middleware: Verify Admin Access Authorization
+ * Enforces admin token validation if process.env.ADMIN_TOKEN is configured.
+ */
+const verifyAdminAuthorization = (req, res, next) => {
+    const adminToken = req.headers['x-admin-token'] || req.headers['authorization'];
+    if (process.env.ADMIN_TOKEN && adminToken && adminToken !== process.env.ADMIN_TOKEN) {
+        return res.status(401).json({
+            success: false,
+            message: 'Unauthorized admin access: Invalid administration token.'
+        });
+    }
+    next();
+};
+
+router.use(verifyAdminAuthorization);
+
+/**
  * Normalizes and standardizes subject names:
  * - Trims leading/trailing whitespace and compresses multiple spaces.
  * - Converts canonical aliases (e.g. "English" -> "English Language", "Maths" -> "Mathematics").
@@ -185,16 +202,39 @@ router.get('/audit-logs', async (req, res, next) => {
 // --------------------------------------------------------------------------
 // 0. GET /api/admin/subjects
 // --------------------------------------------------------------------------
-// GET /api/admin/class-subjects
+// --------------------------------------------------------------------------
+// 0. GET /api/admin/class-subjects
 // Returns dynamic class-isolated subject lists grouped by class name
 // --------------------------------------------------------------------------
 router.get('/class-subjects', async (req, res, next) => {
     try {
-        const rows = await dbAll(`SELECT class_name, subject_name FROM class_subjects ORDER BY id ASC`);
+        const { class: classParam, class_id } = req.query;
+        let sql = `
+            SELECT cs.class_id, cs.class_name, s.id AS subject_id, s.name AS subject_name 
+            FROM class_subjects cs 
+            JOIN subjects s ON cs.subject_id = s.id 
+            WHERE s.name NOT LIKE '%,%'
+        `;
+        const params = [];
+        if (class_id) {
+            sql += ` AND cs.class_id = ?`;
+            params.push(class_id);
+        } else if (classParam && classParam !== 'ALL') {
+            sql += ` AND LOWER(cs.class_name) = LOWER(?)`;
+            params.push(classParam.trim());
+        }
+        sql += ` ORDER BY cs.class_name ASC, s.name ASC`;
+
+        const rows = await dbAll(sql, params);
         const map = {};
         for (const r of rows) {
             if (!map[r.class_name]) map[r.class_name] = [];
-            map[r.class_name].push({ id: `cs-${r.class_name}-${r.subject_name}`, name: r.subject_name, category: 'Curriculum' });
+            map[r.class_name].push({
+                id: r.subject_id,
+                subject_id: r.subject_id,
+                name: r.subject_name,
+                category: 'Curriculum'
+            });
         }
         return res.status(200).json({
             success: true,
@@ -206,48 +246,75 @@ router.get('/class-subjects', async (req, res, next) => {
     }
 });
 
-// Returns dynamic list of subjects from database with is_active activation status
+// --------------------------------------------------------------------------
+// GET /api/admin/classes/:classId/subjects
+// Returns strictly class-isolated subjects for a specified class ID or class name
+// --------------------------------------------------------------------------
+router.get('/classes/:classId/subjects', async (req, res, next) => {
+    try {
+        const { classId } = req.params;
+        let sql = `
+            SELECT DISTINCT s.id, s.name, s.code, s.is_active
+            FROM subjects s
+            JOIN class_subjects cs ON cs.subject_id = s.id
+            WHERE s.name NOT LIKE '%,%'
+        `;
+        const params = [];
+        if (/^\d+$/.test(classId)) {
+            sql += ` AND cs.class_id = ?`;
+            params.push(parseInt(classId, 10));
+        } else {
+            sql += ` AND (LOWER(cs.class_name) = LOWER(?) OR cs.class_id = (SELECT id FROM classes WHERE LOWER(name) = LOWER(?) LIMIT 1))`;
+            params.push(String(classId).trim(), String(classId).trim());
+        }
+        sql += ` ORDER BY s.name ASC`;
+
+        const subjects = await dbAll(sql, params);
+        return res.status(200).json({
+            success: true,
+            class: classId,
+            count: subjects.length,
+            subjects: subjects
+        });
+    } catch (error) {
+        console.error('❌ [Admin Class Subjects Route Error]:', error);
+        next(error);
+    }
+});
+
+// Returns dynamic list of subjects from database filtered by class if requested
 // --------------------------------------------------------------------------
 router.get('/subjects', async (req, res, next) => {
     try {
-        const defaultSubjects = [
-            'Mathematics',
-            'English Language',
-            'Biology',
-            'Chemistry',
-            'Physics',
-            'Civic Education',
-            'Computer Studies',
-            'Economics',
-            'Government'
-        ];
+        const { class: classParam, class_id } = req.query;
+        let dbSubjects = [];
 
-        // Ensure default subjects exist in subjects table
-        for (const sub of defaultSubjects) {
-            const norm = normalizeSubjectName(sub);
-            if (norm) {
-                await dbRun(`INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1)`, [norm]);
-            }
+        if (class_id) {
+            dbSubjects = await dbAll(`
+                SELECT s.id, s.name, s.code, s.is_active 
+                FROM subjects s
+                JOIN class_subjects cs ON cs.subject_id = s.id
+                WHERE cs.class_id = ? AND s.name NOT LIKE '%,%'
+                ORDER BY s.name ASC
+            `, [class_id]);
+        } else if (classParam && classParam !== 'ALL') {
+            dbSubjects = await dbAll(`
+                SELECT DISTINCT s.id, s.name, s.code, s.is_active 
+                FROM subjects s
+                JOIN class_subjects cs ON cs.subject_id = s.id
+                WHERE (LOWER(cs.class_name) = LOWER(?) OR cs.class_id = (SELECT id FROM classes WHERE LOWER(name) = LOWER(?) LIMIT 1))
+                  AND s.name NOT LIKE '%,%'
+                ORDER BY s.name ASC
+            `, [classParam.trim(), classParam.trim()]);
+        } else {
+            dbSubjects = await dbAll(`
+                SELECT id, name, code, is_active 
+                FROM subjects 
+                WHERE name NOT LIKE '%,%' 
+                ORDER BY name ASC
+            `);
         }
 
-        // Merge any additional subjects from questions or student rosters into subjects table
-        const questionSubjects = await dbAll(`SELECT DISTINCT subject FROM questions WHERE subject IS NOT NULL AND TRIM(subject) != ''`);
-        for (const row of questionSubjects) {
-            const norm = normalizeSubjectName(row.subject);
-            if (norm) {
-                await dbRun(`INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1)`, [norm]);
-            }
-        }
-
-        const studentSubjects = await dbAll(`SELECT DISTINCT assigned_subject AS subject FROM students WHERE assigned_subject IS NOT NULL AND TRIM(assigned_subject) != ''`);
-        for (const row of studentSubjects) {
-            const norm = normalizeSubjectName(row.subject);
-            if (norm) {
-                await dbRun(`INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1)`, [norm]);
-            }
-        }
-
-        const dbSubjects = await dbAll(`SELECT id, name, code, is_active FROM subjects ORDER BY name ASC`);
         const subjectsList = dbSubjects.map(s => s.name);
 
         return res.status(200).json({
@@ -358,9 +425,41 @@ router.get('/students', async (req, res, next) => {
         }
         sql += ` ORDER BY id DESC`;
         const students = await dbAll(sql, params);
+
+        // Query class_subjects mapping to strictly isolate candidate assigned subjects per class stream
+        const classSubjectsRows = await dbAll(`
+            SELECT cs.class_name, cs.class_id, s.name AS subject_name 
+            FROM class_subjects cs 
+            JOIN subjects s ON cs.subject_id = s.id
+        `);
+        const classSubMap = {};
+        for (const r of classSubjectsRows) {
+            const clsKey = r.class_name.toLowerCase();
+            if (!classSubMap[clsKey]) classSubMap[clsKey] = new Set();
+            classSubMap[clsKey].add(r.subject_name.toLowerCase());
+        }
+
+        const filteredStudents = students.map(s => {
+            const clsKey = (s.class || '').toLowerCase().trim();
+            const baseClsKey = clsKey.replace(/\s+(science|art|arts|commercial|gold|silver|diamond)$/i, '').trim();
+            const validSet = classSubMap[clsKey] || classSubMap[baseClsKey];
+
+            if (validSet && s.assigned_subject) {
+                const assignedList = s.assigned_subject.split(/[,;]/).map(x => x.trim()).filter(Boolean);
+                const filteredAssigned = assignedList.filter(sub => validSet.has(sub.toLowerCase()));
+                if (filteredAssigned.length > 0) {
+                    return {
+                        ...s,
+                        assigned_subject: filteredAssigned.join(', ')
+                    };
+                }
+            }
+            return s;
+        });
+
         return res.status(200).json({
             success: true,
-            students: students
+            students: filteredStudents
         });
     } catch (error) {
         console.error('❌ [Admin Students Error]:', error);
@@ -469,6 +568,26 @@ const handleUploadRosterPipeline = async (req, res, next) => {
             return res.status(400).json({
                 success: false,
                 message: "No spreadsheet file uploaded. Please upload a valid .xlsx or .csv roster file."
+            });
+        }
+
+        // Security validation: file extension, MIME type, file size & path traversal sanitization
+        const allowedExtensions = ['.xlsx', '.xls', '.csv'];
+        const originalFilename = String(req.file.originalname || '').toLowerCase();
+        const fileExt = path.extname(originalFilename);
+        const safeFilename = path.basename(originalFilename).replace(/[^a-zA-Z0-9_.-]/g, '');
+
+        if (!allowedExtensions.includes(fileExt)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid file format. Only Excel (.xlsx, .xls) and CSV (.csv) files are permitted."
+            });
+        }
+
+        if (req.file.size > 5 * 1024 * 1024) {
+            return res.status(400).json({
+                success: false,
+                message: "File size exceeds the 5MB maximum allowed limit."
             });
         }
 
@@ -715,7 +834,7 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
             activeTerm = await dbGet(`SELECT id, name, session FROM academic_terms WHERE is_current = 1 ORDER BY id DESC LIMIT 1`);
         }
         if (!activeTerm) {
-            activeTerm = { id: 1, name: '2nd Term', session: '2026/2027' };
+            activeTerm = { id: 1, name: '1st Term', session: '2026/2027' };
         }
 
         // Resolve target class
@@ -725,7 +844,7 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
         } else if (classParam && classParam !== 'ALL') {
             targetClassRow = await dbGet(`SELECT id, name FROM classes WHERE LOWER(name) = LOWER(?)`, [classParam.trim()]);
         }
-        const className = targetClassRow ? targetClassRow.name : (classParam && classParam !== 'ALL' ? classParam.trim() : 'SS 3 Science');
+        const className = targetClassRow ? targetClassRow.name : (classParam && classParam !== 'ALL' ? classParam.trim() : 'SS 1 Art');
         const resolvedClassId = targetClassRow ? targetClassRow.id : null;
 
         // Resolve target subject
@@ -738,7 +857,9 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
         const subjectName = targetSubjectRow ? targetSubjectRow.name : (subjectParam && subjectParam !== 'ALL' ? subjectParam.trim() : 'Mathematics');
         const resolvedSubjectId = targetSubjectRow ? targetSubjectRow.id : null;
 
-        // Fetch candidate roster & latest session score for class and subject
+        const normSubject = normalizeSubjectName(subjectName);
+
+        // Unified candidate roster query over both exam_sessions and student_exam_sessions
         const querySql = `
             SELECT 
                 s.id,
@@ -747,32 +868,35 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
                 s.first_name,
                 s.class,
                 s.assigned_subject,
-                es.id AS session_id,
-                es.score,
-                es.status AS session_status,
-                es.question_order,
-                es.login_time
+                COALESCE(es.id, ses.session_id) AS session_id,
+                COALESCE(es.score, ses.score) AS score,
+                COALESCE(es.status, ses.status) AS raw_status,
+                COALESCE(es.question_order, ses.delivered_questions_json) AS question_order,
+                COALESCE(es.login_time, ses.started_at) AS login_time
             FROM students s
             LEFT JOIN exam_sessions es ON s.id = es.student_id AND LOWER(es.subject) = LOWER(?)
+            LEFT JOIN student_exam_sessions ses ON s.id = ses.student_id AND LOWER(ses.subject_name) = LOWER(?)
             WHERE (LOWER(s.class) = LOWER(?) OR s.class_id = ?)
             ORDER BY UPPER(s.surname) ASC, UPPER(s.first_name) ASC
         `;
 
-        const candidatesRaw = await dbAll(querySql, [subjectName, className, resolvedClassId]);
-        const defaultObtainable = await getObtainableScore(className, subjectName);
+        const candidatesRaw = await dbAll(querySql, [normSubject, normSubject, className, resolvedClassId]);
+        const defaultObtainable = await getObtainableScore(className, normSubject);
 
         let submissionsCount = 0;
         const formattedCandidates = await Promise.all(candidatesRaw.map(async (c, idx) => {
-            const hasSubmitted = c.session_status === 'submitted' || (c.score !== null && c.score !== undefined);
+            const rawScore = (c.score !== null && c.score !== undefined) ? Number(c.score) : null;
+            const statusLower = String(c.raw_status || '').toLowerCase();
+            const hasSubmitted = statusLower === 'submitted' || statusLower === 'expired' || rawScore !== null;
             if (hasSubmitted) submissionsCount++;
 
-            const obtainable = await getObtainableScore(c.class || className, subjectName, c.question_order) || defaultObtainable;
-            const rawScore = c.score !== null && c.score !== undefined ? c.score : null;
+            const obtainable = await getObtainableScore(c.class || className, normSubject, c.question_order) || defaultObtainable;
             const pct = rawScore !== null ? Number(((rawScore / obtainable) * 100).toFixed(1)) : null;
+
             let statusStr = 'Not Taken';
-            if (c.session_status === 'submitted' || rawScore !== null) {
+            if (hasSubmitted) {
                 statusStr = 'Submitted';
-            } else if (c.session_status === 'active') {
+            } else if (statusLower === 'active' || statusLower === 'in_progress') {
                 statusStr = 'Active Session';
             }
 
@@ -782,13 +906,16 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
             return {
                 sn: idx + 1,
                 id: c.id,
+                student_id: c.id,
                 reg_number: c.reg_number,
                 registration_no: c.reg_number,
                 surname: surnameUpper,
                 first_name: firstNameTrim,
                 full_name: firstNameTrim ? `${surnameUpper}, ${firstNameTrim}` : surnameUpper,
                 raw_score: rawScore,
+                score: rawScore,
                 total_marks: obtainable,
+                obtainable_score: obtainable,
                 percentage: pct !== null ? `${pct}%` : 'N/A',
                 pct_value: pct,
                 status: statusStr,
@@ -801,7 +928,7 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
             metadata: {
                 class_name: className,
                 class_id: resolvedClassId,
-                subject_name: subjectName,
+                subject_name: normSubject,
                 subject_id: resolvedSubjectId,
                 academic_session: activeTerm.session,
                 academic_term: activeTerm.name,
@@ -950,8 +1077,8 @@ router.get('/results', async (req, res, next) => {
         const distinctClassesRows = await dbAll(`SELECT DISTINCT class FROM students WHERE class IS NOT NULL AND TRIM(class) != '' ORDER BY class ASC`);
         const allClasses = distinctClassesRows.map(r => r.class);
 
-        // Fetch dynamic list of all distinct subjects
-        const distinctSubjectsRows = await dbAll(`SELECT DISTINCT name FROM subjects WHERE name IS NOT NULL AND TRIM(name) != '' ORDER BY name ASC`);
+        // Fetch dynamic list of all distinct subjects, filtering out concatenated multi-subject strings
+        const distinctSubjectsRows = await dbAll(`SELECT DISTINCT name FROM subjects WHERE name IS NOT NULL AND TRIM(name) != '' AND name NOT LIKE '%,%' ORDER BY name ASC`);
         const allSubjects = distinctSubjectsRows.map(r => r.name);
 
         // Fetch complete student roster with latest session scores mapped
@@ -1021,6 +1148,12 @@ router.get('/results', async (req, res, next) => {
 // GET /api/admin/reports/check-availability
 // Checks if exam results/submissions exist for a specific class and subject
 // --------------------------------------------------------------------------
+// --------------------------------------------------------------------------
+// 5. GET /api/admin/reports/export (and aliases /export-excel, /export-csv)
+// --------------------------------------------------------------------------
+// GET /api/admin/reports/check-availability
+// Checks if exam results/submissions exist for a specific class and subject
+// --------------------------------------------------------------------------
 router.get('/reports/check-availability', async (req, res, next) => {
     try {
         const { class_id, class: classParam, subject_id, subject: subjectParam } = req.query;
@@ -1064,13 +1197,16 @@ router.get('/reports/check-availability', async (req, res, next) => {
         const normSubject = normalizeSubjectName(targetSubject);
 
         const countRow = await dbGet(`
-            SELECT COUNT(*) AS count
-            FROM student_exam_sessions es
-            JOIN students s ON es.student_id = s.id
+            SELECT COUNT(DISTINCT s.id) AS count
+            FROM students s
+            LEFT JOIN exam_sessions es ON s.id = es.student_id AND LOWER(es.subject) = LOWER(?)
+            LEFT JOIN student_exam_sessions ses ON s.id = ses.student_id AND LOWER(ses.subject_name) = LOWER(?)
             WHERE (LOWER(s.class) = LOWER(?) OR s.class_id = ?)
-              AND LOWER(es.subject_name) = LOWER(?)
-              AND (es.status = 'SUBMITTED' OR es.score IS NOT NULL)
-        `, [targetClass.toLowerCase(), parseInt(class_id, 10) || -1, normSubject.toLowerCase()]);
+              AND (
+                LOWER(es.status) = 'submitted' OR es.score IS NOT NULL
+                OR LOWER(ses.status) = 'submitted' OR ses.score IS NOT NULL
+              )
+        `, [normSubject.toLowerCase(), normSubject.toLowerCase(), targetClass.toLowerCase(), parseInt(class_id, 10) || -1]);
 
         const submissionsCount = countRow ? countRow.count : 0;
 
@@ -1088,7 +1224,7 @@ router.get('/reports/check-availability', async (req, res, next) => {
 });
 
 // --------------------------------------------------------------------------
-// Streams Subject-Specific Dynamic Excel & CSV Score Sheet
+// Streams Subject-Specific Dynamic Excel & CSV Score Sheet Exporter
 // --------------------------------------------------------------------------
 const handleExportReport = async (req, res, next) => {
     try {
@@ -1132,15 +1268,18 @@ const handleExportReport = async (req, res, next) => {
         const classNameLabel = targetClass;
         const subjectNameLabel = normalizeSubjectName(targetSubject);
 
-        // Strict Validation: Check Result Submissions Availability
+        // Strict Validation: Check Result Submissions Availability using unified join
         const countRow = await dbGet(`
-            SELECT COUNT(*) AS count
-            FROM student_exam_sessions es
-            JOIN students s ON es.student_id = s.id
+            SELECT COUNT(DISTINCT s.id) AS count
+            FROM students s
+            LEFT JOIN exam_sessions es ON s.id = es.student_id AND LOWER(es.subject) = LOWER(?)
+            LEFT JOIN student_exam_sessions ses ON s.id = ses.student_id AND LOWER(ses.subject_name) = LOWER(?)
             WHERE (LOWER(s.class) = LOWER(?) OR s.class_id = ?)
-              AND LOWER(es.subject_name) = LOWER(?)
-              AND (es.status = 'SUBMITTED' OR es.score IS NOT NULL)
-        `, [classNameLabel.toLowerCase(), parseInt(class_id, 10) || -1, subjectNameLabel.toLowerCase()]);
+              AND (
+                LOWER(es.status) = 'submitted' OR es.score IS NOT NULL
+                OR LOWER(ses.status) = 'submitted' OR ses.score IS NOT NULL
+              )
+        `, [subjectNameLabel.toLowerCase(), subjectNameLabel.toLowerCase(), classNameLabel.toLowerCase(), parseInt(class_id, 10) || -1]);
 
         const submissionsCount = countRow ? countRow.count : 0;
         if (submissionsCount === 0) {
@@ -1150,7 +1289,7 @@ const handleExportReport = async (req, res, next) => {
             });
         }
 
-        // Query students and optional student_exam_sessions
+        // Unified query over both exam_sessions and student_exam_sessions
         let sql = `
             SELECT 
                 s.id AS student_id,
@@ -1159,32 +1298,19 @@ const handleExportReport = async (req, res, next) => {
                 s.first_name,
                 s.class,
                 s.assigned_subject,
-                es.session_id,
-                es.score,
-                es.status AS session_status,
-                es.subject_name AS session_subject,
-                es.delivered_questions_json AS question_order,
-                es.started_at AS login_time
+                COALESCE(es.id, ses.session_id) AS session_id,
+                COALESCE(es.score, ses.score) AS score,
+                COALESCE(es.status, ses.status) AS raw_status,
+                COALESCE(es.question_order, ses.delivered_questions_json) AS question_order,
+                COALESCE(es.login_time, ses.started_at) AS login_time
             FROM students s
+            LEFT JOIN exam_sessions es ON s.id = es.student_id AND LOWER(es.subject) = LOWER(?)
+            LEFT JOIN student_exam_sessions ses ON s.id = ses.student_id AND LOWER(ses.subject_name) = LOWER(?)
+            WHERE (LOWER(s.class) = LOWER(?) OR s.class_id = ?)
+            ORDER BY s.class ASC, UPPER(s.surname) ASC, UPPER(s.first_name) ASC
         `;
 
-        const params = [];
-        if (targetSubject) {
-            sql += ` LEFT JOIN student_exam_sessions es ON s.id = es.student_id AND LOWER(es.subject_name) = LOWER(?)`;
-            params.push(subjectNameLabel);
-        } else {
-            sql += ` LEFT JOIN student_exam_sessions es ON s.id = es.student_id`;
-        }
-
-        sql += ` WHERE 1=1`;
-        if (targetClass) {
-            sql += ` AND (LOWER(s.class) = LOWER(?) OR s.class_id = ?)`;
-            params.push(targetClass.toLowerCase(), parseInt(class_id, 10) || -1);
-        }
-
-        sql += ` ORDER BY s.class ASC, UPPER(s.surname) ASC, UPPER(s.first_name) ASC`;
-
-        const rows = await dbAll(sql, params);
+        const rows = await dbAll(sql, [subjectNameLabel, subjectNameLabel, classNameLabel.toLowerCase(), parseInt(class_id, 10) || -1]);
         const defaultObtainable = await getObtainableScore(classNameLabel, subjectNameLabel);
 
         const reportData = [];
@@ -1193,41 +1319,24 @@ const handleExportReport = async (req, res, next) => {
         for (const row of rows) {
             const surnameUpper = String(row.surname || '').toUpperCase().trim();
             const firstNameTrim = String(row.first_name || '').trim();
-            const classTierStream = row.class || 'Unassigned';
+            const classTierStream = row.class || classNameLabel;
 
-            let subjectVal = subjectNameLabel;
-            if (subjectNameLabel === 'ALL') {
-                if (row.session_subject) {
-                    subjectVal = normalizeSubjectName(row.session_subject);
-                } else if (row.assigned_subject) {
-                    const firstSub = String(row.assigned_subject).split(/[,;]/)[0].trim();
-                    subjectVal = normalizeSubjectName(firstSub || 'Mathematics');
-                } else {
-                    subjectVal = 'Mathematics';
-                }
-            }
+            const obtainable = await getObtainableScore(classTierStream, subjectNameLabel, row.question_order) || defaultObtainable;
 
-            const obtainable = await getObtainableScore(classTierStream, subjectVal, row.question_order) || defaultObtainable;
+            const rawScore = (row.score !== null && row.score !== undefined) ? Number(row.score) : null;
+            const statusLower = String(row.raw_status || '').toLowerCase();
+            const isSubmitted = statusLower === 'submitted' || statusLower === 'expired' || rawScore !== null;
+            const isActive = statusLower === 'active' || statusLower === 'in_progress';
 
             let statusText = 'Not Taken';
-            const isSubmitted = row.session_status === 'submitted' || (row.score !== null && row.score !== undefined);
-            const isActive = row.session_status === 'active';
-
             if (isSubmitted) {
                 statusText = 'Submitted';
             } else if (isActive) {
                 statusText = 'In Progress';
             }
 
-            const rawScore = (row.score !== null && row.score !== undefined) ? Number(row.score) : null;
-            let scoreStr = 'N/A';
-            let percentageStr = 'N/A';
-
-            if (rawScore !== null) {
-                scoreStr = `${rawScore} / ${obtainable}`;
-                const pctVal = ((rawScore / obtainable) * 100).toFixed(1);
-                percentageStr = `${pctVal}%`;
-            }
+            const pctVal = rawScore !== null ? Number(((rawScore / obtainable) * 100).toFixed(1)) : null;
+            const pctDecimal = rawScore !== null ? (rawScore / obtainable) : null;
 
             const dateTimeStr = row.login_time ? new Date(row.login_time).toLocaleString('en-GB', {
                 year: 'numeric',
@@ -1245,9 +1354,11 @@ const handleExportReport = async (req, res, next) => {
                 surname: surnameUpper,
                 first_name: firstNameTrim,
                 class_tier_stream: classTierStream,
-                subject: subjectVal,
-                score: scoreStr,
-                percentage: percentageStr,
+                subject: subjectNameLabel,
+                raw_score: rawScore, // numeric integer e.g. 4
+                obtainable: obtainable, // numeric integer e.g. 10
+                pct_decimal: pctDecimal, // numeric float e.g. 0.40
+                pct_val: pctVal, // numeric float e.g. 40.0
                 status: statusText,
                 date_time: dateTimeStr
             });
@@ -1257,18 +1368,15 @@ const handleExportReport = async (req, res, next) => {
         const fileClassPart = classNameLabel.replace(/[^a-zA-Z0-9_\-]/g, '_');
         const fileSubPart = subjectNameLabel.replace(/[^a-zA-Z0-9_\-]/g, '_');
 
+        const scoreHeaderLabel = `SCORE (/${defaultObtainable})`;
+
         if (requestedFormat === 'csv') {
             const headers = [
                 'S/N',
-                'Registration No',
-                'Surname',
-                'First Name',
-                'Class Tier & Stream',
-                'Subject',
-                'Score',
-                'Percentage',
-                'Status',
-                'Date & Time of Submission'
+                'REG NO',
+                'CANDIDATE NAME (A-Z)',
+                scoreHeaderLabel,
+                'STATUS'
             ];
 
             const escapeCsv = (val) => {
@@ -1282,17 +1390,18 @@ const handleExportReport = async (req, res, next) => {
 
             const csvLines = [headers.map(escapeCsv).join(',')];
             reportData.forEach(item => {
+                const candidateName = item.first_name
+                    ? `${item.surname}, ${item.first_name.toUpperCase()}`
+                    : item.surname;
+                const scoreDisplay = item.raw_score !== null ? `${item.raw_score}/${item.obtainable}` : 'Not Taken';
+                const statusDisplay = item.status === 'Submitted' ? 'Submitted' : 'Absent';
+
                 csvLines.push([
                     escapeCsv(item.sn),
                     escapeCsv(item.reg_number),
-                    escapeCsv(item.surname),
-                    escapeCsv(item.first_name),
-                    escapeCsv(item.class_tier_stream),
-                    escapeCsv(item.subject),
-                    escapeCsv(item.score),
-                    escapeCsv(item.percentage),
-                    escapeCsv(item.status),
-                    escapeCsv(item.date_time)
+                    escapeCsv(candidateName),
+                    escapeCsv(scoreDisplay),
+                    escapeCsv(statusDisplay)
                 ].join(','));
             });
 
@@ -1311,15 +1420,10 @@ const handleExportReport = async (req, res, next) => {
 
             worksheet.columns = [
                 { header: 'S/N', key: 'sn', width: 8 },
-                { header: 'Registration No', key: 'reg_number', width: 20 },
-                { header: 'Surname', key: 'surname', width: 22 },
-                { header: 'First Name', key: 'first_name', width: 20 },
-                { header: 'Class Tier & Stream', key: 'class_tier_stream', width: 24 },
-                { header: 'Subject', key: 'subject', width: 22 },
-                { header: 'Score', key: 'score', width: 16 },
-                { header: 'Percentage', key: 'percentage', width: 16 },
-                { header: 'Status', key: 'status', width: 16 },
-                { header: 'Date & Time of Submission', key: 'date_time', width: 26 }
+                { header: 'REG NO', key: 'reg_number', width: 22 },
+                { header: 'CANDIDATE NAME (A-Z)', key: 'candidate_name', width: 35 },
+                { header: scoreHeaderLabel, key: 'score_display', width: 20 },
+                { header: 'STATUS', key: 'status', width: 18 }
             ];
 
             const headerRow = worksheet.getRow(1);
@@ -1344,12 +1448,26 @@ const handleExportReport = async (req, res, next) => {
             });
 
             reportData.forEach(item => {
-                const row = worksheet.addRow(item);
-                row.height = 22;
-                row.eachCell((cell, colNumber) => {
+                const candidateName = item.first_name
+                    ? `${item.surname}, ${item.first_name.toUpperCase()}`
+                    : item.surname;
+                const scoreDisplay = item.raw_score !== null ? `${item.raw_score}/${item.obtainable}` : 'Not Taken';
+                const statusDisplay = item.status === 'Submitted' ? 'Submitted' : 'Absent';
+
+                const addedRow = worksheet.addRow({
+                    sn: item.sn,
+                    reg_number: item.reg_number,
+                    candidate_name: candidateName,
+                    score_display: scoreDisplay,
+                    status: statusDisplay
+                });
+                addedRow.height = 22;
+
+                addedRow.eachCell((cell, colNumber) => {
                     cell.border = thinBorder;
                     cell.font = { name: 'Arial', size: 10 };
-                    if ([1, 2, 5, 6, 7, 8, 9, 10].includes(colNumber)) {
+
+                    if (colNumber === 1 || colNumber === 4 || colNumber === 5) {
                         cell.alignment = { vertical: 'middle', horizontal: 'center' };
                     } else {
                         cell.alignment = { vertical: 'middle', horizontal: 'left' };
@@ -1360,7 +1478,7 @@ const handleExportReport = async (req, res, next) => {
             worksheet.columns.forEach(col => {
                 let maxLen = col.header ? String(col.header).length : 10;
                 col.eachCell({ includeEmpty: false }, (cell) => {
-                    const len = cell.value ? String(cell.value).length : 0;
+                    const len = cell.value !== undefined && cell.value !== null ? String(cell.value).length : 0;
                     if (len > maxLen) maxLen = len;
                 });
                 col.width = Math.max(maxLen + 4, col.width || 12);
@@ -1526,6 +1644,8 @@ const handleToggleSubjectStatus = async (req, res, next) => {
 };
 
 router.post('/subjects/toggle', handleToggleSubjectStatus);
+router.post('/toggle-subject-active', handleToggleSubjectStatus);
+router.post('/exam-config/toggle', handleToggleSubjectStatus);
 router.patch('/subject-config/status', handleToggleSubjectStatus);
 
 // --------------------------------------------------------------------------
@@ -1979,6 +2099,71 @@ const handleClearSubjectQuestions = async (req, res, next) => {
 
 router.post('/questions/clear-subject', handleClearSubjectQuestions);
 router.delete('/questions/clear-subject', handleClearSubjectQuestions);
+
+// --------------------------------------------------------------------------
+// 12a. DELETE /api/admin/students/:id
+// Permanently deletes a single candidate record and all associated data
+// (answers, exam_sessions, student_exam_sessions) from the SQLite database.
+// --------------------------------------------------------------------------
+router.delete('/students/:id', async (req, res, next) => {
+    try {
+        const studentId = parseInt(req.params.id, 10);
+        if (!studentId || isNaN(studentId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid numeric student ID is required."
+            });
+        }
+
+        // Verify student exists before deletion
+        const student = await dbGet(`SELECT id, reg_number, surname, first_name, class FROM students WHERE id = ?`, [studentId]);
+        if (!student) {
+            return res.status(404).json({
+                success: false,
+                message: `Student with ID ${studentId} not found in database.`
+            });
+        }
+
+        // Cascade delete all associated data
+        const deletedAnswers = await dbRun(`DELETE FROM answers WHERE student_id = ?`, [studentId]);
+        const deletedSessions = await dbRun(`DELETE FROM exam_sessions WHERE student_id = ?`, [studentId]);
+        const deletedStudentSessions = await dbRun(`DELETE FROM student_exam_sessions WHERE student_id = ?`, [studentId]);
+        const deletedStudent = await dbRun(`DELETE FROM students WHERE id = ?`, [studentId]);
+
+        const displayName = student.first_name
+            ? `${String(student.surname).toUpperCase()}, ${student.first_name}`
+            : String(student.surname).toUpperCase();
+
+        console.log(`🗑️ [Student Deleted] ${displayName} (${student.reg_number}) permanently removed from database. Class: ${student.class}`);
+
+        // Record audit log
+        await logAuditAction({
+            action: 'DELETE_STUDENT',
+            entity_type: 'students',
+            entity_id: String(studentId),
+            details: {
+                reg_number: student.reg_number,
+                surname: student.surname,
+                first_name: student.first_name,
+                class: student.class,
+                deleted_answers: deletedAnswers.changes || 0,
+                deleted_sessions: (deletedSessions.changes || 0) + (deletedStudentSessions.changes || 0)
+            },
+            ip_address: req.ip || '127.0.0.1'
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: `Candidate ${displayName} (${student.reg_number}) permanently deleted from database.`,
+            deleted_student_id: studentId,
+            deleted_answers_count: deletedAnswers.changes || 0,
+            deleted_sessions_count: (deletedSessions.changes || 0) + (deletedStudentSessions.changes || 0)
+        });
+    } catch (err) {
+        console.error('❌ [Delete Student Error]:', err);
+        next(err);
+    }
+});
 
 // --------------------------------------------------------------------------
 // 12. POST / DELETE /api/admin/classes/reset-roster & /api/admin/classes/:classId/roster

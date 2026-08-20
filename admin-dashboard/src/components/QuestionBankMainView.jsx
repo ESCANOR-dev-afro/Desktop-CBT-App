@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   FileText,
   UploadCloud,
@@ -37,6 +37,8 @@ const questionBankClasses = [
   'SS 3 Commercial',
 ];
 
+const getSubName = (s) => (typeof s === 'string' ? s : (s?.name || String(s || '')));
+
 export default function QuestionBankMainView({
   classesList = ['JSS 1', 'JSS 2', 'JSS 3', 'SS 1', 'SS 2', 'SS 3'],
   subjectsByClass = {},
@@ -48,12 +50,13 @@ export default function QuestionBankMainView({
 
   const safeSubjectsByClass = subjectsByClass || {};
 
-  const availableSubjects = safeSubjectsByClass[activeClass] 
-    || safeSubjectsByClass[activeClass.replace(/\s+(Science|Art|Commercial)$/i, '')] 
+  const rawAvailable = safeSubjectsByClass[activeClass] 
+    || safeSubjectsByClass[activeClass?.replace?.(/\s+(Science|Art|Commercial)$/i, '')] 
     || [];
+  const availableSubjects = Array.isArray(rawAvailable) ? rawAvailable : [];
     
   const [selectedSubject, setSelectedSubject] = useState(
-    availableSubjects[0]?.name || 'Mathematics'
+    getSubName(availableSubjects[0]) || 'Mathematics'
   );
 
   // Database questions state
@@ -124,9 +127,9 @@ export default function QuestionBankMainView({
   // Sync selectedSubject if activeClass changes
   useEffect(() => {
     if (availableSubjects.length > 0) {
-      const exists = availableSubjects.find(s => s.name === selectedSubject);
+      const exists = availableSubjects.find(s => getSubName(s) === selectedSubject);
       if (!exists) {
-        setSelectedSubject(availableSubjects[0].name);
+        setSelectedSubject(getSubName(availableSubjects[0]) || 'Mathematics');
       }
     }
   }, [activeClass, availableSubjects, selectedSubject]);
@@ -480,13 +483,17 @@ export default function QuestionBankMainView({
             <select
               value={selectedSubject}
               onChange={(e) => setSelectedSubject(e.target.value)}
-              className="w-full bg-slate-950 border border-darkBorder text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-bold shadow-sm"
+              className="w-full bg-slate-900 border border-slate-700 text-white text-xs rounded-xl px-3.5 py-2.5 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 font-bold shadow-sm"
             >
-              {availableSubjects.map((sub) => (
-                <option key={sub.id || sub.name} value={sub.name} className="bg-slate-900 text-slate-100 py-1.5 font-medium">
-                  {sub.name}
-                </option>
-              ))}
+              {availableSubjects.map((sub) => {
+                const subName = getSubName(sub);
+                const subKey = typeof sub === 'string' ? sub : (sub.id || subName);
+                return (
+                  <option key={subKey} value={subName} className="bg-[#0f172a] text-white py-1.5 font-medium">
+                    {subName}
+                  </option>
+                );
+              })}
             </select>
           </div>
 
@@ -1107,12 +1114,12 @@ export default function QuestionBankMainView({
                 <select
                   value={correctAns}
                   onChange={(e) => setCorrectAns(e.target.value)}
-                  className="w-full bg-slate-950 text-xs px-3 py-2 rounded-xl border border-darkBorder text-slate-200 font-bold focus:outline-none focus:border-brand"
+                  className="w-full bg-slate-900 border border-slate-700 text-white text-xs px-3 py-2 rounded-xl font-bold focus:outline-none focus:border-orange-500"
                 >
-                  <option value="A">Option A</option>
-                  <option value="B">Option B</option>
-                  <option value="C">Option C</option>
-                  <option value="D">Option D</option>
+                  <option value="A" className="bg-[#0f172a] text-white">Option A</option>
+                  <option value="B" className="bg-[#0f172a] text-white">Option B</option>
+                  <option value="C" className="bg-[#0f172a] text-white">Option C</option>
+                  <option value="D" className="bg-[#0f172a] text-white">Option D</option>
                 </select>
               </div>
 

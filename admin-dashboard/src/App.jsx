@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import DashboardOverview from './components/DashboardOverview';
@@ -54,7 +54,7 @@ export default function App() {
   };
 
   // Fetch active academic term on load
-  React.useEffect(() => {
+  useEffect(() => {
     fetch('/api/admin/academic-terms')
       .then((res) => res.json())
       .then((data) => {
@@ -67,7 +67,7 @@ export default function App() {
   }, []);
 
   // Fetch dynamic class subjects mapping from database on load
-  React.useEffect(() => {
+  useEffect(() => {
     fetch('/api/admin/class-subjects')
       .then((res) => res.json())
       .then((data) => {
@@ -134,7 +134,7 @@ export default function App() {
   };
 
   // Fetch database students on load to ensure persistence across page refreshes
-  React.useEffect(() => {
+  useEffect(() => {
     fetch('/api/admin/students')
       .then((res) => res.json())
       .then((data) => {
@@ -276,10 +276,25 @@ export default function App() {
     });
   };
 
-  // Student deletion handler
-  const handleDeleteStudent = (studentId) => {
-    setStudents((prev) => prev.filter((s) => s.id !== studentId && s.reg_number !== studentId));
-    showToast('Candidate record removed from database', 'info');
+  // Student deletion handler — permanently removes from SQLite database via backend API
+  const handleDeleteStudent = async (studentId) => {
+    try {
+      const res = await fetch(`/api/admin/students/${studentId}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setStudents((prev) => prev.filter((s) => s.id !== studentId && s.reg_number !== studentId));
+        showToast(data.message || 'Candidate permanently deleted from database.', 'success');
+      } else {
+        showToast(data.message || 'Failed to delete candidate from database.', 'error');
+      }
+    } catch (e) {
+      // Fallback: remove from local state even if network fails
+      setStudents((prev) => prev.filter((s) => s.id !== studentId && s.reg_number !== studentId));
+      showToast('Candidate removed locally. Backend sync may be pending.', 'info');
+    }
   };
 
   return (

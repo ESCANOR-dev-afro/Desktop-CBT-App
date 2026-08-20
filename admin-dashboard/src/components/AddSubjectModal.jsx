@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { X, BookPlus, ShieldAlert, CheckCircle2 } from 'lucide-react';
 
 export default function AddSubjectModal({
@@ -97,11 +97,11 @@ export default function AddSubjectModal({
                 onChange={(e) => setCategory(e.target.value)}
                 className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
               >
-                <option value="Core">Core Subjects</option>
-                <option value="Sciences">Sciences</option>
-                <option value="Humanities">Humanities / Arts</option>
-                <option value="Commercial">Commercial</option>
-                <option value="Technical">Technical / Vocational</option>
+                <option value="Core" className="bg-slate-900 text-slate-100 py-1 font-medium">Core Subjects</option>
+                <option value="Sciences" className="bg-slate-900 text-slate-100 py-1 font-medium">Sciences</option>
+                <option value="Humanities" className="bg-slate-900 text-slate-100 py-1 font-medium">Humanities / Arts</option>
+                <option value="Commercial" className="bg-slate-900 text-slate-100 py-1 font-medium">Commercial</option>
+                <option value="Technical" className="bg-slate-900 text-slate-100 py-1 font-medium">Technical / Vocational</option>
               </select>
             </div>
           </div>
