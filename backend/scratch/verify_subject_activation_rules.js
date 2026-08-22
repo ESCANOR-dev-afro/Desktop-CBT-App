@@ -50,17 +50,17 @@ async function runTest() {
     const student = loginRes.data.student;
     console.log(`[1] Halima Logged In: ${student.first_name} ${student.surname} (${student.class})`);
 
-    // 2. Fetch assigned subjects -> Verify count is strictly 9
+    // 2. Fetch assigned subjects -> Verify count is strictly 11
     const subRes = await makeRequest('GET', `/api/student/assigned-subjects?student_id=${student.id}`);
     assert.strictEqual(subRes.statusCode, 200, 'Assigned subjects should return 200 OK');
     const papers = subRes.data?.papers || [];
-    console.log(`[2] SS 1 Science Assigned Subjects Count: ${papers.length} (Expected strictly 9)`);
-    assert.strictEqual(papers.length, 9, 'SS 1 Science MUST have strictly 9 approved subjects');
+    console.log(`[2] SS 1 Science Assigned Subjects Count: ${papers.length} (Expected strictly 11)`);
+    assert.strictEqual(papers.length, 11, 'SS 1 Science MUST have strictly 11 approved subjects');
 
     const subjectNames = papers.map(p => p.name || p.subject);
     console.log('    Current SS 1 Science Subjects:', subjectNames.join(', '));
-    assert(!subjectNames.includes('Agricultural Science'), 'Agricultural Science MUST be purged from SS 1 Science');
-    assert(!subjectNames.includes('Geography'), 'Geography MUST be purged from SS 1 Science');
+    assert(subjectNames.includes('Agricultural Science'), 'Agricultural Science MUST be included in SS 1 Science');
+    assert(subjectNames.includes('Geography'), 'Geography MUST be included in SS 1 Science');
 
     // 3. Verify Admin Toggle Endpoint POST /api/admin/toggle-subject-active
     console.log('\n[3] Testing Admin Toggle Endpoint POST /api/admin/toggle-subject-active...');

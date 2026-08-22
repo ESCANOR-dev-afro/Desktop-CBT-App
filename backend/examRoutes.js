@@ -168,70 +168,175 @@ async function isExamActive(studentClass, subject) {
 }
 
 /**
- * Resolves configured exam duration, assessment mode, delivery question count,
- * and shuffling flags for a specific class and subject combination.
+ * Returns class variations for arm stream matching:
+ * e.g. "JSS 1 Gold" -> ["JSS 1 Gold", "JSS 1"]
+ * e.g. "SS 1 Science" -> ["SS 1 Science", "SS 1"]
+ * e.g. "SS 1 Science Gold" -> ["SS 1 Science Gold", "SS 1 Science", "SS 1"]
  */
-async function resolveExamConfig(studentClass, subject) {
+function getClassVariations(rawClass) {
+    if (!rawClass || typeof rawClass !== 'string') return [];
+    const exact = rawClass.trim();
+    if (!exact) return [];
+
+    const stream = exact.replace(/\s+(Gold|Silver|Diamond|Green|Blue|Red|Yellow|Purple|Bronze|Ruby|Emerald|Pearl|[A-D])$/i, '').trim();
+    const base = stream.replace(/\s+(Science|Art|Commercial)$/i, '').trim();
+
+    const set = new Set([exact, stream, base].filter(Boolean));
+    return Array.from(set);
+}
+
+/**
+ * Resolves configured exam duration, assessment mode, delivery question count,
+ * and shuffling flags for a specific class, subject, session, term, and assessment slot combination.
+ */
+async function resolveExamConfig(studentClass, subject, session = '2026/2027', term = '1st Term', slot = 'midterm_ca') {
     try {
+        let normSlot = slot ? String(slot).trim().toLowerCase() : 'midterm_ca';
+        if (normSlot === 'terminal_exam' || normSlot === 'terminal' || normSlot === 'exam') normSlot = 'examination';
+        if (normSlot === 'custom_exam' || normSlot === 'custom') normSlot = 'custom_assessment';
+
         let sql = `
-            SELECT duration_minutes, is_active, assessment_mode, delivery_count, shuffle_questions, shuffle_options
-            FROM exam_configs
-            WHERE LOWER(subject) = LOWER(?)
+            SELECT duration_minutes, is_active, preset_mode, custom_count, shuffle_questions, shuffle_options
+            FROM assessment_configs
+            WHERE session = ? AND term = ? AND (LOWER(assessment_slot) = LOWER(?) OR (LOWER(assessment_slot) = 'terminal_exam' AND ? = 'examination') OR (LOWER(assessment_slot) = 'custom_exam' AND ? = 'custom_assessment')) AND LOWER(subject) = LOWER(?)
         `;
-        const params = [subject.trim()];
-        if (studentClass) {
-            const baseTier = studentClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
-            sql += ` AND (LOWER(class) = LOWER(?) OR LOWER(class) = LOWER(?) OR class IS NULL)`;
-            params.push(studentClass.trim(), baseTier);
+        const params = [session, term, normSlot, normSlot, normSlot, subject.trim()];
+        const classVars = getClassVariations(studentClass);
+        if (classVars.length > 0) {
+            const placeholders = classVars.map(() => 'LOWER(class) = LOWER(?)').join(' OR ');
+            sql += ` AND (${placeholders} OR class IS NULL)`;
+            params.push(...classVars);
         }
         sql += ` ORDER BY class DESC LIMIT 1`;
 
         const row = await dbGet(sql, params);
         if (row) {
-            const mode = (row.assessment_mode && ['TEST', 'EXAM', 'CUSTOM'].includes(String(row.assessment_mode).toUpperCase()))
-                ? String(row.assessment_mode).toUpperCase()
+            const preset = String(row.preset_mode || 'ca_test').toLowerCase();
+            let count = parseInt(row.custom_count, 10);
+            if (isNaN(count) || count <= 0) {
+                count = (preset === 'terminal_exam' || preset === 'examination') ? 50 : 30;
+            }
+            return {
+                duration_minutes: row.duration_minutes || 45,
+                is_active: row.is_active === 1,
+                assessment_mode: (preset === 'terminal_exam' || preset === 'examination') ? 'EXAM' : (preset === 'custom' ? 'CUSTOM' : 'TEST'),
+                preset_mode: preset,
+                delivery_count: count,
+                shuffle_questions: row.shuffle_questions !== 0,
+                shuffle_options: row.shuffle_options !== 0
+            };
+        }
+    } catch (err) {
+        console.warn('Notice resolving assessment config:', err.message);
+    }
+
+    // Fallback to legacy exam_configs table
+    try {
+        let legacySql = `
+            SELECT duration_minutes, is_active, assessment_mode, delivery_count, shuffle_questions, shuffle_options
+            FROM exam_configs
+            WHERE LOWER(subject) = LOWER(?)
+        `;
+        const legacyParams = [subject.trim()];
+        const classVars = getClassVariations(studentClass);
+        if (classVars.length > 0) {
+            const placeholders = classVars.map(() => 'LOWER(class) = LOWER(?)').join(' OR ');
+            legacySql += ` AND (${placeholders} OR class IS NULL)`;
+            legacyParams.push(...classVars);
+        }
+        legacySql += ` ORDER BY class DESC LIMIT 1`;
+
+        const legacyRow = await dbGet(legacySql, legacyParams);
+        if (legacyRow) {
+            const mode = (legacyRow.assessment_mode && ['TEST', 'EXAM', 'CUSTOM'].includes(String(legacyRow.assessment_mode).toUpperCase()))
+                ? String(legacyRow.assessment_mode).toUpperCase()
                 : 'TEST';
             
-            let count = parseInt(row.delivery_count, 10);
+            let count = parseInt(legacyRow.delivery_count, 10);
             if (isNaN(count) || count <= 0) {
                 count = mode === 'EXAM' ? 50 : 30;
             }
 
             return {
-                duration_minutes: row.duration_minutes || 45,
-                is_active: row.is_active !== undefined ? row.is_active === 1 : true,
+                duration_minutes: legacyRow.duration_minutes || 45,
+                is_active: legacyRow.is_active !== undefined ? legacyRow.is_active === 1 : true,
                 assessment_mode: mode,
+                preset_mode: mode === 'EXAM' ? 'terminal_exam' : 'ca_test',
                 delivery_count: count,
-                shuffle_questions: row.shuffle_questions !== undefined ? row.shuffle_questions !== 0 : true,
-                shuffle_options: row.shuffle_options !== undefined ? row.shuffle_options !== 0 : true
+                shuffle_questions: legacyRow.shuffle_questions !== undefined ? legacyRow.shuffle_questions !== 0 : true,
+                shuffle_options: legacyRow.shuffle_options !== undefined ? legacyRow.shuffle_options !== 0 : true
             };
         }
-    } catch (err) {
-        console.warn('Notice resolving exam config:', err.message);
-    }
+    } catch (legacyErr) {}
 
     return {
         duration_minutes: 45,
         is_active: true,
         assessment_mode: 'TEST',
+        preset_mode: 'ca_test',
         delivery_count: 30,
         shuffle_questions: true,
         shuffle_options: true
     };
 }
 
-async function getExamDurationMinutes(studentClass, subject) {
-    const cfg = await resolveExamConfig(studentClass, subject);
+async function getExamDurationMinutes(studentClass, subject, session, term, slot) {
+    const cfg = await resolveExamConfig(studentClass, subject, session, term, slot);
     return cfg.duration_minutes;
 }
 
 /**
- * Checks whether an exam paper is active for a class and subject scope.
+ * Checks whether an exam paper is active for a class, subject, session, term, and assessment slot scope.
  */
-async function isExamActive(studentClass, subject) {
-    const cfg = await resolveExamConfig(studentClass, subject);
+async function isExamActive(studentClass, subject, session, term, slot) {
+    const cfg = await resolveExamConfig(studentClass, subject, session, term, slot);
     return cfg.is_active;
 }
+
+// --------------------------------------------------------------------------
+// GET /api/exam/available-assessments
+// Fetch all active assessment slots for candidate's class under current session & term
+// --------------------------------------------------------------------------
+router.get('/available-assessments', async (req, res, next) => {
+    try {
+        const studentId = req.query.student_id || req.query.studentId;
+        let studentClass = req.query.class ? String(req.query.class).trim() : null;
+
+        if (!studentClass && studentId) {
+            const studentRec = await dbGet(`SELECT class FROM students WHERE id = ?`, [studentId]);
+            if (studentRec && studentRec.class) {
+                studentClass = studentRec.class.trim();
+            }
+        }
+
+        const currentSession = req.query.session || '2026/2027';
+        const currentTerm = req.query.term || '1st Term';
+
+        const slots = [
+            { slot: 'welcome_test', title: 'Welcome / Platform Mock Test' },
+            { slot: 'midterm_ca', title: 'Mid-Term CA Test' },
+            { slot: 'terminal_exam', title: 'Terminal Examination' },
+            { slot: 'custom_exam', title: 'Custom Assessment Paper' }
+        ];
+
+        // Fetch active configs from DB
+        const activeConfigs = await dbAll(
+            `SELECT * FROM assessment_configs WHERE session = ? AND term = ? AND (LOWER(class) = LOWER(?) OR class IS NULL) AND is_active = 1`,
+            [currentSession, currentTerm, studentClass || '']
+        );
+
+        return res.status(200).json({
+            success: true,
+            session: currentSession,
+            term: currentTerm,
+            class: studentClass,
+            slots: slots,
+            activeAssessments: activeConfigs
+        });
+    } catch (err) {
+        next(err);
+    }
+});
 
 // --------------------------------------------------------------------------
 // 1. GET /api/exam/questions/:subject
@@ -243,6 +348,9 @@ router.get('/questions/:subject', async (req, res, next) => {
         const studentId = req.query.student_id || req.query.studentId || null;
         const sessionIdParam = req.query.session_id || req.query.sessionId || null;
         const classScope = req.query.class ? req.query.class.trim() : null;
+        const academicSession = req.query.session || '2026/2027';
+        const academicTerm = req.query.term || '1st Term';
+        const assessmentSlot = (req.query.assessment_slot || req.query.assessmentSlot || req.query.slot) ? String(req.query.assessment_slot || req.query.assessmentSlot || req.query.slot).trim() : 'midterm_ca';
 
         if (!subject) {
             return res.status(400).json({
@@ -262,24 +370,22 @@ router.get('/questions/:subject', async (req, res, next) => {
             }
         }
 
-        const examConfig = await resolveExamConfig(targetClass, normalizedSubject);
+        const examConfig = await resolveExamConfig(targetClass, normalizedSubject, academicSession, academicTerm, assessmentSlot);
 
-        // Check if candidate already submitted this specific subject
+        // Check if candidate already submitted this specific subject & slot
         const targetStudentIdCheck = studentId || req.query.student_id;
         if (targetStudentIdCheck) {
             const submittedSession = await dbGet(
                 `SELECT session_id as id FROM student_exam_sessions WHERE student_id = ? AND LOWER(subject_name) = LOWER(?) AND status = 'SUBMITTED'
                  UNION
-                 SELECT id FROM exam_sessions WHERE student_id = ? AND LOWER(subject) = LOWER(?) AND (status = 'submitted' OR is_locked = 1)
-                 UNION
-                 SELECT session_id as id FROM answers WHERE student_id = ? AND question_id IN (SELECT id FROM questions WHERE LOWER(subject) = LOWER(?))`,
-                [targetStudentIdCheck, normalizedSubject.toLowerCase(), targetStudentIdCheck, normalizedSubject.toLowerCase(), targetStudentIdCheck, normalizedSubject.toLowerCase()]
+                 SELECT id FROM exam_sessions WHERE student_id = ? AND LOWER(subject) = LOWER(?) AND (assessment_slot IS NULL OR assessment_slot = ?) AND (status = 'submitted' OR is_locked = 1)`,
+                [targetStudentIdCheck, normalizedSubject.toLowerCase(), targetStudentIdCheck, normalizedSubject.toLowerCase(), assessmentSlot]
             );
 
             if (submittedSession) {
                 return res.status(403).json({
                     success: false,
-                    message: `You have already submitted the examination for this specific subject (${normalizedSubject}).`
+                    message: `You have already submitted the examination for this specific subject (${normalizedSubject}) [${assessmentSlot}].`
                 });
             }
         }
@@ -288,7 +394,7 @@ router.get('/questions/:subject', async (req, res, next) => {
         if (!examConfig.is_active) {
             return res.status(403).json({
                 success: false,
-                message: `The examination paper for "${normalizedSubject}" is currently inactive / disabled by administrator.`,
+                message: `The examination paper for "${normalizedSubject}" [${assessmentSlot}] is currently inactive / disabled by administrator.`,
                 questions: []
             });
         }
@@ -303,9 +409,9 @@ router.get('/questions/:subject', async (req, res, next) => {
         } else if (studentId) {
             activeSession = await dbGet(
                 `SELECT id, student_id, question_order, option_mapping, status, is_locked, duration_minutes FROM exam_sessions 
-                 WHERE student_id = ? AND LOWER(subject) = LOWER(?) AND status = 'active' AND is_locked = 0
+                 WHERE student_id = ? AND LOWER(subject) = LOWER(?) AND (assessment_slot IS NULL OR assessment_slot = ?) AND status = 'active' AND is_locked = 0
                  ORDER BY id DESC LIMIT 1`,
-                [studentId, normalizedSubject]
+                [studentId, normalizedSubject, assessmentSlot]
             );
         }
 
@@ -363,6 +469,7 @@ router.get('/questions/:subject', async (req, res, next) => {
                             student_id: activeSession.student_id,
                             is_persisted: true,
                             assessment_mode: examConfig.assessment_mode,
+                            preset_mode: examConfig.preset_mode,
                             delivery_count: examConfig.delivery_count,
                             duration_minutes: durationMinutes,
                             duration_seconds: durationMinutes * 60,
@@ -376,34 +483,36 @@ router.get('/questions/:subject', async (req, res, next) => {
             }
         }
 
-        // 3. Query eligible question pool matching subject and class
-        let fetchQuestionsSql = `
-            SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url
+        // 3. Query eligible question pool matching session, term, assessment slot, subject and class
+        const classVars = getClassVariations(targetClass);
+        let classFilter = '';
+        let classParams = [];
+        if (classVars.length > 0) {
+            const placeholders = classVars.map(() => 'LOWER(class) = LOWER(?)').join(' OR ');
+            classFilter = ` AND (${placeholders} OR class IS NULL OR TRIM(class) = '')`;
+            classParams = [...classVars];
+        }
+
+        const fetchQuestionsSql = `
+            SELECT id, session, term, class, subject, assessment_slot, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url
             FROM questions
             WHERE LOWER(subject) = LOWER(?)
+              ${classFilter}
+              AND session = ?
+              AND term = ?
+              AND (LOWER(assessment_slot) = LOWER(?) OR (LOWER(assessment_slot) = 'terminal_exam' AND ? = 'examination') OR (LOWER(assessment_slot) = 'custom_exam' AND ? = 'custom_assessment'))
+            ORDER BY id ASC
         `;
-        const params = [normalizedSubject];
-        if (targetClass) {
-            const baseTier = targetClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
-            fetchQuestionsSql += ` AND (class IS NULL OR TRIM(class) = '' OR LOWER(class) = LOWER(?) OR LOWER(class) = LOWER(?))`;
-            params.push(targetClass, baseTier);
-        }
+        const params = [normalizedSubject, ...classParams, academicSession, academicTerm, assessmentSlot, assessmentSlot, assessmentSlot];
 
         let rawQuestions = await dbAll(fetchQuestionsSql, params);
-
-        // Fallback if class filter yielded no questions: load general subject question pool
-        if (rawQuestions.length === 0 && targetClass) {
-            rawQuestions = await dbAll(
-                `SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url FROM questions WHERE LOWER(subject) = LOWER(?)`,
-                [normalizedSubject]
-            );
-        }
 
         if (rawQuestions.length === 0) {
             return res.status(200).json({
                 success: true,
                 subject: normalizedSubject.toLowerCase(),
                 assessment_mode: examConfig.assessment_mode,
+                preset_mode: examConfig.preset_mode,
                 delivery_count: examConfig.delivery_count,
                 duration_minutes: durationMinutes,
                 duration_seconds: durationMinutes * 60,
@@ -412,7 +521,7 @@ router.get('/questions/:subject', async (req, res, next) => {
             });
         }
 
-        // 4. Question Shuffling & Pool Sampling (N = 30 for TEST, 50 for EXAM, or Custom N)
+        // 4. Question Shuffling & Pool Sampling
         let sampledQuestions = examConfig.shuffle_questions ? fisherYatesShuffle(rawQuestions) : [...rawQuestions];
         const targetN = Math.min(examConfig.delivery_count, sampledQuestions.length);
         sampledQuestions = sampledQuestions.slice(0, targetN);
@@ -567,7 +676,9 @@ router.post('/heartbeat', async (req, res, next) => {
 // --------------------------------------------------------------------------
 const handleExamSubmit = async (req, res, next) => {
     try {
-        const { student_id, session_id, user_answers } = req.body;
+        const student_id = req.body.student_id || req.body.studentId;
+        const session_id = req.body.session_id || req.body.sessionId;
+        const user_answers = req.body.user_answers || req.body.answers || {};
 
         if (!student_id || !session_id) {
             return res.status(400).json({
@@ -578,16 +689,16 @@ const handleExamSubmit = async (req, res, next) => {
 
         // Fetch target exam session & option_mapping
         const sessionSql = `
-            SELECT id, status, is_locked, option_mapping
+            SELECT id, status, is_locked, option_mapping, subject
             FROM exam_sessions 
             WHERE id = ? AND student_id = ?
         `;
         let session = await dbGet(sessionSql, [session_id, student_id]);
 
         if (!session) {
-            const sesBackup = await dbGet(`SELECT session_id as id, status FROM student_exam_sessions WHERE session_id = ? AND student_id = ?`, [session_id, student_id]);
+            const sesBackup = await dbGet(`SELECT session_id as id, status, subject_name as subject FROM student_exam_sessions WHERE session_id = ? AND student_id = ?`, [session_id, student_id]);
             if (sesBackup) {
-                session = { id: sesBackup.session_id, status: sesBackup.status === 'SUBMITTED' ? 'submitted' : 'active', is_locked: sesBackup.status === 'SUBMITTED' ? 1 : 0 };
+                session = { id: sesBackup.id, status: sesBackup.status === 'SUBMITTED' ? 'submitted' : 'active', is_locked: sesBackup.status === 'SUBMITTED' ? 1 : 0, subject: sesBackup.subject };
             }
         }
 
@@ -648,7 +759,13 @@ const handleExamSubmit = async (req, res, next) => {
             }
         });
 
-        let targetSubjectName = req.body.subject || req.body.subject_name || session.subject || null;
+        let targetSubjectName = req.body.subject || req.body.subject_name || (session && session.subject) || null;
+        if (!targetSubjectName) {
+            const sesRec = await dbGet(`SELECT subject_name FROM student_exam_sessions WHERE session_id = ?`, [session_id]);
+            if (sesRec && sesRec.subject_name) {
+                targetSubjectName = sesRec.subject_name;
+            }
+        }
         if (!targetSubjectName && user_answers && Object.keys(user_answers).length > 0) {
             const firstQId = Object.keys(user_answers)[0];
             const qRec = await dbGet(`SELECT subject FROM questions WHERE id = ?`, [firstQId]);

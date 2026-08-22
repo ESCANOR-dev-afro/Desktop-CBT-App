@@ -131,7 +131,7 @@ export default function DashboardOverview({
               Distinction
             </span>
           </div>
-          <p className="text-[10px] text-slate-500">Term 2 Terminal Examinations</p>
+          <p className="text-[10px] text-slate-500">Term 2 Examinations</p>
         </div>
       </div>
 

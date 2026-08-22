@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useServerHealth } from '../hooks/useServerHealth';
 import {
   Search,
   Bell,
@@ -27,6 +28,7 @@ export default function Header({
 }) {
   const [isTermDropdownOpen, setIsTermDropdownOpen] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const { status, latency } = useServerHealth(5000);
   const dropdownRef = useRef(null);
 
   const termOptions = ['1st Term', '2nd Term', '3rd Term'];
@@ -157,13 +159,18 @@ export default function Header({
           )}
         </div>
 
-        {/* Server Status */}
-        <div className="hidden sm:flex items-center space-x-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl text-[11px] font-semibold text-emerald-400">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-          </span>
-          <span>Node 1: Online (12ms)</span>
+        {/* Live Server Status Heartbeat Monitor */}
+        <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold ${
+          status === 'Online'
+            ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400'
+            : status === 'Degraded'
+            ? 'bg-amber-950/40 border-amber-500/30 text-amber-400'
+            : 'bg-rose-950/40 border-rose-500/30 text-rose-400 animate-pulse'
+        }`}>
+          <span className={`w-2 h-2 rounded-full ${
+            status === 'Online' ? 'bg-emerald-400' : status === 'Degraded' ? 'bg-amber-400' : 'bg-rose-500'
+          }`} />
+          <span>Node 1: {status === 'Offline' ? 'Offline' : `Online (${latency}ms)`}</span>
         </div>
 
         {/* USB / External Storage Backup Trigger Button */}

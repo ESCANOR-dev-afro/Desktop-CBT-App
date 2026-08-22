@@ -45,6 +45,7 @@ function purgeDatabase() {
                     'questions',
                     'question_options',
                     'exam_configs',
+                    'assessment_configs',
                     'class_subjects'
                 ];
 
@@ -56,6 +57,11 @@ function purgeDatabase() {
                             console.log(`  ✅ Wiped all rows from table "${tableName}"`);
                         }
                     });
+                });
+
+                // Reset academic_terms to default 2026/2027 1st Term as current
+                db.run(`UPDATE academic_terms SET is_current = 0;`, () => {
+                    db.run(`UPDATE academic_terms SET is_current = 1 WHERE session = '2026/2027' AND name = '1st Term';`);
                 });
 
                 // 2. Reset auto-increment sequence counters to 1

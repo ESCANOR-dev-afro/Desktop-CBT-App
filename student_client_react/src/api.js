@@ -87,24 +87,34 @@ export const loginStudent = async (regNumber, surname) => {
 };
 
 /**
- * Fetch assigned exam papers for student
+ * Fetch assigned exam papers for student (strictly active and uncompleted)
  */
 export const getAssignedPapers = async (studentId, regNumber) => {
   const params = new URLSearchParams();
   if (studentId) params.append('student_id', studentId);
   if (regNumber) params.append('registration_no', regNumber);
-  const response = await apiClient.get(`/student/assigned-papers?${params.toString()}`);
-  return response.data;
+  try {
+    const response = await apiClient.get(`/student/assigned-exams?${params.toString()}`);
+    return response.data;
+  } catch (e) {
+    const fallbackResponse = await apiClient.get(`/student/assigned-papers?${params.toString()}`);
+    return fallbackResponse.data;
+  }
 };
 
+export const getAssignedExams = getAssignedPapers;
+
 /**
- * Fetch question paper for selected subject
+ * Fetch question paper for selected subject, session, term, and assessment slot
  */
-export const getExamQuestions = async (subject, studentId, sessionId, className) => {
+export const getExamQuestions = async (subject, studentId, sessionId, className, academicSession = '2026/2027', academicTerm = '1st Term', assessmentSlot = 'midterm_ca') => {
   const params = new URLSearchParams();
   if (studentId) params.append('student_id', studentId);
   if (sessionId) params.append('session_id', sessionId);
   if (className) params.append('class', className);
+  if (academicSession) params.append('session', academicSession);
+  if (academicTerm) params.append('term', academicTerm);
+  if (assessmentSlot) params.append('assessment_slot', assessmentSlot);
 
   const response = await apiClient.get(`/exam/questions/${encodeURIComponent(subject)}?${params.toString()}`);
   return response.data;

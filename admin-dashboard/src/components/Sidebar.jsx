@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useServerHealth } from '../hooks/useServerHealth';
 import {
   LayoutDashboard,
   BarChart3,
@@ -10,7 +11,8 @@ import {
   BookOpen,
   Award,
   Layers,
-  FileText
+  FileText,
+  LogOut
 } from 'lucide-react';
 
 export default function Sidebar({
@@ -18,14 +20,22 @@ export default function Sidebar({
   setActiveView,
   selectedClass,
   setSelectedClass,
-  classesList,
-  subjectsByClass,
+  onSelectClass,
+  allClassesList = [],
+  subjectsByClass = {},
+  onSignOut,
 }) {
+  const { port } = useServerHealth(5000);
   const [classesOpen, setClassesOpen] = useState(true);
   const [expandedTiers, setExpandedTiers] = useState({ 'JSS 1': true, 'JSS 2': true, 'JSS 3': true, 'SS 1': true, 'SS 2': true, 'SS 3': true });
 
+  const safeSetSelectedClass = (cls) => {
+    if (typeof setSelectedClass === 'function') setSelectedClass(cls);
+    if (typeof onSelectClass === 'function') onSelectClass(cls);
+  };
+
   const handleSelectClass = (cls) => {
-    setSelectedClass(cls);
+    safeSetSelectedClass(cls);
     setActiveView('class-workspace');
   };
 
@@ -64,7 +74,7 @@ export default function Sidebar({
             <button
               onClick={() => {
                 setActiveView('dashboard');
-                setSelectedClass(null);
+                safeSetSelectedClass(null);
               }}
               className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
                 activeView === 'dashboard'
@@ -79,7 +89,7 @@ export default function Sidebar({
             <button
               onClick={() => {
                 setActiveView('live-results');
-                setSelectedClass(null);
+                safeSetSelectedClass(null);
               }}
               className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
                 activeView === 'live-results'
@@ -94,7 +104,7 @@ export default function Sidebar({
             <button
               onClick={() => {
                 setActiveView('question-bank');
-                setSelectedClass(null);
+                safeSetSelectedClass(null);
               }}
               className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
                 activeView === 'question-bank'
@@ -249,23 +259,34 @@ export default function Sidebar({
             </span>
           </div>
           <p className="text-[10px] text-slate-400 leading-normal">
-            Local server running on port 8080. Multi-class subject isolation enabled.
+            Local server running on port {port || 3000}. Multi-class subject isolation enabled.
           </p>
         </div>
       </div>
 
       {/* Admin Profile Section */}
       <div className="p-4 border-t border-darkBorder bg-slate-950">
-        <div className="flex items-center space-x-3 p-2 rounded-xl bg-slate-900/80 border border-darkBorder">
-          <img
-            src="school_logo.jpg"
-            alt="School Crest"
-            className="w-8 h-8 rounded-lg border border-brand/30 p-0.5 bg-slate-950 object-contain shrink-0"
-          />
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-bold text-slate-200 truncate">Principal Admin</p>
-            <p className="text-[10px] text-slate-400 truncate">control@awba-cbt.edu.ng</p>
+        <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/80 border border-darkBorder">
+          <div className="flex items-center space-x-2.5 min-w-0">
+            <img
+              src="school_logo.jpg"
+              alt="School Crest"
+              className="w-8 h-8 rounded-lg border border-brand/30 p-0.5 bg-slate-950 object-contain shrink-0"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-slate-200 truncate">Principal Admin</p>
+              <p className="text-[10px] text-slate-400 truncate">control@awba-cbt.edu.ng</p>
+            </div>
           </div>
+          {onSignOut && (
+            <button
+              onClick={onSignOut}
+              title="Lock Console / Sign Out"
+              className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all flex items-center justify-center shrink-0 ml-1 group"
+            >
+              <LogOut className="w-4 h-4 transform group-hover:-translate-x-0.5 transition-transform" />
+            </button>
+          )}
         </div>
       </div>
     </aside>

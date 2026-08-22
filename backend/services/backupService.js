@@ -58,7 +58,7 @@ function detectBackupDestination() {
     }
 
     // Fallback to local server backups directory if no external drive is mounted
-    const localFallback = path.join(__dirname, '../backups');
+    const localFallback = process.env.BACKUP_PATH || path.join(__dirname, '../backups');
     if (!fs.existsSync(localFallback)) {
         fs.mkdirSync(localFallback, { recursive: true });
     }

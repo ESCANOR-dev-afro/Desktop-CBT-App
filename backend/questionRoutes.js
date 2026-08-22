@@ -229,8 +229,15 @@ async function handleQuestionBankUpload(req, res, next) {
             });
         }
 
-        const fallbackSubject = req.body.subject || req.body.subject_id || 'Mathematics';
-        const fallbackClass = req.body.class || req.body.exam_id || null;
+        const fallbackSubject = req.body.subjectId || req.body.subject || req.body.subject_id || req.query.subjectId || req.query.subject || 'Mathematics';
+        const fallbackClass = req.body.classId || req.body.class || req.body.exam_id || req.query.classId || req.query.class || null;
+        const fallbackSession = req.body.session || req.query.session || '2026/2027';
+        const fallbackTerm = req.body.term || req.query.term || '1st Term';
+        let rawFallbackSlot = req.body.slot || req.body.assessment_slot || req.body.assessmentSlot || req.query.slot || req.query.assessment_slot || req.query.assessmentSlot || 'midterm_ca';
+        rawFallbackSlot = String(rawFallbackSlot).trim().toLowerCase();
+        if (rawFallbackSlot === 'terminal_exam' || rawFallbackSlot === 'terminal' || rawFallbackSlot === 'exam') rawFallbackSlot = 'examination';
+        if (rawFallbackSlot === 'custom_exam' || rawFallbackSlot === 'custom') rawFallbackSlot = 'custom_assessment';
+        const fallbackSlot = rawFallbackSlot;
 
         const validQuestions = [];
         const invalidRows = [];
@@ -304,6 +311,9 @@ async function handleQuestionBankUpload(req, res, next) {
                 });
             } else {
                 validQuestions.push({
+                    session: fallbackSession,
+                    term: fallbackTerm,
+                    assessment_slot: fallbackSlot,
                     class: rowClass ? String(rowClass).trim() : null,
                     subject: normalizeSubjectName(rowSubject),
                     question_text: questionText,
@@ -326,33 +336,24 @@ async function handleQuestionBankUpload(req, res, next) {
                 invalidRowsDetails: invalidRows
             });
         }
-        // Option to purge/overwrite existing questions for this subject & class before insertion
-        const shouldOverwrite = req.body.overwrite !== 'false' && req.body.overwrite !== false && req.query.overwrite !== 'false';
+        // Incremental Append Protocol: Existing questions are preserved unless overwrite === 'true' is explicitly passed
+        const shouldOverwrite = req.body.overwrite === 'true' || req.body.overwrite === true || req.query.overwrite === 'true';
         if (shouldOverwrite && validQuestions.length > 0 && fallbackSubject) {
             const normSub = normalizeSubjectName(fallbackSubject);
             const targetCls = fallbackClass ? String(fallbackClass).trim() : null;
             try {
-                if (targetCls) {
-                    await new Promise((resP, rejP) => {
-                        db.run(`DELETE FROM question_options WHERE question_id IN (SELECT id FROM questions WHERE LOWER(subject) = LOWER(?) AND (class IS NULL OR TRIM(class) = '' OR LOWER(class) = LOWER(?)))`, [normSub, targetCls], (err) => {
-                            if (err) return rejP(err);
-                            db.run(`DELETE FROM questions WHERE LOWER(subject) = LOWER(?) AND (class IS NULL OR TRIM(class) = '' OR LOWER(class) = LOWER(?))`, [normSub, targetCls], (err2) => {
-                                if (err2) return rejP(err2);
-                                resP();
-                            });
+                await new Promise((resP, rejP) => {
+                    const deleteSubquery = `SELECT id FROM questions WHERE session = ? AND term = ? AND assessment_slot = ? AND LOWER(subject) = LOWER(?)` + (targetCls ? ` AND (class IS NULL OR TRIM(class) = '' OR LOWER(class) = LOWER(?))` : ``);
+                    const params = targetCls ? [fallbackSession, fallbackTerm, fallbackSlot, normSub, targetCls] : [fallbackSession, fallbackTerm, fallbackSlot, normSub];
+                    db.run(`DELETE FROM question_options WHERE question_id IN (${deleteSubquery})`, params, (err) => {
+                        if (err) return rejP(err);
+                        const deleteQuestions = `DELETE FROM questions WHERE session = ? AND term = ? AND assessment_slot = ? AND LOWER(subject) = LOWER(?)` + (targetCls ? ` AND (class IS NULL OR TRIM(class) = '' OR LOWER(class) = LOWER(?))` : ``);
+                        db.run(deleteQuestions, params, (err2) => {
+                            if (err2) return rejP(err2);
+                            resP();
                         });
                     });
-                } else {
-                    await new Promise((resP, rejP) => {
-                        db.run(`DELETE FROM question_options WHERE question_id IN (SELECT id FROM questions WHERE LOWER(subject) = LOWER(?))`, [normSub], (err) => {
-                            if (err) return rejP(err);
-                            db.run(`DELETE FROM questions WHERE LOWER(subject) = LOWER(?)`, [normSub], (err2) => {
-                                if (err2) return rejP(err2);
-                                resP();
-                            });
-                        });
-                    });
-                }
+                });
             } catch (purgeErr) {
                 console.warn('⚠️ [Question Bank Overwrite Notice]:', purgeErr.message);
             }
@@ -362,8 +363,8 @@ async function handleQuestionBankUpload(req, res, next) {
         const insertedCount = await runTransaction(() => {
             return new Promise((resolve, reject) => {
                 const insertSql = `
-                    INSERT INTO questions (class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    INSERT INTO questions (session, term, assessment_slot, class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 `;
                 const optionInsertSql = `
                     INSERT INTO question_options (question_id, option_key, option_text, is_correct)
@@ -379,6 +380,9 @@ async function handleQuestionBankUpload(req, res, next) {
                 validQuestions.forEach((q) => {
                     if (hasError) return;
                     stmt.run([
+                        q.session,
+                        q.term,
+                        q.assessment_slot,
                         q.class,
                         q.subject,
                         q.question_text,
@@ -422,7 +426,7 @@ async function handleQuestionBankUpload(req, res, next) {
             });
         });
 
-        console.log(`📦 [Bulk Upload Success] Transaction committed. Imported ${insertedCount} questions with options & diagram image URLs into SQLite.`);
+        console.log(`📦 [Bulk Upload Success] Transaction committed. Imported ${insertedCount} questions into session ${fallbackSession}, term ${fallbackTerm}, slot ${fallbackSlot}.`);
 
         // Persist exam duration if provided
         const durationMinutes = parseInt(req.body.duration_minutes || req.body.duration, 10);
@@ -430,9 +434,9 @@ async function handleQuestionBankUpload(req, res, next) {
             const targetClass = fallbackClass ? String(fallbackClass).trim() : null;
             const normSubject = normalizeSubjectName(fallbackSubject);
             db.run(
-                `INSERT INTO exam_configs (class, subject, duration_minutes) VALUES (?, ?, ?)
-                 ON CONFLICT(class, subject) DO UPDATE SET duration_minutes = excluded.duration_minutes`,
-                [targetClass, normSubject, durationMinutes]
+                `INSERT INTO assessment_configs (session, term, class, subject, assessment_slot, duration_minutes) VALUES (?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(session, term, class, subject, assessment_slot) DO UPDATE SET duration_minutes = excluded.duration_minutes`,
+                [fallbackSession, fallbackTerm, targetClass, normSubject, fallbackSlot, durationMinutes]
             );
         }
 

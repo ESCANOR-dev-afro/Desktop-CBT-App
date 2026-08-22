@@ -23,7 +23,8 @@ const juniorSubjects = [
 
 const scienceSubjects = [
   "Mathematics", "English Language", "Biology", "Chemistry", "Physics",
-  "Civic Education", "Further Mathematics", "Economics", "Digital Technology"
+  "Civic Education", "Further Mathematics", "Economics", "Digital Technology",
+  "Agricultural Science", "Geography"
 ];
 
 const artsSubjects = [

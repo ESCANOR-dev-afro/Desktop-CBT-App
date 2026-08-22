@@ -69,6 +69,113 @@ function normalizeSubjectName(rawSubject) {
 }
 
 /**
+ * Returns class variations for arm stream matching:
+ * e.g. "JSS 1 Gold" -> ["JSS 1 Gold", "JSS 1"]
+ * e.g. "SS 1 Science" -> ["SS 1 Science", "SS 1"]
+ * e.g. "SS 1 Science Gold" -> ["SS 1 Science Gold", "SS 1 Science", "SS 1"]
+ */
+function getClassVariations(rawClass) {
+    if (!rawClass || typeof rawClass !== 'string') return [];
+    const exact = rawClass.trim();
+    if (!exact) return [];
+
+    const stream = exact.replace(/\s+(Gold|Silver|Diamond|Green|Blue|Red|Yellow|Purple|Bronze|Ruby|Emerald|Pearl|[A-D])$/i, '').trim();
+    const base = stream.replace(/\s+(Science|Art|Commercial)$/i, '').trim();
+
+    const set = new Set([exact, stream, base].filter(Boolean));
+    return Array.from(set);
+}
+
+/**
+ * Resolves active status for a specific class and subject combination.
+ * Must satisfy BOTH conditions:
+ * 1. is_active === 1 (Admin explicitly toggled Exam Activation Status to ACTIVE).
+ * 2. Total uploaded questions in bank > 0.
+ */
+async function isSubjectActiveForClass(studentClass, subject) {
+    try {
+        await checkDailyAutoReset();
+
+        const normSub = String(subject || '').trim();
+        if (!normSub) return false;
+
+        let isActiveConfig = false;
+        const classVars = getClassVariations(studentClass);
+
+        for (const cls of classVars) {
+            const classCfg = await dbGet(
+                `SELECT is_active FROM exam_configs WHERE LOWER(class) = LOWER(?) AND LOWER(subject) = LOWER(?)`,
+                [cls, normSub]
+            );
+            if (classCfg && classCfg.is_active !== undefined && classCfg.is_active !== null) {
+                if (classCfg.is_active === 1) {
+                    isActiveConfig = true;
+                    break;
+                }
+            }
+
+            const assessCfg = await dbGet(
+                `SELECT is_active FROM assessment_configs WHERE LOWER(class) = LOWER(?) AND LOWER(subject) = LOWER(?) AND is_active = 1 LIMIT 1`,
+                [cls, normSub]
+            );
+            if (assessCfg && assessCfg.is_active === 1) {
+                isActiveConfig = true;
+                break;
+            }
+        }
+
+        if (!isActiveConfig) {
+            const generalCfg = await dbGet(
+                `SELECT is_active FROM exam_configs WHERE (class IS NULL OR TRIM(class) = '') AND LOWER(subject) = LOWER(?)`,
+                [normSub]
+            );
+            if (generalCfg && generalCfg.is_active !== undefined && generalCfg.is_active !== null) {
+                isActiveConfig = generalCfg.is_active === 1;
+            } else {
+                const assessGenCfg = await dbGet(
+                    `SELECT is_active FROM assessment_configs WHERE (class IS NULL OR TRIM(class) = '') AND LOWER(subject) = LOWER(?) AND is_active = 1 LIMIT 1`,
+                    [normSub]
+                );
+                if (assessGenCfg && assessGenCfg.is_active === 1) {
+                    isActiveConfig = true;
+                } else {
+                    const subRec = await dbGet(`SELECT is_active FROM subjects WHERE LOWER(name) = LOWER(?)`, [normSub]);
+                    if (subRec && subRec.is_active !== undefined && subRec.is_active !== null) {
+                        isActiveConfig = subRec.is_active === 1;
+                    }
+                }
+            }
+        }
+
+        // Condition 1: If admin has not explicitly toggled is_active === 1, paper is INACTIVE
+        if (!isActiveConfig) {
+            return false;
+        }
+
+        // Condition 2: Question bank count > 0 for this subject & class scope
+        let fetchQuestionsSql = `SELECT COUNT(*) as cnt FROM questions WHERE LOWER(subject) = LOWER(?)`;
+        const params = [normSub.toLowerCase()];
+        if (classVars.length > 0) {
+            const placeholders = classVars.map(() => 'LOWER(class) = LOWER(?)').join(' OR ');
+            fetchQuestionsSql += ` AND (class IS NULL OR TRIM(class) = '' OR ${placeholders})`;
+            params.push(...classVars);
+        }
+
+        const qCount = await dbGet(fetchQuestionsSql, params);
+        if (!qCount || qCount.cnt <= 0) {
+            const genQCount = await dbGet(`SELECT COUNT(*) as cnt FROM questions WHERE LOWER(subject) = LOWER(?)`, [normSub.toLowerCase()]);
+            if (!genQCount || genQCount.cnt <= 0) {
+                return false; // No questions uploaded -> INACTIVE / NOT SCHEDULED
+            }
+        }
+
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
  * GET /api/subjects
  * 
  * Dynamically fetches all unique exam subjects from master defaults,
@@ -332,12 +439,125 @@ router.post('/student/verify-session', async (req, res, next) => {
 });
 
 /**
+ * Fetch strictly active and uncompleted exams with question bank count > 0 for a student
+ */
+async function fetchActiveExamsForStudent({ studentId, studentClass, session, term }) {
+    let currentSession = session;
+    let currentTerm = term;
+    if (!currentSession || !currentTerm) {
+        const currentTermRec = await dbGet(`SELECT session, name FROM academic_terms WHERE is_current = 1 LIMIT 1`);
+        if (currentTermRec) {
+            if (!currentSession) currentSession = currentTermRec.session;
+            if (!currentTerm) currentTerm = currentTermRec.name;
+        }
+    }
+    if (!currentSession) currentSession = '2026/2027';
+    if (!currentTerm) currentTerm = '1st Term';
+
+    const classVars = getClassVariations(studentClass);
+    const classPlaceholders = classVars.map(() => 'LOWER(TRIM(ac.class)) = LOWER(TRIM(?))').join(' OR ');
+
+    // Strict SQL Join checking is_active = 1, session, term, class, and bank question count > 0
+    const sql = `
+        SELECT 
+            ac.id AS config_id,
+            ac.id,
+            ac.session,
+            ac.term,
+            ac.class,
+            ac.subject,
+            ac.subject AS name,
+            ac.assessment_slot,
+            ac.assessment_slot AS slot,
+            ac.assessment_title,
+            ac.duration_minutes,
+            ac.preset_mode,
+            COALESCE(ac.custom_count, 30) AS custom_count,
+            1 AS is_active,
+            COUNT(q.id) AS question_count
+        FROM assessment_configs ac
+        JOIN questions q ON (
+            (LOWER(TRIM(q.class)) = LOWER(TRIM(ac.class)) OR (ac.class IS NULL OR TRIM(ac.class) = '') OR (q.class IS NULL OR TRIM(q.class) = ''))
+            AND LOWER(TRIM(q.subject)) = LOWER(TRIM(ac.subject))
+            AND (LOWER(TRIM(q.assessment_slot)) = LOWER(TRIM(ac.assessment_slot)) 
+                 OR (LOWER(TRIM(q.assessment_slot)) = 'examination' AND LOWER(TRIM(ac.assessment_slot)) = 'terminal_exam')
+                 OR (LOWER(TRIM(q.assessment_slot)) = 'custom_assessment' AND LOWER(TRIM(ac.assessment_slot)) = 'custom_exam'))
+            AND q.session = ac.session
+            AND q.term = ac.term
+        )
+        WHERE (${classPlaceholders ? '(' + classPlaceholders + ' OR ac.class IS NULL OR TRIM(ac.class) = \'\')' : '(ac.class IS NULL OR TRIM(ac.class) = \'\')'})
+          AND ac.session = ?
+          AND ac.term = ?
+          AND ac.is_active = 1
+          AND ac.id NOT IN (
+              SELECT COALESCE(exam_id, 0) FROM student_exam_sessions 
+              WHERE student_id = ? AND status IN ('SUBMITTED', 'COMPLETED')
+          )
+          AND LOWER(TRIM(ac.subject)) NOT IN (
+              SELECT LOWER(TRIM(subject_name)) FROM student_exam_sessions 
+              WHERE student_id = ? AND status IN ('SUBMITTED', 'COMPLETED')
+              UNION
+              SELECT LOWER(TRIM(subject)) FROM exam_sessions 
+              WHERE student_id = ? AND (status = 'submitted' OR is_locked = 1)
+          )
+        GROUP BY ac.id
+        HAVING question_count > 0
+        ORDER BY ac.subject ASC
+    `;
+
+    const queryParams = [...classVars, currentSession, currentTerm, studentId || 0, studentId || 0, studentId || 0];
+    const rows = await dbAll(sql, queryParams);
+
+    // Fetch in-progress session if any
+    const activeSessions = studentId ? await dbAll(
+        `SELECT session_id, LOWER(subject_name) as subject, expires_at FROM student_exam_sessions WHERE student_id = ? AND status = 'IN_PROGRESS' AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+         UNION
+         SELECT id as session_id, LOWER(subject) as subject, NULL as expires_at FROM exam_sessions WHERE student_id = ? AND status = 'active' AND is_locked = 0`,
+        [studentId, studentId]
+    ) : [];
+    const activeSubjectsMap = new Map(activeSessions.map(s => [s.subject ? s.subject.trim().toLowerCase() : '', s.session_id]));
+
+    return (rows || []).map(row => {
+        const subLower = (row.subject || '').trim().toLowerCase();
+        const activeSessionId = activeSubjectsMap.get(subLower) || null;
+        const hasActive = !!activeSessionId;
+
+        return {
+            id: row.config_id || row.id,
+            config_id: row.config_id || row.id,
+            session: row.session,
+            term: row.term,
+            class: row.class || studentClass,
+            subject: row.subject,
+            name: row.subject,
+            assessment_slot: row.assessment_slot || 'midterm_ca',
+            slot: row.assessment_slot || 'midterm_ca',
+            assessment_title: row.assessment_title || `${row.subject} - ${row.assessment_slot || 'midterm_ca'}`,
+            duration_minutes: row.duration_minutes || 45,
+            preset_mode: row.preset_mode || 'ca_test',
+            custom_count: row.custom_count || 30,
+            question_count: row.question_count || 30,
+            is_active: 1,
+            isActive: true,
+            status: hasActive ? 'in_progress' : 'available',
+            hasActiveSession: hasActive,
+            has_active_session: hasActive,
+            sessionStatus: hasActive ? 'IN_PROGRESS' : null,
+            sessionId: activeSessionId,
+            session_id: activeSessionId,
+            message: hasActive ? 'Exam session active. Tap Resume to continue.' : 'Ready to Start'
+        };
+    });
+}
+
+/**
  * GET /api/student/:student_id/dashboard
  * 
  * Retrieves student profile metadata, assigned subjects, and completion/scheduled status.
  */
 router.get('/student/:student_id/dashboard', async (req, res, next) => {
     try {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
         const { student_id } = req.params;
         const sessionId = req.query.session_id || req.query.sessionId || null;
 
@@ -362,127 +582,12 @@ router.get('/student/:student_id/dashboard', async (req, res, next) => {
             }
         }
 
-        // Fetch completed sessions for this student (CRITICAL: score is strictly omitted for student privacy)
-        const completedSessions = await dbAll(
-            `SELECT LOWER(subject_name) as subject FROM student_exam_sessions WHERE student_id = ? AND status = 'SUBMITTED'
-             UNION
-             SELECT LOWER(subject) as subject FROM exam_sessions WHERE student_id = ? AND status = 'submitted'`,
-            [student_id, student_id]
-        );
-        const completedSubjects = new Set(
-            completedSessions.map(s => s.subject ? s.subject.trim().toLowerCase() : '').filter(Boolean)
-        );
-
-        // Fetch active sessions for this student with session IDs
-        const activeSesRows = await dbAll(
-            `SELECT session_id, LOWER(subject_name) as subject, expires_at FROM student_exam_sessions WHERE student_id = ? AND status = 'IN_PROGRESS'`,
-            [student_id]
-        );
-        const legacyActiveSesRows = await dbAll(
-            `SELECT id as session_id, LOWER(subject) as subject FROM exam_sessions WHERE student_id = ? AND status = 'active' AND is_locked = 0`,
-            [student_id]
-        );
-
-        const nowTime = Date.now();
-        const activeSubjectsMap = new Map();
-
-        activeSesRows.forEach(s => {
-            if (s.subject) {
-                const exp = s.expires_at ? new Date(s.expires_at).getTime() : (nowTime + 10000);
-                if (exp > nowTime) {
-                    activeSubjectsMap.set(s.subject.trim().toLowerCase(), s.session_id);
-                }
-            }
+        const formattedSubjects = await fetchActiveExamsForStudent({
+            studentId: student.id,
+            studentClass: student.class,
+            session: req.query.session,
+            term: req.query.term
         });
-
-        legacyActiveSesRows.forEach(s => {
-            if (s.subject && !activeSubjectsMap.has(s.subject.trim().toLowerCase())) {
-                activeSubjectsMap.set(s.subject.trim().toLowerCase(), s.session_id);
-            }
-        });
-
-        // Fetch stream-isolated subjects for candidate's class from `class_subjects` mapping table
-        const mappedSubjectsRows = await dbAll(
-            `SELECT subject_name FROM class_subjects WHERE LOWER(class_name) = LOWER(?) ORDER BY id ASC`,
-            [String(student.class || '').trim()]
-        );
-        let streamSubjects = mappedSubjectsRows.map(m => m.subject_name);
-
-        // Fallback stream logic if class mapping isn't directly matched
-        if (streamSubjects.length === 0) {
-            const clsUpper = String(student.class || '').toUpperCase();
-            if (clsUpper.startsWith('JSS')) {
-                streamSubjects = [
-                    "English Language", "Mathematics", "Yoruba", "French", "Fine Art", "Music",
-                    "Basic Science", "Basic Technology", "PHE", "Digital Technology", "Social Studies",
-                    "Civic Education", "Home Economics", "Agricultural Science", "Business Studies", "History"
-                ];
-            } else if (clsUpper.includes('COMMERCIAL')) {
-                streamSubjects = ["Mathematics", "English Language", "Civic Education", "Further Mathematics", "Economics", "Digital Technology", "Account", "Commerce"];
-            } else if (clsUpper.includes('ART')) {
-                streamSubjects = ["Mathematics", "English Language", "Civic Education", "Economics", "Digital Technology", "Government", "CRS", "Literature in English"];
-            } else {
-                streamSubjects = ["Mathematics", "English Language", "Biology", "Chemistry", "Physics", "Civic Education", "Further Mathematics", "Economics", "Digital Technology", "Geography", "Agricultural Science"];
-            }
-        }
-
-        // Parse candidate specific assigned subjects (if explicitly specified on candidate record)
-        const rawAssigned = (student.assigned_subject || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
-
-        // Build stream-isolated subject set for this student
-        const subjectSet = new Set();
-        const streamLowerSet = new Set(streamSubjects.map(s => s.toLowerCase()));
-
-        if (rawAssigned.length > 0) {
-            rawAssigned.forEach(s => {
-                if (streamLowerSet.has(s.toLowerCase())) {
-                    subjectSet.add(s);
-                }
-            });
-        }
-
-        // Default to full allocated stream subjects if candidate specific list was empty or generic
-        if (subjectSet.size === 0) {
-            streamSubjects.forEach(s => subjectSet.add(s));
-        }
-
-        // Format subjects with class-isolated real-time status
-        const formattedSubjects = (await Promise.all(Array.from(subjectSet).map(async (subName) => {
-            const lowerName = subName.toLowerCase();
-            const isCompleted = completedSubjects.has(lowerName);
-            const isActive = activeSubjectsMap.has(lowerName);
-            const activeSessionId = activeSubjectsMap.get(lowerName) || null;
-            const isSubjectConfigActive = await isSubjectActiveForClass(student.class, subName);
-
-            if (!isSubjectConfigActive && !isCompleted && !isActive) {
-                return null;
-            }
-
-            let status = 'available';
-            let message = 'Ready to Start';
-
-            if (isCompleted) {
-                status = 'completed';
-                message = 'You have already completed and submitted this examination.';
-            } else if (isActive) {
-                status = 'in_progress';
-                message = 'Exam session active. Tap Resume to continue.';
-            }
-
-            return {
-                name: subName,
-                subject: subName,
-                is_active: isSubjectConfigActive,
-                hasActiveSession: isActive,
-                has_active_session: isActive,
-                sessionStatus: isActive ? 'IN_PROGRESS' : null,
-                sessionId: activeSessionId,
-                session_id: activeSessionId,
-                schedule: isCompleted ? 'Submitted' : (isActive ? 'In Progress' : 'Now Available'),
-                status: status,
-                message: message
-            };
-        }))).filter(Boolean);
 
         return res.status(200).json({
             success: true,
@@ -494,7 +599,9 @@ router.get('/student/:student_id/dashboard', async (req, res, next) => {
                 class: student.class,
                 assigned_subject: student.assigned_subject
             },
-            subjects: formattedSubjects
+            subjects: formattedSubjects,
+            papers: formattedSubjects,
+            activeExams: formattedSubjects
         });
 
     } catch (error) {
@@ -528,6 +635,7 @@ async function checkDailyAutoReset() {
             hasResetAt5PM = true;
             await dbRun(`UPDATE exam_configs SET is_active = 0`);
             await dbRun(`UPDATE subjects SET is_active = 0`);
+            await dbRun(`UPDATE assessment_configs SET is_active = 0`);
             console.log(`⏰ [Daily Auto-Reset] Active exams auto-reset to INACTIVE (5:00 PM cutoff trigger).`);
         }
     } catch (err) {
@@ -535,209 +643,76 @@ async function checkDailyAutoReset() {
     }
 }
 
-/**
- * Resolves active status for a specific class and subject combination.
- * Must satisfy BOTH conditions:
- * 1. is_active === 1 (Admin explicitly toggled Exam Activation Status to ACTIVE).
- * 2. Total uploaded questions in bank > 0.
- */
-async function isSubjectActiveForClass(studentClass, subject) {
-    try {
-        await checkDailyAutoReset();
-
-        const normSub = String(subject || '').trim();
-        if (!normSub) return false;
-
-        let isActiveConfig = false;
-
-        if (studentClass) {
-            const normClass = String(studentClass).trim();
-            const baseTier = normClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
-
-            const classCfg = await dbGet(
-                `SELECT is_active FROM exam_configs WHERE LOWER(class) = LOWER(?) AND LOWER(subject) = LOWER(?)`,
-                [normClass, normSub]
-            );
-            if (classCfg && classCfg.is_active !== undefined && classCfg.is_active !== null) {
-                isActiveConfig = classCfg.is_active === 1;
-            } else {
-                const tierCfg = await dbGet(
-                    `SELECT is_active FROM exam_configs WHERE LOWER(class) = LOWER(?) AND LOWER(subject) = LOWER(?)`,
-                    [baseTier, normSub]
-                );
-                if (tierCfg && tierCfg.is_active !== undefined && tierCfg.is_active !== null) {
-                    isActiveConfig = tierCfg.is_active === 1;
-                }
-            }
-        }
-
-        if (!isActiveConfig) {
-            const generalCfg = await dbGet(
-                `SELECT is_active FROM exam_configs WHERE (class IS NULL OR TRIM(class) = '') AND LOWER(subject) = LOWER(?)`,
-                [normSub]
-            );
-            if (generalCfg && generalCfg.is_active !== undefined && generalCfg.is_active !== null) {
-                isActiveConfig = generalCfg.is_active === 1;
-            } else {
-                const subRec = await dbGet(`SELECT is_active FROM subjects WHERE LOWER(name) = LOWER(?)`, [normSub]);
-                if (subRec && subRec.is_active !== undefined && subRec.is_active !== null) {
-                    isActiveConfig = subRec.is_active === 1;
-                }
-            }
-        }
-
-        // Condition 1: If admin has not explicitly toggled is_active === 1, paper is INACTIVE
-        if (!isActiveConfig) {
-            return false;
-        }
-
-        // Condition 2: Question bank count > 0 for this subject & class scope
-        let fetchQuestionsSql = `SELECT COUNT(*) as cnt FROM questions WHERE LOWER(subject) = LOWER(?)`;
-        const params = [normSub.toLowerCase()];
-        if (studentClass) {
-            const baseTier = studentClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
-            fetchQuestionsSql += ` AND (class IS NULL OR TRIM(class) = '' OR LOWER(class) = LOWER(?) OR LOWER(class) = LOWER(?))`;
-            params.push(studentClass.trim().toLowerCase(), baseTier.toLowerCase());
-        }
-
-        const qCount = await dbGet(fetchQuestionsSql, params);
-        if (!qCount || qCount.cnt <= 0) {
-            const genQCount = await dbGet(`SELECT COUNT(*) as cnt FROM questions WHERE LOWER(subject) = LOWER(?)`, [normSub.toLowerCase()]);
-            if (!genQCount || genQCount.cnt <= 0) {
-                return false; // No questions uploaded -> INACTIVE / NOT SCHEDULED
-            }
-        }
-
-        return true;
-    } catch (e) {
-        return false;
-    }
-}
-
 // --------------------------------------------------------------------------
-// GET /api/student/assigned-papers (Alias: GET /api/student/assigned-subjects)
-// Returns class-isolated assigned exam papers with individual subject status
+// GET /api/student/assigned-exams
+// GET /api/student/assigned-papers (Alias)
+// GET /api/student/assigned-subjects (Alias)
+// Strict Active & Uncompleted Filtering Logic:
+// 1. Session, term, class match & is_active = 1
+// 2. Questions in bank > 0
+// 3. Excludes completed / submitted exams
 // --------------------------------------------------------------------------
 const handleGetAssignedPapers = async (req, res, next) => {
     try {
-        const studentId = req.query.student_id || req.query.studentId;
-        const regNo = req.query.registration_no || req.query.reg_number;
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
 
-        if (!studentId && !regNo) {
-            return res.status(400).json({ success: false, message: "student_id or registration_no required." });
+        const studentId = req.query.student_id || req.query.studentId || (req.student && (req.student.studentId || req.student.id));
+        const regNo = req.query.registration_no || req.query.reg_number;
+        const queryClass = req.query.class || req.query.classId || req.query.class_name;
+        const querySession = req.query.session;
+        const queryTerm = req.query.term;
+
+        if (!studentId && !regNo && !queryClass) {
+            return res.status(400).json({ success: false, message: "student_id, registration_no, or class required." });
         }
 
-        let student;
+        let student = null;
         if (studentId) {
             student = await dbGet(`SELECT * FROM students WHERE id = ?`, [studentId]);
-        } else {
+        } else if (regNo) {
             student = await dbGet(`SELECT * FROM students WHERE LOWER(registration_no) = LOWER(?) OR LOWER(reg_number) = LOWER(?)`, [regNo.trim(), regNo.trim()]);
         }
 
-        if (!student) {
-            return res.status(404).json({ success: false, message: "Student not found." });
-        }
+        const studentClass = (student ? student.class : queryClass) || '';
+        const currentStudentId = student ? student.id : (studentId || null);
 
-        // Fetch completed and active sessions from both student_exam_sessions and legacy exam_sessions
-        const completedSessions = await dbAll(
-            `SELECT LOWER(subject_name) as subject FROM student_exam_sessions WHERE student_id = ? AND status = 'SUBMITTED'
-             UNION
-             SELECT LOWER(subject) as subject FROM exam_sessions WHERE student_id = ? AND (status = 'submitted' OR is_locked = 1)`,
-            [student.id, student.id]
-        );
-        const completedSubjects = new Set(completedSessions.map(s => s.subject ? s.subject.trim().toLowerCase() : '').filter(Boolean));
-
-        const activeSessions = await dbAll(
-            `SELECT session_id, LOWER(subject_name) as subject FROM student_exam_sessions WHERE student_id = ? AND status = 'IN_PROGRESS' AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-             UNION
-             SELECT id as session_id, LOWER(subject) as subject FROM exam_sessions WHERE student_id = ? AND status = 'active' AND is_locked = 0`,
-            [student.id, student.id]
-        );
-        const activeSubjectsMap = new Map(activeSessions.map(s => [s.subject ? s.subject.trim().toLowerCase() : '', s.session_id]));
-
-        let streamSubjects = [];
-        const studentClass = student.class || '';
-        if (studentClass) {
-            const mappedSubjects = await dbAll(
-                `SELECT subject_name FROM class_subjects WHERE LOWER(class_name) = LOWER(?) ORDER BY id ASC`,
-                [studentClass.trim()]
-            );
-            if (mappedSubjects && mappedSubjects.length > 0) {
-                streamSubjects = mappedSubjects.map(m => m.subject_name);
+        let session = querySession;
+        let term = queryTerm;
+        if (!session || !term) {
+            const currentTermRec = await dbGet(`SELECT session, name FROM academic_terms WHERE is_current = 1 LIMIT 1`);
+            if (currentTermRec) {
+                if (!session) session = currentTermRec.session;
+                if (!term) term = currentTermRec.name;
             }
         }
+        if (!session) session = '2026/2027';
+        if (!term) term = '1st Term';
 
-        const rawAssigned = (student.assigned_subject || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
-        const subjectSet = new Set();
-        if (streamSubjects.length > 0) {
-            streamSubjects.forEach(s => subjectSet.add(s));
-        } else if (rawAssigned.length > 0) {
-            rawAssigned.forEach(s => subjectSet.add(s));
-        }
-
-        activeSessions.forEach(s => {
-            if (s.subject) {
-                const formatted = s.subject.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-                subjectSet.add(formatted);
-            }
+        const activeExams = await fetchActiveExamsForStudent({
+            studentId: currentStudentId,
+            studentClass: studentClass,
+            session: session,
+            term: term
         });
-        completedSessions.forEach(s => {
-            if (s.subject) {
-                const formatted = s.subject.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-                subjectSet.add(formatted);
-            }
-        });
-
-        const papers = (await Promise.all(Array.from(subjectSet).map(async (subName) => {
-            const lowerName = subName.toLowerCase();
-            const isCompleted = completedSubjects.has(lowerName);
-            const isActive = activeSubjectsMap.has(lowerName);
-            const activeSessionId = activeSubjectsMap.get(lowerName) || null;
-            const isSubjectConfigActive = await isSubjectActiveForClass(student.class, subName);
-
-            let status = 'available';
-            let message = 'Ready to Start';
-
-            if (isCompleted) {
-                status = 'completed';
-                message = 'You have already completed and submitted this examination.';
-            } else if (isActive) {
-                status = 'in_progress';
-                message = 'Exam session active. Tap Resume to continue.';
-            } else if (!isSubjectConfigActive) {
-                status = 'unavailable';
-                message = 'Paper is not scheduled or activated yet.';
-            }
-
-            return {
-                subject: subName,
-                name: subName,
-                class: student.class,
-                is_active: isSubjectConfigActive,
-                hasActiveSession: isActive,
-                has_active_session: isActive,
-                sessionStatus: isActive ? 'IN_PROGRESS' : null,
-                sessionId: activeSessionId,
-                session_id: activeSessionId,
-                status: status,
-                message: message
-            };
-        }))).filter(Boolean);
 
         return res.status(200).json({
             success: true,
-            student_id: student.id,
-            class: student.class,
-            papers: papers,
-            subjects: papers
+            student_id: currentStudentId,
+            class: studentClass,
+            session: session,
+            term: term,
+            activeExams: activeExams,
+            papers: activeExams,
+            subjects: activeExams
         });
 
     } catch (error) {
-        console.error('❌ [Get Assigned Papers Error]:', error);
+        console.error('❌ [Get Assigned Exams Error]:', error);
         next(error);
     }
 };
 
+router.get('/student/assigned-exams', handleGetAssignedPapers);
 router.get('/student/assigned-papers', handleGetAssignedPapers);
 router.get('/student/assigned-subjects', handleGetAssignedPapers);
 
@@ -790,10 +765,10 @@ router.post('/student/start-exam', async (req, res, next) => {
 });
 
 /**
- * GET /api/student/assigned-subjects
+ * GET /api/student/stream-subjects
  * Returns stream-isolated subject list for a logged in student.
  */
-router.get('/student/assigned-subjects', async (req, res, next) => {
+router.get('/student/stream-subjects', async (req, res, next) => {
     try {
         const studentId = req.query.student_id || req.query.studentId;
         const regNo = req.query.registration_no || req.query.reg_number;

@@ -11,38 +11,24 @@ export default function StudentDashboard({ student, sessionId, onSelectSubject, 
   const surname = (student?.surname || '').toUpperCase();
   const firstName = student?.first_name || '';
   const displayName = firstName ? `${surname}, ${firstName}` : (surname || 'Student Candidate');
-  const regNumber = student?.reg_number || 'N/A';
+  const regNumber = student?.reg_number || student?.registration_no || 'N/A';
   const studentClass = student?.class || 'N/A';
 
   const fetchPapers = async () => {
     setLoading(true);
     try {
-      if (student?.id) {
-        const res = await getAssignedPapers(student.id, student.reg_number);
-        if (res.success && Array.isArray(res.papers) && res.papers.length > 0) {
-          setAssignedPapers(res.papers);
+      if (student?.id || student?.reg_number || student?.registration_no) {
+        const res = await getAssignedPapers(student?.id, student?.reg_number || student?.registration_no);
+        if (res && res.success && Array.isArray(res.activeExams || res.papers)) {
+          setAssignedPapers(res.activeExams || res.papers);
           setLoading(false);
           return;
         }
       }
-      
-      // Fallback to subjects for student's class
-      const subRes = await getSubjects(studentClass);
-      if (subRes.success && Array.isArray(subRes.subjects)) {
-        const formatted = subRes.subjects.map(s => {
-          const name = typeof s === 'string' ? s : (s.name || s.subject_name);
-          return {
-            name,
-            subject: name,
-            duration_minutes: s.duration_minutes || 45,
-            total_questions: s.total_questions || 50,
-            status: 'available',
-          };
-        });
-        setAssignedPapers(formatted);
-      }
+      setAssignedPapers([]);
     } catch (err) {
-      console.warn('Error fetching candidate subjects:', err);
+      console.warn('Error fetching candidate papers:', err);
+      setAssignedPapers([]);
     } finally {
       setLoading(false);
     }
@@ -56,11 +42,23 @@ export default function StudentDashboard({ student, sessionId, onSelectSubject, 
     const subjectName = paper.name || paper.subject;
     if (!subjectName) return;
 
+    const slot = paper.assessment_slot || paper.slot || 'midterm_ca';
+    const paperSession = paper.session || '2026/2027';
+    const paperTerm = paper.term || '1st Term';
+
     setFetchingSubject(subjectName);
     setErrorModal(null);
 
     try {
-      const res = await getExamQuestions(subjectName, student?.id, sessionId, studentClass);
+      const res = await getExamQuestions(
+        subjectName,
+        student?.id,
+        sessionId,
+        studentClass,
+        paperSession,
+        paperTerm,
+        slot
+      );
 
       if (!res || !res.success || !res.questions || res.questions.length === 0) {
         setFetchingSubject(null);
@@ -70,9 +68,12 @@ export default function StudentDashboard({ student, sessionId, onSelectSubject, 
 
       onSelectSubject({
         subject: subjectName,
+        assessmentSlot: slot,
+        session: paperSession,
+        term: paperTerm,
         questions: res.questions,
         durationMinutes: res.duration_minutes || paper.duration_minutes || 45,
-        durationSeconds: res.duration_seconds || (res.duration_minutes ? res.duration_minutes * 60 : 2700),
+        durationSeconds: res.duration_seconds || (res.duration_minutes ? res.duration_minutes * 60 : ((paper.duration_minutes || 45) * 60)),
       });
 
     } catch (err) {
@@ -82,10 +83,18 @@ export default function StudentDashboard({ student, sessionId, onSelectSubject, 
     }
   };
 
+  // Strict active-status and uncompleted filtering
+  const visiblePapers = (assignedPapers || []).filter(paper => {
+    const rawStatus = (paper.status || '').toLowerCase();
+    const isCompleted = rawStatus === 'completed' || rawStatus === 'submitted';
+    const isActive = paper.isActive === true || paper.is_active === true || paper.is_active === 1;
+    return isActive && !isCompleted;
+  });
+
   return (
     <div className="min-h-screen w-full text-[#1E242B] flex flex-col font-sans select-none pb-12">
       
-      {/* 2. TOP HEADER BAR (FLUTTER STYLE) */}
+      {/* 1. TOP HEADER BAR */}
       <header className="w-full px-6 sm:px-10 py-5 flex items-center justify-between z-20">
         {/* Left: School Crest Logo & Header Titles */}
         <div className="flex items-center gap-3.5">
@@ -110,7 +119,7 @@ export default function StudentDashboard({ student, sessionId, onSelectSubject, 
         {/* Right: Logout Action Button */}
         <button
           onClick={onLogout}
-          className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/30 font-bold text-xs sm:text-sm rounded-xl transition-all flex items-center gap-2 backdrop-blur-sm shadow-md uppercase tracking-wider"
+          className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/30 font-bold text-xs sm:text-sm rounded-xl transition-all flex items-center gap-2 backdrop-blur-sm shadow-md uppercase tracking-wider cursor-pointer"
         >
           <LogOut className="w-4 h-4 text-white" />
           <span>LOG OUT</span>
@@ -120,9 +129,9 @@ export default function StudentDashboard({ student, sessionId, onSelectSubject, 
       {/* MAIN CONTAINER */}
       <main className="flex-1 max-w-[1100px] w-full mx-auto px-4 sm:px-6 lg:px-8 pt-2 space-y-7 z-10">
 
-        {/* 3. STUDENT PROFILE BANNER CARD */}
+        {/* 2. STUDENT PROFILE BANNER CARD */}
         <div className="bg-white/95 backdrop-blur-md border border-white/40 rounded-[20px] p-6 sm:p-7 shadow-2xl flex items-center gap-5">
-          {/* Prominent Round Orange Avatar Circle */}
+          {/* Round Orange Avatar Circle */}
           <div className="w-16 h-16 bg-gradient-to-br from-[#FF7417] via-[#F96302] to-[#E05500] text-white font-black text-2xl rounded-full shadow-lg shadow-[#F96302]/30 flex items-center justify-center shrink-0 border-2 border-white">
             {surname[0] || 'S'}
           </div>
@@ -146,60 +155,56 @@ export default function StudentDashboard({ student, sessionId, onSelectSubject, 
           </div>
         </div>
 
-        {/* 4. ASSIGNED EXAM PAPERS SECTION */}
+        {/* 3. ASSIGNED EXAM PAPERS SECTION */}
         <div className="space-y-4 pt-2">
-          {/* Section Heading & Subtitle */}
-          <div className="flex items-center justify-between">
+          {/* Section Heading & Refresh */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
                 Assigned Exam Papers
               </h3>
               <p className="text-xs sm:text-sm text-orange-100/90 font-normal mt-1">
-                Select an available paper below to launch your CBT session
+                Click on an active exam paper below to begin your examination
               </p>
             </div>
 
             {/* Circular Refresh Icon Button (↻) */}
             <button
               onClick={fetchPapers}
-              className="w-10 h-10 bg-white/15 hover:bg-white/25 text-white rounded-full flex items-center justify-center transition-all border border-white/30 backdrop-blur-sm shadow-md"
+              className="w-10 h-10 bg-white/15 hover:bg-white/25 text-white rounded-full flex items-center justify-center transition-all border border-white/30 backdrop-blur-sm shadow-md self-end sm:self-auto cursor-pointer"
               title="Refresh Exam Papers"
             >
               <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
 
-          {/* Cards Container */}
+          {/* Cards / Empty State Container */}
           {loading ? (
             <div className="bg-white/90 backdrop-blur-md rounded-[20px] p-12 text-center space-y-3 shadow-2xl">
               <RefreshCw className="w-9 h-9 text-[#F96302] animate-spin mx-auto" />
               <p className="text-base font-bold text-[#1E242B]">Retrieving assigned examination papers...</p>
               <p className="text-xs text-[#64748B]">Connecting to local CBT server database</p>
             </div>
-          ) : assignedPapers.length === 0 ? (
-            <div className="bg-white/90 backdrop-blur-md rounded-[20px] p-12 text-center space-y-3 shadow-2xl">
-              <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center text-amber-600 mx-auto">
-                <AlertTriangle className="w-7 h-7" />
-              </div>
-              <h4 className="text-lg font-bold text-[#1E242B]">No Examination Papers Scheduled</h4>
-              <p className="text-xs sm:text-sm text-[#64748B] max-w-md mx-auto leading-relaxed font-medium">
-                No active examination papers scheduled at this moment. Please wait for the invigilator/admin to activate your paper.
+          ) : visiblePapers.length === 0 ? (
+            <div className="mt-8 p-10 text-center bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 text-white shadow-2xl">
+              <h2 className="text-xl font-bold tracking-wide">No Active Exam Papers</h2>
+              <p className="text-sm text-white/70 mt-2">
+                No examination is currently active for your class. Kindly reach out to your exam invigilator/admin.
               </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {assignedPapers.map((paper, index) => {
+              {visiblePapers.map((paper, index) => {
                 const subName = paper.name || paper.subject || 'Subject Paper';
-                const rawStatus = paper.status || 'available';
-                const isCompleted = rawStatus === 'completed' || rawStatus === 'SUBMITTED';
-                const isInProgress = !isCompleted && (rawStatus === 'in_progress' || rawStatus === 'active');
-                const isAvailable = !isCompleted && !isInProgress && (rawStatus === 'available' || paper.is_active);
-                const isNotScheduled = !isCompleted && !isInProgress && !isAvailable;
+                const rawStatus = (paper.status || '').toLowerCase();
+                const isInProgress = rawStatus === 'in_progress' || rawStatus === 'active' || paper.hasActiveSession;
                 const isBusy = fetchingSubject === subName;
+                const duration = paper.duration_minutes || 45;
+                const qCount = paper.question_count || paper.custom_count || paper.delivery_count || null;
 
                 return (
                   <div
-                    key={index}
+                    key={paper.id || index}
                     className="bg-white rounded-[20px] p-6 shadow-2xl flex flex-col justify-between space-y-4 border border-white/40 hover:shadow-2xl transition-all"
                   >
                     <div>
@@ -209,85 +214,73 @@ export default function StudentDashboard({ student, sessionId, onSelectSubject, 
                           <div className="w-10 h-10 bg-orange-50 border border-orange-100 rounded-full flex items-center justify-center text-[#F96302] shrink-0">
                             <BookOpen className="w-5 h-5" />
                           </div>
-                          <h4 className="text-lg font-bold text-[#1E242B] leading-tight">
-                            {subName}
-                          </h4>
+                          <div>
+                            <h4 className="text-lg font-bold text-[#1E242B] leading-tight">
+                              {subName}
+                            </h4>
+                            {paper.assessment_title && paper.assessment_title !== subName && (
+                              <p className="text-xs text-slate-500 font-medium mt-0.5">
+                                {paper.assessment_title}
+                              </p>
+                            )}
+                          </div>
                         </div>
 
                         {/* Status Badge Pill */}
                         <span className={`text-[11px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider shrink-0 flex items-center gap-1.5 ${
-                          isCompleted
-                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                            : isInProgress
+                          isInProgress
                             ? 'bg-orange-100 text-orange-900 border border-orange-300'
-                            : isAvailable
-                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                            : 'bg-slate-100 text-slate-700 border border-slate-300'
+                            : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                         }`}>
-                          {isCompleted ? (
-                            <>
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>COMPLETED</span>
-                            </>
-                          ) : isInProgress ? (
+                          {isInProgress ? (
                             <>
                               <Hourglass className="w-3.5 h-3.5 text-orange-600" />
                               <span>IN PROGRESS</span>
                             </>
-                          ) : isAvailable ? (
+                          ) : (
                             <>
                               <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
                               <span>AVAILABLE</span>
-                            </>
-                          ) : (
-                            <>
-                              <Lock className="w-3.5 h-3.5 text-slate-500" />
-                              <span>NOT SCHEDULED</span>
                             </>
                           )}
                         </span>
                       </div>
 
-                      {/* Card Body: Status Description Text */}
-                      <div className="mt-3">
-                        {isCompleted ? (
-                          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-semibold text-emerald-800 flex items-center gap-2">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                            <span>Exam paper completed and submitted to server.</span>
-                          </div>
-                        ) : isInProgress ? (
+                      {/* Card Body: Details & Duration */}
+                      <div className="mt-3 space-y-2">
+                        <div className="flex items-center gap-4 text-xs font-semibold text-slate-600">
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5 text-[#F96302]" />
+                            {duration} mins
+                          </span>
+                          {qCount && (
+                            <span className="inline-flex items-center gap-1">
+                              <FileText className="w-3.5 h-3.5 text-slate-500" />
+                              {qCount} Questions
+                            </span>
+                          )}
+                        </div>
+
+                        {isInProgress ? (
                           <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl text-xs font-semibold text-orange-900 flex items-center gap-2">
                             <Hourglass className="w-4 h-4 text-[#F96302] shrink-0" />
                             <span>Exam session active. Tap Resume to continue.</span>
                           </div>
-                        ) : isAvailable ? (
-                          <p className="text-xs font-medium text-[#64748B] py-1">
+                        ) : (
+                          <p className="text-xs font-medium text-[#64748B] py-0.5">
                             Status: Ready to launch examination paper.
                           </p>
-                        ) : (
-                          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 flex items-center gap-2">
-                            <Lock className="w-4 h-4 text-slate-400 shrink-0" />
-                            <span>Paper is not scheduled yet.</span>
-                          </div>
                         )}
                       </div>
                     </div>
 
                     {/* Card Action Button */}
                     <div className="pt-2">
-                      {isCompleted ? (
-                        <button
-                          disabled
-                          className="w-full py-3.5 border-2 border-emerald-500 text-emerald-700 font-extrabold text-xs rounded-xl cursor-not-allowed uppercase tracking-wider flex items-center justify-center gap-2 bg-emerald-50/50"
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>EXAM COMPLETED</span>
-                        </button>
-                      ) : isInProgress ? (
+                      {isInProgress ? (
                         <button
                           onClick={() => handleTakeExam(paper)}
                           disabled={isBusy}
-                          className="w-full py-3.5 bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-xs rounded-xl shadow-md shadow-orange-600/25 uppercase tracking-wider flex items-center justify-center gap-2 transition-all"
+                          className="w-full py-3.5 bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-xs rounded-xl shadow-md shadow-orange-600/25 uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer"
                         >
                           {isBusy ? (
                             <>
@@ -301,11 +294,11 @@ export default function StudentDashboard({ student, sessionId, onSelectSubject, 
                             </>
                           )}
                         </button>
-                      ) : isAvailable ? (
+                      ) : (
                         <button
                           onClick={() => handleTakeExam(paper)}
                           disabled={isBusy}
-                          className="w-full py-3.5 bg-[#F96302] hover:bg-[#E05500] text-white font-extrabold text-xs rounded-xl shadow-lg shadow-[#F96302]/30 uppercase tracking-wider flex items-center justify-center gap-2 transition-all group"
+                          className="w-full py-3.5 bg-[#F96302] hover:bg-[#E05500] text-white font-extrabold text-xs rounded-xl shadow-lg shadow-[#F96302]/30 uppercase tracking-wider flex items-center justify-center gap-2 transition-all group cursor-pointer"
                         >
                           {isBusy ? (
                             <>
@@ -318,14 +311,6 @@ export default function StudentDashboard({ student, sessionId, onSelectSubject, 
                               <span>START EXAM</span>
                             </>
                           )}
-                        </button>
-                      ) : (
-                        <button
-                          disabled
-                          className="w-full py-3.5 border border-slate-300 text-slate-500 font-extrabold text-xs rounded-xl cursor-not-allowed uppercase tracking-wider flex items-center justify-center gap-2 bg-slate-50"
-                        >
-                          <Lock className="w-4 h-4" />
-                          <span>NOT SCHEDULED YET</span>
                         </button>
                       )}
                     </div>
@@ -354,7 +339,7 @@ export default function StudentDashboard({ student, sessionId, onSelectSubject, 
 
             <button
               onClick={() => setErrorModal(null)}
-              className="w-full py-3.5 bg-[#F96302] hover:bg-[#E05500] text-white font-extrabold text-xs rounded-xl shadow-md shadow-[#F96302]/20 transition-all uppercase tracking-wider"
+              className="w-full py-3.5 bg-[#F96302] hover:bg-[#E05500] text-white font-extrabold text-xs rounded-xl shadow-md shadow-[#F96302]/20 transition-all uppercase tracking-wider cursor-pointer"
             >
               Return to Dashboard
             </button>

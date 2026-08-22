@@ -57,7 +57,7 @@ export default function QuestionBankTab({
     (q && (q.stem || q.question_text || '')).toLowerCase().includes((searchQuery || '').toLowerCase())
   );
 
-  const handleSimulatedDocxUpload = (fileName = 'Physics_Terminal_Exam_Paper.docx') => {
+  const handleSimulatedDocxUpload = (fileName = 'Physics_Examination_Paper.docx') => {
     setUploading(true);
     setTimeout(() => {
       setUploading(false);

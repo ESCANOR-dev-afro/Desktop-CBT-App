@@ -10,6 +10,7 @@ import AddStudentModal from './components/AddStudentModal';
 import UploadRosterModal from './components/UploadRosterModal';
 import Toast from './components/Toast';
 import ErrorBoundary from './components/ErrorBoundary';
+import AdminLoginGate from './components/AdminLoginGate';
 
 import {
   allClassArms,
@@ -21,6 +22,17 @@ import {
 } from './data/mockData';
 
 export default function App() {
+  // Authentication Guard State
+  const [isAuthenticated, setIsAuthenticated] = useState(
+    () => localStorage.getItem('awba_admin_auth') === 'true' || localStorage.getItem('awba_admin_authenticated') === 'true'
+  );
+
+  const handleSignOut = () => {
+    localStorage.removeItem('awba_admin_auth');
+    localStorage.removeItem('awba_admin_authenticated');
+    setIsAuthenticated(false);
+  };
+
   const classesList = ['JSS 1', 'JSS 2', 'JSS 3', 'SS 1', 'SS 2', 'SS 3', ...allClassArms];
 
   // Global State
@@ -297,6 +309,10 @@ export default function App() {
     }
   };
 
+  if (!isAuthenticated) {
+    return <AdminLoginGate onLoginSuccess={() => setIsAuthenticated(true)} />;
+  }
+
   return (
     <div className="flex h-screen bg-darkBg text-slate-100 font-sans antialiased overflow-hidden selection:bg-brand selection:text-white">
       {/* Fixed Left Sidebar */}
@@ -307,6 +323,7 @@ export default function App() {
         setSelectedClass={setSelectedClass}
         classesList={classesList}
         subjectsByClass={subjectsByClass}
+        onSignOut={handleSignOut}
       />
 
       {/* Main Workspace Layout Area */}
@@ -342,6 +359,8 @@ export default function App() {
             {activeView === 'live-results' && (
               <LiveResults
                 students={students}
+                selectedClass={selectedClass}
+                onSelectClass={setSelectedClass}
                 classesList={classesList}
                 subjectsByClass={subjectsByClass}
                 activeTerm={activeTerm}
@@ -352,6 +371,7 @@ export default function App() {
 
             {activeView === 'question-bank' && (
               <QuestionBankMainView
+                selectedClass={selectedClass}
                 classesList={classesList}
                 subjectsByClass={subjectsByClass}
                 questionsData={questionsData}

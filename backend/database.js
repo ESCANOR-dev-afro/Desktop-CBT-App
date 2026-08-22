@@ -125,8 +125,11 @@ function initDatabase() {
         const createQuestionsTable = `
             CREATE TABLE IF NOT EXISTS questions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session TEXT DEFAULT '2026/2027',
+                term TEXT DEFAULT '1st Term',
                 class TEXT,
                 subject TEXT NOT NULL,
+                assessment_slot TEXT DEFAULT 'midterm_ca',
                 question_text TEXT NOT NULL,
                 option_a TEXT NOT NULL,
                 option_b TEXT NOT NULL,
@@ -140,18 +143,26 @@ function initDatabase() {
                 subject_id INTEGER
             );
         `;
-        db.run(createQuestionsTable, (err) => {
-            if (!err) {
-                db.run(`ALTER TABLE questions ADD COLUMN class TEXT;`, () => {});
-                db.run(`ALTER TABLE questions ADD COLUMN marks INTEGER DEFAULT 1;`, () => {});
-                db.run(`ALTER TABLE questions ADD COLUMN diagram_image_url TEXT;`, () => {});
-                db.run(`ALTER TABLE questions ADD COLUMN exam_id INTEGER;`, () => {});
-                db.run(`ALTER TABLE questions ADD COLUMN class_id INTEGER;`, () => {});
-                db.run(`ALTER TABLE questions ADD COLUMN subject_id INTEGER;`, () => {});
-                db.run(`CREATE INDEX IF NOT EXISTS idx_questions_class_subject ON questions(class, subject);`, () => {});
-                db.run(`CREATE INDEX IF NOT EXISTS idx_questions_subject ON questions(subject);`, () => {});
-            }
-        });
+        db.run(createQuestionsTable);
+        db.run(`ALTER TABLE questions ADD COLUMN session TEXT DEFAULT '2026/2027';`, () => {});
+        db.run(`ALTER TABLE questions ADD COLUMN term TEXT DEFAULT '1st Term';`, () => {});
+        db.run(`ALTER TABLE questions ADD COLUMN assessment_slot TEXT DEFAULT 'midterm_ca';`, () => {});
+        db.run(`ALTER TABLE questions ADD COLUMN class TEXT;`, () => {});
+        db.run(`ALTER TABLE questions ADD COLUMN marks INTEGER DEFAULT 1;`, () => {});
+        db.run(`ALTER TABLE questions ADD COLUMN diagram_image_url TEXT;`, () => {});
+        db.run(`ALTER TABLE questions ADD COLUMN exam_id INTEGER;`, () => {});
+        db.run(`ALTER TABLE questions ADD COLUMN class_id INTEGER;`, () => {});
+        db.run(`ALTER TABLE questions ADD COLUMN subject_id INTEGER;`, () => {});
+        db.run(`UPDATE questions SET session = '2026/2027' WHERE session IS NULL OR TRIM(session) = '';`, () => {});
+        db.run(`UPDATE questions SET term = '1st Term' WHERE term IS NULL OR TRIM(term) = '';`, () => {});
+        db.run(`UPDATE questions SET assessment_slot = 'midterm_ca' WHERE assessment_slot IS NULL OR TRIM(assessment_slot) = '' OR LOWER(assessment_slot) = 'general';`, () => {});
+        db.run(`UPDATE questions SET assessment_slot = 'examination' WHERE LOWER(assessment_slot) = 'terminal_exam';`, () => {});
+        db.run(`UPDATE questions SET assessment_slot = 'custom_assessment' WHERE LOWER(assessment_slot) = 'custom_exam';`, () => {});
+        db.run(`UPDATE assessment_configs SET assessment_slot = 'examination' WHERE LOWER(assessment_slot) = 'terminal_exam';`, () => {});
+        db.run(`UPDATE assessment_configs SET assessment_slot = 'custom_assessment' WHERE LOWER(assessment_slot) = 'custom_exam';`, () => {});
+        db.run(`CREATE INDEX IF NOT EXISTS idx_questions_class_subject ON questions(class, subject);`, () => {});
+        db.run(`CREATE INDEX IF NOT EXISTS idx_questions_subject ON questions(subject);`, () => {});
+        db.run(`CREATE INDEX IF NOT EXISTS idx_questions_scoped ON questions(session, term, class, subject, assessment_slot);`, () => {});
 
         // 4. Base Table: `exam_sessions`
         const createExamSessionsTable = `
@@ -165,6 +176,9 @@ function initDatabase() {
                 is_locked INTEGER NOT NULL CHECK(is_locked IN (0, 1)) DEFAULT 0,
                 score INTEGER DEFAULT NULL,
                 subject TEXT DEFAULT NULL,
+                session TEXT DEFAULT '2026/2027',
+                term TEXT DEFAULT '1st Term',
+                assessment_slot TEXT DEFAULT 'midterm_ca',
                 question_order TEXT DEFAULT NULL,
                 duration_minutes INTEGER DEFAULT 45,
                 exam_id INTEGER,
@@ -176,6 +190,9 @@ function initDatabase() {
             if (!err) {
                 db.run(`ALTER TABLE exam_sessions ADD COLUMN score INTEGER DEFAULT NULL;`, () => {});
                 db.run(`ALTER TABLE exam_sessions ADD COLUMN subject TEXT DEFAULT NULL;`, () => {});
+                db.run(`ALTER TABLE exam_sessions ADD COLUMN session TEXT DEFAULT '2026/2027';`, () => {});
+                db.run(`ALTER TABLE exam_sessions ADD COLUMN term TEXT DEFAULT '1st Term';`, () => {});
+                db.run(`ALTER TABLE exam_sessions ADD COLUMN assessment_slot TEXT DEFAULT 'midterm_ca';`, () => {});
                 db.run(`ALTER TABLE exam_sessions ADD COLUMN last_heartbeat DATETIME DEFAULT CURRENT_TIMESTAMP;`, () => {});
                 db.run(`ALTER TABLE exam_sessions ADD COLUMN question_order TEXT DEFAULT NULL;`, () => {});
                 db.run(`ALTER TABLE exam_sessions ADD COLUMN duration_minutes INTEGER DEFAULT 45;`, () => {});
@@ -230,7 +247,7 @@ function initDatabase() {
             }
         });
 
-        // 7. Base Table: `exam_configs`
+        // 7. Base Table: `exam_configs` (Legacy & Subject global defaults)
         const createExamConfigsTable = `
             CREATE TABLE IF NOT EXISTS exam_configs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -254,6 +271,38 @@ function initDatabase() {
                 db.run(`ALTER TABLE exam_configs ADD COLUMN shuffle_questions INTEGER DEFAULT 1;`, () => {});
                 db.run(`ALTER TABLE exam_configs ADD COLUMN shuffle_options INTEGER DEFAULT 1;`, () => {});
                 db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_configs_class_subject ON exam_configs(class, subject);`, () => {});
+            }
+        });
+
+        // 7b. New Table: `assessment_configs` (Fully Scoped per Session, Term, Class, Subject, Slot)
+        const createAssessmentConfigsTable = `
+            CREATE TABLE IF NOT EXISTS assessment_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session TEXT NOT NULL DEFAULT '2026/2027',
+                term TEXT NOT NULL DEFAULT '1st Term',
+                class TEXT,
+                subject TEXT NOT NULL,
+                assessment_slot TEXT NOT NULL DEFAULT 'midterm_ca',
+                assessment_title TEXT,
+                duration_minutes INTEGER NOT NULL DEFAULT 45,
+                preset_mode TEXT DEFAULT 'ca_test',
+                custom_count INTEGER DEFAULT 30,
+                shuffle_questions INTEGER DEFAULT 1,
+                shuffle_options INTEGER DEFAULT 1,
+                is_active INTEGER NOT NULL DEFAULT 0 CHECK(is_active IN (0, 1)),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(session, term, class, subject, assessment_slot)
+            );
+        `;
+        db.run(createAssessmentConfigsTable, (err) => {
+            if (!err) {
+                db.run(`ALTER TABLE assessment_configs ADD COLUMN session TEXT DEFAULT '2026/2027';`, () => {});
+                db.run(`ALTER TABLE assessment_configs ADD COLUMN term TEXT DEFAULT '1st Term';`, () => {});
+                db.run(`ALTER TABLE assessment_configs ADD COLUMN assessment_slot TEXT DEFAULT 'midterm_ca';`, () => {});
+                db.run(`ALTER TABLE assessment_configs ADD COLUMN assessment_title TEXT;`, () => {});
+                db.run(`ALTER TABLE assessment_configs ADD COLUMN preset_mode TEXT DEFAULT 'ca_test';`, () => {});
+                db.run(`ALTER TABLE assessment_configs ADD COLUMN custom_count INTEGER DEFAULT 30;`, () => {});
+                db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_assessment_configs_scoped ON assessment_configs(session, term, class, subject, assessment_slot);`, () => {});
             }
         });
 
@@ -391,6 +440,8 @@ function initDatabase() {
                 db.run(`ALTER TABLE student_exam_sessions ADD COLUMN current_question_index INTEGER DEFAULT 0;`, () => {});
                 db.run(`ALTER TABLE student_exam_sessions ADD COLUMN last_heartbeat DATETIME;`, () => {});
                 db.run(`ALTER TABLE student_exam_sessions ADD COLUMN remaining_seconds INTEGER;`, () => {});
+                db.run(`ALTER TABLE student_exam_sessions ADD COLUMN assessment_slot TEXT DEFAULT 'midterm_ca';`, () => {});
+                db.run(`ALTER TABLE student_exam_sessions ADD COLUMN exam_id INTEGER;`, () => {});
                 db.run(`CREATE INDEX IF NOT EXISTS idx_ses_student_status ON student_exam_sessions(student_id, status);`, () => {});
                 db.run(`CREATE INDEX IF NOT EXISTS idx_ses_student_subject_status ON student_exam_sessions(student_id, subject_name, status);`, () => {});
             }
@@ -549,7 +600,8 @@ async function runAutoNormalization() {
         ];
         const scienceSubjects = [
             "Mathematics", "English Language", "Biology", "Chemistry", "Physics",
-            "Civic Education", "Further Mathematics", "Economics", "Digital Technology"
+            "Civic Education", "Further Mathematics", "Economics", "Digital Technology",
+            "Agricultural Science", "Geography"
         ];
         const artsSubjects = [
             "Mathematics", "English Language", "Civic Education", "Economics",

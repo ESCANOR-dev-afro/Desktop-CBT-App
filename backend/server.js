@@ -12,13 +12,14 @@ const fs = require('fs');
 const db = require('./database'); // Initialize and import SQLite database
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const HOST = '0.0.0.0'; // Bind to all network interfaces for local LAN access
 
 // ----------------------------------------------------
 // Middleware Setup & Stress Resilience
 // ----------------------------------------------------
-app.use(cors()); // Allow Cross-Origin Resource Sharing for desktop & LAN client workstations
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
 app.use(express.json({ limit: '10mb' })); // High-concurrency body parser limit
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -38,17 +39,6 @@ const examRoutes = require('./examRoutes');
 const adminRoutes = require('./adminRoutes');
 const questionRoutes = require('./questionRoutes');
 
-// ----------------------------------------------------
-// Static Directory Resolution
-// ----------------------------------------------------
-const studentDist = fs.existsSync(path.join(__dirname, '../student_client_react/dist/index.html'))
-    ? path.join(__dirname, '../student_client_react/dist')
-    : path.join(__dirname, 'public');
-
-const adminDist = fs.existsSync(path.join(__dirname, '../admin-dashboard/dist/index.html'))
-    ? path.join(__dirname, '../admin-dashboard/dist')
-    : path.join(__dirname, 'public/admin');
-
 // Ensure upload directory exists for question diagrams
 const uploadsDir = path.join(__dirname, 'uploads/diagrams');
 if (!fs.existsSync(uploadsDir)) {
@@ -58,6 +48,27 @@ if (!fs.existsSync(uploadsDir)) {
 // ----------------------------------------------------
 // 1. API Endpoints & Static Uploads (FIRST PRIORITY)
 // ----------------------------------------------------
+// ==========================================
+// ADMIN AUTHENTICATION HANDLER (TOP PRIORITY)
+// ==========================================
+const handleAdminLogin = (req, res) => {
+  const code = (req.body?.passcode || req.body?.password || '').toString().trim().toUpperCase();
+  if (code === 'AWAADMIN') {
+    return res.status(200).json({
+      success: true,
+      message: 'Access granted',
+      token: 'AWA_ADMIN_VALID_SESSION'
+    });
+  }
+  return res.status(401).json({
+    success: false,
+    message: 'Invalid Admin Passcode. Please try again.'
+  });
+};
+
+app.post('/api/admin/login', handleAdminLogin);
+app.post('/admin/api/admin/login', handleAdminLogin);
+
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/exam', examRoutes);
 app.use('/api/admin', adminRoutes);
@@ -71,98 +82,72 @@ app.use('/api', authRoutes);
  */
 app.get('/api/health', (req, res) => {
     res.status(200).json({
-        status: "success",
+        status: "ok",
+        timestamp: Date.now(),
+        port: process.env.PORT || 3000,
         message: "CBT Local Server is running smoothly",
         concurrency_mode: "WAL_ENABLED",
-        workstations_supported: "90+"
     });
 });
 
-// ----------------------------------------------------
-// 2. Admin Portal Static & SPA Fallback (/admin)
-// ----------------------------------------------------
-app.use('/admin', express.static(adminDist));
+// ==========================================
+// STATIC ASSET SERVING & SPA ROUTING
+// ==========================================
 
-app.use('/admin', (req, res, next) => {
-    if (req.originalUrl.startsWith('/api')) return next();
-    const hasExtension = Boolean(path.extname(req.path));
-    if (hasExtension) {
-        return res.status(404).send(`Admin asset '${req.originalUrl}' not found.`);
-    }
+// Dist folder paths
+const adminDistPath = path.join(__dirname, '../admin-dashboard/dist');
+const studentDistPath = path.join(__dirname, '../student_client_react/dist');
 
-    const adminIndex = path.join(adminDist, 'index.html');
-    if (fs.existsSync(adminIndex)) {
-        return res.sendFile(adminIndex);
+// 1. Serve Admin Static Files (Must be declared before general static files)
+app.use('/admin', express.static(adminDistPath, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     }
-    res.status(404).send('Admin Dashboard build not found. Please run "npm run build" in admin-dashboard directory.');
-});
-
-// ----------------------------------------------------
-// 3. Student Portal Static & SPA Fallback (/)
-// ----------------------------------------------------
-app.use(express.static(studentDist, {
-    maxAge: '1d',
-    setHeaders: (res, filePath) => {
-        if (filePath.endsWith('.wasm')) {
-            res.setHeader('Content-Type', 'application/wasm');
-        } else if (filePath.endsWith('.js') || filePath.endsWith('.mjs')) {
-            res.setHeader('Content-Type', 'application/javascript');
-        } else if (filePath.endsWith('.json')) {
-            res.setHeader('Content-Type', 'application/json');
-        }
-    }
+  }
 }));
 
-app.use((req, res, next) => {
-    if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/admin')) {
-        return next();
-    }
-    const hasExtension = Boolean(path.extname(req.path));
-    if (hasExtension) {
-        return res.status(404).send(`Static asset '${req.originalUrl}' not found.`);
-    }
-
-    const studentIndex = path.join(studentDist, 'index.html');
-    if (fs.existsSync(studentIndex)) {
-        return res.sendFile(studentIndex);
-    }
-    res.status(404).send('Student CBT Web App build not found. Please run "npm run build" in student_client_react directory.');
+// Ensure /admin redirects to /admin/ so relative Vite paths resolve
+app.get('/admin', (req, res) => {
+  res.redirect('/admin/');
 });
 
-// ----------------------------------------------------
-// Global Error Handling Middleware
-// ----------------------------------------------------
-app.use((err, req, res, next) => {
-    console.error('❌ [Unhandled Server Error]:', err.stack || err.message || err);
-    if (!res.headersSent) {
-        res.status(err.status || 500).json({
-            status: "error",
-            message: err.message || "An unexpected internal server error occurred."
-        });
+// Admin SPA Fallback (handles sub-routes like /admin/classes, /admin/scores, etc.)
+app.get('/admin/*splat', (req, res) => {
+  res.sendFile(path.join(adminDistPath, 'index.html'));
+});
+
+// 2. Serve Student Static Files
+app.use(express.static(studentDistPath, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     }
+  }
+}));
+
+// 3. API 404 Guard (prevents API calls from returning React HTML)
+app.use('/api', (req, res) => {
+  res.status(404).json({ success: false, message: 'API route not found' });
 });
 
-process.on('uncaughtException', (err) => {
-    console.error('💥 [Uncaught Exception Safeguard]:', err.stack || err.message);
+// 4. Student SPA Fallback Handler
+app.use((req, res) => {
+  res.sendFile(path.join(studentDistPath, 'index.html'));
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('💥 [Unhandled Promise Rejection Safeguard]:', reason);
-});
+// ==========================================
+// SERVER INITIALIZATION (LAN BINDING)
+// ==========================================
+const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0';
 
-// ----------------------------------------------------
-// Start Unified CBT Server
-// ----------------------------------------------------
 if (require.main === module) {
-    app.listen(PORT, '0.0.0.0', () => {
-        console.log('====================================================');
-        console.log(`Server running on port ${PORT}`);
-        console.log(`🚀 CBT Server running locally on http://localhost:${PORT}`);
-        console.log(`🌐 LAN Network Student App: http://0.0.0.0:${PORT}/`);
-        console.log(`🛡️ LAN Network Admin Dashboard: http://0.0.0.0:${PORT}/admin/`);
-        console.log(`🏥 Health Check API: http://localhost:${PORT}/api/health`);
-        console.log('====================================================');
-    });
+  app.listen(PORT, HOST, () => {
+    console.log(`AWBA CBT Offline Server running on http://${HOST}:${PORT}`);
+    console.log(`Admin Portal: http://${HOST}:${PORT}/admin/`);
+    console.log(`Student Portal: http://${HOST}:${PORT}/`);
+  });
 }
 
 module.exports = app;

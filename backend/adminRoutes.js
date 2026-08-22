@@ -59,6 +59,7 @@ function dbRun(sql, params = []) {
  * Enforces admin token validation if process.env.ADMIN_TOKEN is configured.
  */
 const verifyAdminAuthorization = (req, res, next) => {
+    if (req.path === '/login') return next();
     const adminToken = req.headers['x-admin-token'] || req.headers['authorization'];
     if (process.env.ADMIN_TOKEN && adminToken && adminToken !== process.env.ADMIN_TOKEN) {
         return res.status(401).json({
@@ -70,6 +71,32 @@ const verifyAdminAuthorization = (req, res, next) => {
 };
 
 router.use(verifyAdminAuthorization);
+
+/**
+ * POST /api/admin/login
+ * Verifies admin master passcode for Admin Dashboard access.
+ */
+router.post('/login', (req, res) => {
+    try {
+        const { password } = req.body;
+        const normalized = String(password || '').trim().toUpperCase();
+        if (normalized === 'AWAADMIN') {
+            return res.status(200).json({
+                success: true,
+                message: 'Admin authentication successful',
+                token: 'AWA_AUTH_SESSION_VALID',
+                role: 'Principal Admin'
+            });
+        }
+        return res.status(401).json({
+            success: false,
+            message: 'Invalid Admin Password. Please try again.'
+        });
+    } catch (err) {
+        console.error('❌ [Admin Login Error]:', err);
+        return res.status(500).json({ success: false, message: 'Internal server error during authentication.' });
+    }
+});
 
 /**
  * Normalizes and standardizes subject names:
@@ -107,13 +134,13 @@ router.get('/academic-terms', async (req, res, next) => {
         
         if (!terms || terms.length === 0) {
             // Seed defaults if empty
-            await dbRun(`INSERT OR IGNORE INTO academic_terms (name, session, is_current) VALUES ('1st Term', '2025/2026', 0)`);
-            await dbRun(`INSERT OR IGNORE INTO academic_terms (name, session, is_current) VALUES ('2nd Term', '2025/2026', 1)`);
-            await dbRun(`INSERT OR IGNORE INTO academic_terms (name, session, is_current) VALUES ('3rd Term', '2025/2026', 0)`);
+            await dbRun(`INSERT OR IGNORE INTO academic_terms (name, session, is_current) VALUES ('1st Term', '2026/2027', 1)`);
+            await dbRun(`INSERT OR IGNORE INTO academic_terms (name, session, is_current) VALUES ('2nd Term', '2026/2027', 0)`);
+            await dbRun(`INSERT OR IGNORE INTO academic_terms (name, session, is_current) VALUES ('3rd Term', '2026/2027', 0)`);
             terms = await dbAll(`SELECT id, name, session, is_current FROM academic_terms ORDER BY id ASC`);
         }
 
-        const activeTerm = terms.find(t => t.is_current === 1) || terms[0] || { name: '2nd Term', session: '2025/2026' };
+        const activeTerm = terms.find(t => t.is_current === 1) || terms[0] || { name: '1st Term', session: '2026/2027' };
 
         return res.status(200).json({
             success: true,
@@ -353,6 +380,18 @@ router.post('/subjects/toggle', async (req, res, next) => {
         }
 
         const normSubject = normalizeSubjectName(targetName) || targetName;
+
+        const activeTerm = await dbGet(`SELECT session, name FROM academic_terms WHERE is_current = 1 LIMIT 1`);
+        const targetSession = (req.body.session || (activeTerm ? activeTerm.session : '2026/2027')).trim();
+        const targetTermName = (req.body.term || (activeTerm ? activeTerm.name : '1st Term')).trim();
+        const targetSlot = (req.body.assessment_slot || req.body.slot || 'midterm_ca').trim();
+
+        await dbRun(
+            `INSERT INTO assessment_configs (session, term, class, subject, assessment_slot, duration_minutes, is_active)
+             VALUES (?, ?, ?, ?, ?, 45, ?)
+             ON CONFLICT(session, term, class, subject, assessment_slot) DO UPDATE SET is_active = excluded.is_active`,
+            [targetSession, targetTermName, targetClass, normSubject, targetSlot, activeFlag]
+        );
 
         await dbRun(
             `INSERT INTO exam_configs (class, subject, duration_minutes, is_active, assessment_mode, delivery_count)
@@ -944,95 +983,7 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
         console.error('❌ [Class Subject Summary Report Error]:', error);
         next(error);
     }
-});
-
-// --------------------------------------------------------------------------
-// 3. GET /api/admin/questions
-// Fetch question bank questions filtered by class and/or subject
-// --------------------------------------------------------------------------
-router.get('/questions', async (req, res, next) => {
-    try {
-        const { subject, class: classScope } = req.query;
-        let sql = `SELECT * FROM questions WHERE 1=1`;
-        let params = [];
-
-        if (subject && subject !== 'all') {
-            sql += ` AND LOWER(subject) = LOWER(?)`;
-            params.push(subject.trim());
-        }
-
-        if (classScope && classScope !== 'all') {
-            sql += ` AND (class IS NULL OR LOWER(class) = LOWER(?))`;
-            params.push(classScope.trim());
-        }
-
-        sql += ` ORDER BY id DESC`;
-        const questions = await dbAll(sql, params);
-
-        return res.status(200).json({
-            success: true,
-            count: questions.length,
-            questions: questions
-        });
-    } catch (error) {
-        console.error('❌ [Admin Questions Error]:', error);
-        next(error);
-    }
-});
-
-// --------------------------------------------------------------------------
-// POST /api/admin/questions
-// Add a single question manually to the question bank
-// --------------------------------------------------------------------------
-router.post('/questions', async (req, res, next) => {
-    try {
-        const { class: questionClass, subject, question_text, option_a, option_b, option_c, option_d, correct_answer } = req.body;
-
-        if (!subject || !question_text || !option_a || !option_b || !option_c || !option_d || !correct_answer) {
-            return res.status(400).json({
-                success: false,
-                message: "subject, question_text, option_a, option_b, option_c, option_d, and correct_answer are required."
-            });
-        }
-
-        const normalizedSubject = normalizeSubjectName(subject);
-        const normalizedAnswer = String(correct_answer).trim().toUpperCase();
-
-        if (!['A', 'B', 'C', 'D'].includes(normalizedAnswer)) {
-            return res.status(400).json({
-                success: false,
-                message: "correct_answer must be 'A', 'B', 'C', or 'D'."
-            });
-        }
-
-        const insertSql = `
-            INSERT INTO questions (class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `;
-        const result = await dbRun(insertSql, [
-            questionClass ? String(questionClass).trim() : null,
-            normalizedSubject,
-            String(question_text).trim(),
-            String(option_a).trim(),
-            String(option_b).trim(),
-            String(option_c).trim(),
-            String(option_d).trim(),
-            normalizedAnswer
-        ]);
-
-        return res.status(201).json({
-            success: true,
-            message: "Question added successfully",
-            question_id: result.lastID
-        });
-    } catch (error) {
-        console.error('❌ [Add Question Error]:', error);
-        next(error);
-    }
-});
-
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
+});// --------------------------------------------------------------------------
 // 4. GET /api/admin/results
 // Fetch all student results & complete class rosters dynamically for all classes & subjects
 // --------------------------------------------------------------------------
@@ -1895,37 +1846,170 @@ router.post('/upload-roster', upload.single('file'), async (req, res, next) => {
 
 // --------------------------------------------------------------------------
 // 8. GET /api/admin/questions
-// Fetch all questions for Question Bank Hub with class & subject filters (No LIMIT)
+// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------
+// 7.1 GET /api/admin/questions/counts
+// --------------------------------------------------------------------------
+// 7.1 GET /api/admin/questions/counts
+// Returns question count breakdown for all 4 slots for specified (session, term, class, subject)
+// --------------------------------------------------------------------------
+router.get('/questions/counts', async (req, res, next) => {
+    try {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+        const session = String(req.query.session || '').trim() || '2026/2027';
+        const term = String(req.query.term || '').trim() || '1st Term';
+        const className = String(req.query.class || req.query.classId || '').trim();
+        const subject = String(req.query.subject || req.query.subjectId || '').trim();
+
+        const counts = {
+            welcome_test: 0,
+            midterm_ca: 0,
+            examination: 0,
+            custom_assessment: 0
+        };
+
+        if (subject && className) {
+            const countSql = `
+                SELECT LOWER(TRIM(assessment_slot)) as slot, COUNT(*) as cnt
+                FROM questions
+                WHERE LOWER(TRIM(class)) = LOWER(?)
+                  AND LOWER(TRIM(subject)) = LOWER(?)
+                  AND session = ?
+                  AND term = ?
+                GROUP BY LOWER(TRIM(assessment_slot))
+            `;
+            const countRows = await dbAll(countSql, [className, subject, session, term]);
+            (countRows || []).forEach(r => {
+                let sKey = String(r.slot || 'midterm_ca').toLowerCase();
+                if (sKey === 'terminal_exam' || sKey === 'exam') sKey = 'examination';
+                if (sKey === 'custom_exam' || sKey === 'custom') sKey = 'custom_assessment';
+                if (counts.hasOwnProperty(sKey)) {
+                    counts[sKey] += r.cnt;
+                }
+            });
+        }
+
+        return res.json({
+            success: true,
+            session: session,
+            term: term,
+            classId: className || null,
+            subjectId: subject || null,
+            counts: counts,
+            slotCounts: counts
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
+// --------------------------------------------------------------------------
+// 8. GET /api/admin/questions
+// Fetch questions for Question Bank Hub filtered strictly by Session, Term, Class, Subject & Assessment Slot
 // --------------------------------------------------------------------------
 router.get('/questions', async (req, res, next) => {
     try {
-        const { class: reqClass, subject: reqSubject } = req.query;
-        let sql = `
-            SELECT id, class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+        console.log('>>> ACTIVE HANDLER HIT <<<', {
+            class: req.query.class || req.query.classId,
+            subject: req.query.subject || req.query.subjectId,
+            slot: req.query.slot || req.query.assessment_slot,
+            session: req.query.session,
+            term: req.query.term
+        });
+
+        const targetClass = String(req.query.class || req.query.classId || '').trim();
+        const targetSubject = String(req.query.subject || req.query.subjectId || '').trim();
+        const rawSlot = String(req.query.slot || req.query.assessment_slot || req.query.assessmentSlot || '').trim().toLowerCase();
+        let targetSlot = rawSlot;
+        if (targetSlot === 'terminal_exam' || targetSlot === 'terminal' || targetSlot === 'exam') targetSlot = 'examination';
+        if (targetSlot === 'custom_exam' || targetSlot === 'custom') targetSlot = 'custom_assessment';
+        const targetSession = String(req.query.session || '').trim() || '2026/2027';
+        const targetTerm = String(req.query.term || '').trim() || '1st Term';
+
+        if (!targetClass || !targetSubject || !targetSlot) {
+            return res.status(200).json({
+                success: true,
+                count: 0,
+                totalCount: 0,
+                questions: [],
+                slotCounts: { welcome_test: 0, midterm_ca: 0, examination: 0, custom_assessment: 0 },
+                message: "Please select Class, Slot, and Subject to query questions."
+            });
+        }
+
+        // STRICT SQL QUERY WITH ALL 5 PARAMETERS
+        const sql = `
+            SELECT id, session, term, class, subject, assessment_slot,
+                   question_text, option_a, option_b, option_c, option_d,
+                   correct_answer, marks, diagram_image_url
             FROM questions
-            WHERE 1=1
+            WHERE LOWER(TRIM(class)) = LOWER(?)
+              AND LOWER(TRIM(subject)) = LOWER(?)
+              AND LOWER(TRIM(assessment_slot)) = LOWER(?)
+              AND session = ?
+              AND term = ?
+            ORDER BY id ASC
         `;
-        const params = [];
+        const params = [targetClass, targetSubject, targetSlot, targetSession, targetTerm];
 
-        if (reqSubject) {
-            sql += ` AND LOWER(subject) = LOWER(?)`;
-            params.push(reqSubject.trim());
+        const matchedQuestions = await dbAll(sql, params);
+        console.log(`>>> RETURNING ${matchedQuestions.length} QUESTIONS FOR SLOT: "${targetSlot}" <<<`);
+
+        // Compute slot counts breakdown across all 4 canonical slots for this exact class-subject scope
+        const slotCounts = {
+            welcome_test: 0,
+            midterm_ca: 0,
+            examination: 0,
+            custom_assessment: 0
+        };
+
+        const countSql = `
+            SELECT LOWER(TRIM(assessment_slot)) as slot, COUNT(*) as cnt
+            FROM questions
+            WHERE LOWER(TRIM(class)) = LOWER(?)
+              AND LOWER(TRIM(subject)) = LOWER(?)
+              AND session = ?
+              AND term = ?
+            GROUP BY LOWER(TRIM(assessment_slot))
+        `;
+        const countRows = await dbAll(countSql, [targetClass, targetSubject, targetSession, targetTerm]);
+        (countRows || []).forEach(r => {
+            let sKey = String(r.slot || 'midterm_ca').toLowerCase();
+            if (sKey === 'terminal_exam' || sKey === 'exam') sKey = 'examination';
+            if (sKey === 'custom_exam' || sKey === 'custom') sKey = 'custom_assessment';
+            if (slotCounts.hasOwnProperty(sKey)) {
+                slotCounts[sKey] += r.cnt;
+            }
+        });
+
+        // Fetch associated assessment config for this exact slot context
+        let configRow = null;
+        if (targetClass && targetSubject) {
+            configRow = await dbGet(
+                `SELECT * FROM assessment_configs WHERE session = ? AND term = ? AND (LOWER(class) = LOWER(?) OR class IS NULL) AND LOWER(subject) = LOWER(?) AND (LOWER(assessment_slot) = LOWER(?) OR (LOWER(assessment_slot) = 'terminal_exam' AND ? = 'examination') OR (LOWER(assessment_slot) = 'custom_exam' AND ? = 'custom_assessment')) ORDER BY class DESC LIMIT 1`,
+                [targetSession, targetTerm, targetClass, targetSubject, targetSlot, targetSlot, targetSlot]
+            );
         }
 
-        if (reqClass) {
-            const cls = reqClass.trim();
-            const baseTier = cls.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
-            sql += ` AND (class IS NULL OR TRIM(class) = '' OR LOWER(class) = LOWER(?) OR LOWER(class) = LOWER(?))`;
-            params.push(cls, baseTier);
-        }
-
-        sql += ` ORDER BY id ASC`;
-
-        const questions = await dbAll(sql, params);
         return res.json({
             success: true,
-            count: questions.length,
-            questions: questions
+            count: matchedQuestions.length,
+            totalCount: matchedQuestions.length,
+            totalQuestions: matchedQuestions.length,
+            slot: targetSlot,
+            session: targetSession,
+            term: targetTerm,
+            classId: targetClass,
+            subjectId: targetSubject,
+            assessment_slot: targetSlot,
+            durationMinutes: configRow ? configRow.duration_minutes : 45,
+            presetMode: configRow ? configRow.preset_mode : (targetSlot === 'examination' ? 'examination' : 'ca_test'),
+            customCount: configRow ? configRow.custom_count : 30,
+            isActive: configRow ? Boolean(configRow.is_active) : false,
+            questions: matchedQuestions,
+            slotCounts: slotCounts,
+            assessment_config: configRow || null
         });
     } catch (err) {
         next(err);
@@ -1937,7 +2021,22 @@ router.get('/questions', async (req, res, next) => {
 // --------------------------------------------------------------------------
 router.post('/questions', async (req, res, next) => {
     try {
-        const { class: targetClass, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url } = req.body;
+        const {
+            session,
+            term,
+            assessment_slot,
+            assessmentSlot,
+            class: targetClass,
+            subject,
+            question_text,
+            option_a,
+            option_b,
+            option_c,
+            option_d,
+            correct_answer,
+            marks,
+            diagram_image_url
+        } = req.body;
 
         if (!question_text || !option_a || !option_b || !option_c || !option_d || !correct_answer) {
             return res.status(400).json({
@@ -1946,17 +2045,26 @@ router.post('/questions', async (req, res, next) => {
             });
         }
 
+        const targetSession = session ? String(session).trim() : '2026/2027';
+        const targetTerm = term ? String(term).trim() : '1st Term';
+        const rawSlotInput = (req.body.slot || assessment_slot || assessmentSlot) ? String(req.body.slot || assessment_slot || assessmentSlot).trim().toLowerCase() : 'midterm_ca';
+        let targetSlot = rawSlotInput;
+        if (targetSlot === 'terminal_exam' || targetSlot === 'exam') targetSlot = 'examination';
+        if (targetSlot === 'custom_exam' || targetSlot === 'custom') targetSlot = 'custom_assessment';
         const normSubject = normalizeSubjectName(subject || 'Mathematics');
         const normAns = String(correct_answer).toUpperCase().trim();
         const validAns = ['A', 'B', 'C', 'D'].includes(normAns) ? normAns : 'A';
         const validMarks = parseInt(marks, 10) || 1;
 
         const insertSql = `
-            INSERT INTO questions (class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO questions (session, term, assessment_slot, class, subject, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
         const result = await dbRun(insertSql, [
+            targetSession,
+            targetTerm,
+            targetSlot,
             targetClass || null,
             normSubject,
             question_text,
@@ -1998,6 +2106,12 @@ router.post('/questions', async (req, res, next) => {
 });
 
 // --------------------------------------------------------------------------
+// 9.1 POST /api/admin/questions/upload-bank & /upload (Bulk Question Upload)
+// --------------------------------------------------------------------------
+router.post('/questions/upload-bank', upload.any(), handleQuestionBankUpload);
+router.post('/questions/upload', upload.any(), handleQuestionBankUpload);
+
+// --------------------------------------------------------------------------
 // 10. DELETE /api/admin/questions/:id (Delete Single Question)
 // --------------------------------------------------------------------------
 router.delete('/questions/:id', async (req, res, next) => {
@@ -2016,12 +2130,15 @@ router.delete('/questions/:id', async (req, res, next) => {
 
 // --------------------------------------------------------------------------
 // 11. POST / DELETE /api/admin/questions/clear-subject
-// Clears all questions and diagram assets for a given class & subject scope
+// Clears questions strictly matching session, term, assessment slot, class & subject scope
 // --------------------------------------------------------------------------
 const handleClearSubjectQuestions = async (req, res, next) => {
     try {
         const reqClass = req.body.class || req.query.class || req.body.class_id || req.query.class_id;
         const reqSubject = req.body.subject || req.query.subject || req.body.subject_id || req.query.subject_id;
+        const reqSession = req.body.session || req.query.session || '2026/2027';
+        const reqTerm = req.body.term || req.query.term || '1st Term';
+        const reqSlot = req.body.assessment_slot || req.body.assessmentSlot || req.query.assessment_slot || req.query.assessmentSlot || 'midterm_ca';
 
         if (!reqClass || !reqSubject) {
             return res.status(400).json({
@@ -2036,10 +2153,9 @@ const handleClearSubjectQuestions = async (req, res, next) => {
         // 1. Fetch diagram files before deleting questions to clean disk assets
         const findDiagramsSql = `
             SELECT diagram_image_url FROM questions 
-            WHERE LOWER(subject) = LOWER(?) 
-            AND LOWER(class) = LOWER(?)
+            WHERE session = ? AND term = ? AND assessment_slot = ? AND LOWER(subject) = LOWER(?) AND LOWER(class) = LOWER(?)
         `;
-        const questionRows = await dbAll(findDiagramsSql, [normalizedSubject, trimmedClass]);
+        const questionRows = await dbAll(findDiagramsSql, [reqSession, reqTerm, reqSlot, normalizedSubject, trimmedClass]);
 
         let removedDiagramsCount = 0;
         for (const row of questionRows) {
@@ -2060,13 +2176,12 @@ const handleClearSubjectQuestions = async (req, res, next) => {
             }
         }
 
-        // 2. Delete question options and questions strictly matching class AND subject
+        // 2. Delete question options and questions strictly matching slot tuple
         const fetchQuestionIdsSql = `
             SELECT id FROM questions 
-            WHERE LOWER(subject) = LOWER(?) 
-            AND LOWER(class) = LOWER(?)
+            WHERE session = ? AND term = ? AND assessment_slot = ? AND LOWER(subject) = LOWER(?) AND LOWER(class) = LOWER(?)
         `;
-        const qIdsRows = await dbAll(fetchQuestionIdsSql, [normalizedSubject, trimmedClass]);
+        const qIdsRows = await dbAll(fetchQuestionIdsSql, [reqSession, reqTerm, reqSlot, normalizedSubject, trimmedClass]);
         const qIds = qIdsRows.map(r => r.id);
 
         if (qIds.length > 0) {
@@ -2082,12 +2197,12 @@ const handleClearSubjectQuestions = async (req, res, next) => {
         await logAuditAction(
             'ADMIN',
             'CLEAR_SUBJECT_QUESTIONS',
-            `Cleared ${qIds.length} questions for ${trimmedClass} - ${normalizedSubject}`
+            `Cleared ${qIds.length} questions for ${trimmedClass} - ${normalizedSubject} (${reqSession}, ${reqTerm}, ${reqSlot})`
         );
 
         return res.status(200).json({
             success: true,
-            message: `Question bank for ${trimmedClass} - ${normalizedSubject} successfully cleared.`,
+            message: `Question bank for ${trimmedClass} - ${normalizedSubject} [${reqSlot}] successfully cleared.`,
             deletedCount: qIds.length,
             removedDiagramsCount: removedDiagramsCount
         });
@@ -2099,6 +2214,183 @@ const handleClearSubjectQuestions = async (req, res, next) => {
 
 router.post('/questions/clear-subject', handleClearSubjectQuestions);
 router.delete('/questions/clear-subject', handleClearSubjectQuestions);
+
+// --------------------------------------------------------------------------
+// 11b. GET & POST /api/admin/assessment-config
+// Manage fully-scoped assessment configuration per session, term, class, subject & slot
+// --------------------------------------------------------------------------
+router.get('/assessment-config', async (req, res, next) => {
+    try {
+        const reqSession = req.query.session || '2026/2027';
+        const reqTerm = req.query.term || '1st Term';
+        const reqClass = req.query.class ? String(req.query.class).trim() : null;
+        const reqSubject = req.query.subject ? String(req.query.subject).trim() : null;
+        const reqSlot = (req.query.assessment_slot || req.query.assessmentSlot) ? String(req.query.assessment_slot || req.query.assessmentSlot).trim() : 'midterm_ca';
+
+        let sql = `SELECT * FROM assessment_configs WHERE session = ? AND term = ? AND assessment_slot = ?`;
+        const params = [reqSession, reqTerm, reqSlot];
+
+        if (reqSubject) {
+            sql += ` AND LOWER(subject) = LOWER(?)`;
+            params.push(reqSubject);
+        }
+        if (reqClass) {
+            sql += ` AND (LOWER(class) = LOWER(?) OR class IS NULL)`;
+            params.push(reqClass);
+        }
+        sql += ` ORDER BY class DESC LIMIT 1`;
+
+        const row = await dbGet(sql, params);
+
+        if (row) {
+            return res.status(200).json({
+                success: true,
+                config: {
+                    session: row.session,
+                    term: row.term,
+                    class: row.class,
+                    subject: row.subject,
+                    assessment_slot: row.assessment_slot,
+                    assessment_title: row.assessment_title || `${row.class || ''} ${row.subject} - ${row.assessment_slot}`,
+                    duration_minutes: row.duration_minutes || 45,
+                    preset_mode: row.preset_mode || 'ca_test',
+                    custom_count: row.custom_count || 30,
+                    shuffle_questions: row.shuffle_questions !== 0,
+                    shuffle_options: row.shuffle_options !== 0,
+                    is_active: row.is_active === 1
+                }
+            });
+        }
+
+        // Return standard default config object if not yet created in DB
+        const defaultTitleMap = {
+            welcome_test: 'Welcome / Platform Mock Test',
+            midterm_ca: 'Mid-Term CA Test',
+            terminal_exam: 'Terminal Examination',
+            custom_exam: 'Custom Assessment Paper'
+        };
+
+        const title = `${reqClass || 'General'} ${reqSubject || 'Subject'} - ${defaultTitleMap[reqSlot] || reqSlot}`;
+        const defaultPreset = reqSlot === 'terminal_exam' ? 'terminal_exam' : 'ca_test';
+        const defaultCount = reqSlot === 'terminal_exam' ? 50 : 30;
+
+        return res.status(200).json({
+            success: true,
+            config: {
+                session: reqSession,
+                term: reqTerm,
+                class: reqClass,
+                subject: reqSubject,
+                assessment_slot: reqSlot,
+                assessment_title: title,
+                duration_minutes: 45,
+                preset_mode: defaultPreset,
+                custom_count: defaultCount,
+                shuffle_questions: true,
+                shuffle_options: true,
+                is_active: false
+            }
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
+router.post('/assessment-config', async (req, res, next) => {
+    try {
+        const {
+            session,
+            term,
+            class: reqClass,
+            subject,
+            assessment_slot,
+            assessmentSlot,
+            assessment_title,
+            assessmentTitle,
+            duration_minutes,
+            duration,
+            preset_mode,
+            presetMode,
+            custom_count,
+            customCount,
+            shuffle_questions,
+            shuffleQuestions,
+            shuffle_options,
+            shuffleOptions,
+            is_active,
+            isActive
+        } = req.body;
+
+        if (!subject) {
+            return res.status(400).json({ success: false, message: "subject parameter is required." });
+        }
+
+        const targetSession = session ? String(session).trim() : '2026/2027';
+        const targetTerm = term ? String(term).trim() : '1st Term';
+        const targetClass = reqClass ? String(reqClass).trim() : null;
+        const targetSubject = normalizeSubjectName(subject);
+        const targetSlot = (assessment_slot || assessmentSlot) ? String(assessment_slot || assessmentSlot).trim() : 'midterm_ca';
+        const title = (assessment_title || assessmentTitle) ? String(assessment_title || assessmentTitle).trim() : `${targetClass || 'General'} ${targetSubject} - ${targetSlot}`;
+        const durationMins = parseInt(duration_minutes !== undefined ? duration_minutes : duration, 10) || 45;
+        const preset = (preset_mode || presetMode) ? String(preset_mode || presetMode).toLowerCase() : 'ca_test';
+        const count = parseInt(custom_count !== undefined ? custom_count : customCount, 10) || (preset === 'terminal_exam' ? 50 : 30);
+        const shuffleQ = (shuffle_questions !== undefined ? shuffle_questions : shuffleQuestions) ? 1 : 0;
+        const shuffleOpt = (shuffle_options !== undefined ? shuffle_options : shuffleOptions) ? 1 : 0;
+        const activeFlag = (is_active !== undefined ? is_active : isActive) ? 1 : 0;
+
+        await dbRun(
+            `INSERT INTO assessment_configs (session, term, class, subject, assessment_slot, assessment_title, duration_minutes, preset_mode, custom_count, shuffle_questions, shuffle_options, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(session, term, class, subject, assessment_slot) DO UPDATE SET
+                assessment_title = excluded.assessment_title,
+                duration_minutes = excluded.duration_minutes,
+                preset_mode = excluded.preset_mode,
+                custom_count = excluded.custom_count,
+                shuffle_questions = excluded.shuffle_questions,
+                shuffle_options = excluded.shuffle_options,
+                is_active = excluded.is_active`,
+            [targetSession, targetTerm, targetClass, targetSubject, targetSlot, title, durationMins, preset, count, shuffleQ, shuffleOpt, activeFlag]
+        );
+
+        // Also sync legacy exam_configs table for backward compatibility
+        await dbRun(
+            `INSERT INTO exam_configs (class, subject, duration_minutes, is_active, assessment_mode, delivery_count, shuffle_questions, shuffle_options)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(class, subject) DO UPDATE SET
+                duration_minutes = excluded.duration_minutes,
+                is_active = excluded.is_active,
+                assessment_mode = excluded.assessment_mode,
+                delivery_count = excluded.delivery_count,
+                shuffle_questions = excluded.shuffle_questions,
+                shuffle_options = excluded.shuffle_options`,
+            [targetClass, targetSubject, durationMins, activeFlag, preset === 'terminal_exam' ? 'EXAM' : 'TEST', count, shuffleQ, shuffleOpt]
+        );
+
+        console.log(`⚙️ [Assessment Config Saved] (${targetSession} | ${targetTerm} | ${targetClass || 'ALL'} | ${targetSubject} | ${targetSlot}) Active: ${activeFlag}, Duration: ${durationMins}m, Preset: ${preset}`);
+
+        return res.status(200).json({
+            success: true,
+            message: `Assessment configuration updated successfully.`,
+            config: {
+                session: targetSession,
+                term: targetTerm,
+                class: targetClass,
+                subject: targetSubject,
+                assessment_slot: targetSlot,
+                assessment_title: title,
+                duration_minutes: durationMins,
+                preset_mode: preset,
+                custom_count: count,
+                shuffle_questions: shuffleQ === 1,
+                shuffle_options: shuffleOpt === 1,
+                is_active: activeFlag === 1
+            }
+        });
+    } catch (err) {
+        console.error('❌ [Save Assessment Config Error]:', err);
+        next(err);
+    }
+});
 
 // --------------------------------------------------------------------------
 // 12a. DELETE /api/admin/students/:id
@@ -2520,6 +2812,44 @@ router.post('/system/purge-production-data', async (req, res, next) => {
         });
     } catch (err) {
         console.error('❌ [Purge Production Data Error]:', err);
+        next(err);
+    }
+});
+
+// --------------------------------------------------------------------------
+// 17. System Backup & Portable Stream Endpoints
+// POST /api/admin/backup
+// GET /api/admin/backup/stream
+// --------------------------------------------------------------------------
+router.post('/backup', async (req, res, next) => {
+    try {
+        const ipAddress = req.ip || req.connection.remoteAddress;
+        const result = await performBackup(ipAddress);
+        return res.status(200).json(result);
+    } catch (err) {
+        return res.status(500).json({
+            success: false,
+            message: err.message || 'Failed to execute system backup.'
+        });
+    }
+});
+
+router.get('/backup/stream', async (req, res, next) => {
+    try {
+        const ipAddress = req.ip || req.connection.remoteAddress;
+        const backupResult = await performBackup(ipAddress);
+        const targetDbPath = backupResult.dbFilePath;
+        const fileName = backupResult.dbFileName || `AWBA_CBT_Backup_${Date.now()}.db`;
+
+        if (fs.existsSync(targetDbPath)) {
+            res.setHeader('Content-Type', 'application/octet-stream');
+            res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+            const fileStream = fs.createReadStream(targetDbPath);
+            return fileStream.pipe(res);
+        } else {
+            return res.status(404).json({ success: false, message: 'Backup file not found.' });
+        }
+    } catch (err) {
         next(err);
     }
 });

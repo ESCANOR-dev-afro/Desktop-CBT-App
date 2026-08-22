@@ -1,9 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
   Printer,
   FileSpreadsheet,
+  FileText,
+  Download,
+  RefreshCw,
   Search,
   Filter,
+  BookOpen,
   Trophy,
   CheckCircle2,
   Clock,
@@ -16,13 +22,17 @@ import {
 
 export default function LiveResults({
   students = [],
+  selectedClass: propSelectedClass = '',
+  onSelectClass,
   classesList = [],
   subjectsByClass = {},
   activeTerm = '2nd Term',
   academicSession = '2026/2027',
   onShowToast
 }) {
-  const [selectedClass, setSelectedClass] = useState('ALL');
+  const [selectedClass, setSelectedClass] = useState(
+    propSelectedClass && propSelectedClass !== 'ALL' && propSelectedClass !== 'All Classes' ? propSelectedClass : ''
+  );
   const [selectedSubject, setSelectedSubject] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [backendResults, setBackendResults] = useState([]);
@@ -31,17 +41,39 @@ export default function LiveResults({
   const [backendRoster, setBackendRoster] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  const isFilterComplete = Boolean(
+    selectedClass &&
+    selectedClass !== 'ALL' &&
+    selectedClass !== 'All Classes' &&
+    selectedSubject &&
+    selectedSubject !== '' &&
+    selectedSubject !== 'Select Subject'
+  );
+
+  // Sync propSelectedClass if passed from parent
+  useEffect(() => {
+    if (propSelectedClass && propSelectedClass !== 'ALL' && propSelectedClass !== 'All Classes') {
+      setSelectedClass(propSelectedClass);
+      setSelectedSubject('');
+    }
+  }, [propSelectedClass]);
+
+  const handleClassChange = (newClass) => {
+    setSelectedClass(newClass);
+    setSelectedSubject('');
+    setBackendResults([]);
+    setBackendRoster([]);
+    if (typeof onSelectClass === 'function') {
+      onSelectClass(newClass);
+    }
+  };
+
   // Subject Selection Print Modal & Isolated Payload State
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printTargetClass, setPrintTargetClass] = useState('');
   const [printTargetSubject, setPrintTargetSubject] = useState('');
   const [activePrintPayload, setActivePrintPayload] = useState(null);
   const [isPreparingPrint, setIsPreparingPrint] = useState(false);
-
-  // Reset selectedSubject whenever selectedClass changes
-  useEffect(() => {
-    setSelectedSubject('');
-  }, [selectedClass]);
 
   // Purge Submissions Modal State
   const [isPurgeModalOpen, setIsPurgeModalOpen] = useState(false);
@@ -56,7 +88,7 @@ export default function LiveResults({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scope: purgeScope,
-          target_class: selectedClass !== 'ALL' ? selectedClass : (dynamicClasses[0] || 'JSS 1'),
+          target_class: selectedClass || (dynamicClasses[0] || 'JSS 1'),
         }),
       });
       const data = await res.json();
@@ -81,15 +113,19 @@ export default function LiveResults({
     }
   };
 
-  // Fetch live results and roster from backend
-  const fetchResults = async () => {
+  // Fetch live results and roster from backend ONLY when both class and subject are selected
+  const fetchResults = async (clsParam = selectedClass, subParam = selectedSubject) => {
+    if (!clsParam || clsParam === 'ALL' || clsParam === 'All Classes' || !subParam || subParam === 'Select Subject') {
+      setBackendResults([]);
+      setBackendRoster([]);
+      return;
+    }
     try {
       setLoading(true);
-      const subParam = selectedSubject && selectedSubject !== 'Select Subject' ? selectedSubject : 'ALL';
-      const url = `/api/admin/results?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(subParam)}`;
+      const url = `/api/admin/results?class=${encodeURIComponent(clsParam)}&subject=${encodeURIComponent(subParam)}&session=${encodeURIComponent(academicSession)}&term=${encodeURIComponent(activeTerm)}`;
       const res = await fetch(url);
       const data = await res.json();
-      if (data.success) {
+      if (data && data.success) {
         setBackendResults(data.results || []);
         if (Array.isArray(data.classes)) setBackendClasses(data.classes);
         if (Array.isArray(data.subjects)) setBackendSubjects(data.subjects);
@@ -104,49 +140,49 @@ export default function LiveResults({
 
   useEffect(() => {
     fetchResults();
-  }, [selectedClass, selectedSubject]);
+  }, [selectedClass, selectedSubject, academicSession, activeTerm]);
 
   // Merge students from props with backend roster for universal coverage
   const combinedRoster = useMemo(() => {
-    if (backendRoster.length > 0) return backendRoster;
-    return students.map((s) => ({
-      id: s.id,
-      reg_number: s.regNo || s.reg_number || 'N/A',
-      surname: s.surname || (s.name ? s.name.split(',')[0].trim() : 'STUDENT'),
-      first_name: s.firstName || s.first_name || '',
-      name: s.name || `${s.surname || ''}, ${s.firstName || ''}`,
-      class: s.class || 'Unassigned',
-      assigned_subject: Array.isArray(s.assignedSubjects) ? s.assignedSubjects.join(', ') : (s.assigned_subject || 'Mathematics'),
-      subject: s.assigned_subject || 'Mathematics',
-      status: s.status === 'Submitted' ? 'submitted' : (s.status === 'Active' ? 'active' : 'not_taken'),
-      score: s.recentScore && s.recentScore !== 'N/A' ? parseInt(s.recentScore, 10) || 40 : null
+    if (Array.isArray(backendRoster) && backendRoster.length > 0) return backendRoster;
+    return (Array.isArray(students) ? students : []).map((s) => ({
+      id: s?.id,
+      reg_number: s?.regNo || s?.reg_number || 'N/A',
+      surname: s?.surname || (s?.name ? String(s.name).split(',')[0].trim() : 'STUDENT'),
+      first_name: s?.firstName || s?.first_name || '',
+      name: s?.name || `${s?.surname || ''}, ${s?.firstName || ''}`,
+      class: s?.class || 'Unassigned',
+      assigned_subject: Array.isArray(s?.assignedSubjects) ? s.assignedSubjects.join(', ') : (s?.assigned_subject || 'Mathematics'),
+      subject: s?.assigned_subject || 'Mathematics',
+      status: s?.status === 'Submitted' ? 'submitted' : (s?.status === 'Active' ? 'active' : 'not_taken'),
+      score: s?.recentScore && s.recentScore !== 'N/A' ? parseInt(s.recentScore, 10) || 40 : null
     }));
   }, [backendRoster, students]);
 
   // Extract all distinct classes dynamically from student roster and classesList
   const dynamicClasses = useMemo(() => {
     const classSet = new Set();
-    classesList.forEach(c => classSet.add(c));
-    backendClasses.forEach(c => classSet.add(c));
-    combinedRoster.forEach(s => {
-      if (s.class) classSet.add(s.class);
+    (Array.isArray(classesList) ? classesList : []).forEach(c => c && classSet.add(c));
+    (Array.isArray(backendClasses) ? backendClasses : []).forEach(c => c && classSet.add(c));
+    (Array.isArray(combinedRoster) ? combinedRoster : []).forEach(s => {
+      if (s && s.class) classSet.add(s.class);
     });
-    return Array.from(classSet).sort((a, b) => a.localeCompare(b));
+    return Array.from(classSet).sort((a, b) => String(a).localeCompare(String(b)));
   }, [classesList, backendClasses, combinedRoster]);
 
   // Helper to resolve isolated atomic subjects for a given class
   const getSubjectsForClass = (className) => {
     if (!className || className === 'ALL') return [];
-    const baseTier = className.replace(/\s+(Science|Art|Arts|Commercial|Gold|Silver|Diamond)$/i, '').trim();
+    const baseTier = String(className).replace(/\s+(Science|Art|Arts|Commercial|Gold|Silver|Diamond)$/i, '').trim();
     const mapped = (subjectsByClass && (subjectsByClass[className] || subjectsByClass[baseTier])) || [];
-    const names = mapped
-      .map(s => (typeof s === 'string' ? s : s.name))
+    const names = (Array.isArray(mapped) ? mapped : [])
+      .map(s => (typeof s === 'string' ? s : (s && s.name ? s.name : '')))
       .filter(Boolean)
       .filter(n => !n.includes(','));
 
     if (names.length > 0) return names;
 
-    const upper = className.toUpperCase();
+    const upper = String(className).toUpperCase();
     if (upper.startsWith('JSS')) {
       return [
         'English Language', 'Mathematics', 'Basic Science', 'Basic Technology',
@@ -183,22 +219,23 @@ export default function LiveResults({
   // Extract distinct subjects dynamically, filtering out concatenated multi-subject strings
   const dynamicSubjects = useMemo(() => {
     const subSet = new Set();
-    backendSubjects.forEach(s => {
-      const name = typeof s === 'string' ? s : s.name;
+    (Array.isArray(backendSubjects) ? backendSubjects : []).forEach(s => {
+      const name = typeof s === 'string' ? s : (s && s.name ? s.name : '');
       if (name && !name.includes(',')) subSet.add(name);
     });
-    combinedRoster.forEach(s => {
-      const assigned = String(s.assigned_subject || s.subject || '');
+    (Array.isArray(combinedRoster) ? combinedRoster : []).forEach(s => {
+      const assigned = String((s && (s.assigned_subject || s.subject)) || '');
       assigned.split(/[,;]/).forEach(item => {
         const trimmed = item.trim();
         if (trimmed && !trimmed.includes(',')) subSet.add(trimmed);
       });
     });
-    return Array.from(subSet).sort((a, b) => a.localeCompare(b));
+    return Array.from(subSet).sort((a, b) => String(a).localeCompare(String(b)));
   }, [backendSubjects, combinedRoster]);
 
   // Filter roster by selected class, selected subject, and search term
-  const filteredRoster = combinedRoster.filter((s) => {
+  const filteredRoster = (Array.isArray(combinedRoster) ? combinedRoster : []).filter((s) => {
+    if (!s) return false;
     const matchesClass = selectedClass === 'ALL' || (s.class || '').toLowerCase() === selectedClass.toLowerCase();
     const assignedStr = String(s.assigned_subject || s.subject || '').toLowerCase();
     const matchesSubject = !selectedSubject || selectedSubject === 'ALL' || selectedSubject === 'Select Subject' || assignedStr.includes(selectedSubject.toLowerCase());
@@ -272,6 +309,58 @@ export default function LiveResults({
       if (onShowToast) onShowToast('Exporting official examination results spreadsheet (.xlsx)...', 'success');
     } catch (e) {
       if (onShowToast) onShowToast('Export failed. Please try again.', 'error');
+    }
+  };
+
+  const handleDownloadVectorPdf = async () => {
+    const isValid = await validateExportOrPrint();
+    if (!isValid) return;
+
+    try {
+      const serverReport = await fetchSummaryReport(selectedClass, selectedSubject);
+      const rosterData = (serverReport && serverReport.candidates) ? serverReport.candidates : filteredResults;
+
+      const doc = new jsPDF();
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.text('ANTHONY WHITEBRIDGE ACADEMY', 105, 15, { align: 'center' });
+
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Official CBT Score Sheet — ${academicSession} (${activeTerm})`, 105, 22, { align: 'center' });
+
+      doc.setFontSize(10);
+      doc.text(`Class: ${selectedClass} | Subject: ${selectedSubject} | Date: ${new Date().toLocaleDateString()}`, 105, 28, { align: 'center' });
+
+      const tableData = rosterData.map((s, idx) => [
+        idx + 1,
+        s.registration_number || s.reg_number || s.regNumber || 'N/A',
+        `${s.first_name || s.name || ''} ${s.last_name || s.surname || ''}`.trim() || s.student_name || 'Candidate',
+        s.score !== null && s.score !== undefined ? `${s.score} / ${s.total_questions || 100}` : 'N/A',
+        s.percentage !== undefined && s.percentage !== null ? `${s.percentage}%` : '0%',
+        s.status || (s.score !== null ? 'Submitted' : 'Pending')
+      ]);
+
+      autoTable(doc, {
+        startY: 34,
+        head: [['#', 'Reg Number', 'Student Name', 'Score', 'Percentage', 'Status']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: { fillColor: [249, 99, 2], textColor: [255, 255, 255], fontStyle: 'bold' },
+        styles: { fontSize: 9, cellPadding: 3 },
+        alternateRowStyles: { fillColor: [245, 247, 250] }
+      });
+
+      const cleanClass = String(selectedClass).replace(/\s+/g, '_');
+      const cleanSub = String(selectedSubject).replace(/\s+/g, '_');
+      doc.save(`${cleanClass}_${cleanSub}_ScoreSheet.pdf`);
+      
+      if (onShowToast) {
+        onShowToast(`Downloaded ${cleanClass}_${cleanSub}_ScoreSheet.pdf directly in browser memory.`, 'success');
+      }
+    } catch (e) {
+      console.error('PDF generation error:', e);
+      if (onShowToast) onShowToast('Failed to generate vector PDF score sheet.', 'error');
     }
   };
 
@@ -441,163 +530,187 @@ export default function LiveResults({
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* Top Banner (Hidden on Print) */}
-      <div className="print:hidden bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-darkBorder p-6 rounded-2xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative overflow-hidden">
-        <div className="flex items-center space-x-4 min-w-0 z-10">
-          <div className="w-14 h-14 rounded-2xl bg-slate-950 border-2 border-brand/40 p-1 shadow-lg shadow-brand/10 flex items-center justify-center shrink-0">
+      <div className="print:hidden w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-6">
+        <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-6">
+          {/* Left: Logo & School Title */}
+          <div className="flex items-center gap-4 min-w-0 max-w-full">
             <img
               src="school_logo.jpg"
-              alt="Anthony Whitebridge Academy Logo"
-              className="w-full h-full object-contain rounded-xl"
+              alt="School Crest"
+              className="w-14 h-14 rounded-xl object-contain border border-slate-700 shrink-0"
               onError={(e) => { e.target.style.display = 'none'; }}
             />
+            <div className="min-w-0">
+              <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-orange-500/10 text-orange-400 border border-orange-500/20 mb-1">
+                Official Class-Based Analytics & Reports
+              </span>
+              <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight break-words">
+                Anthony Whitebridge Academy Examination Score Sheets
+              </h2>
+              <p className="text-xs md:text-sm text-slate-400 mt-0.5">
+                Class &amp; Subject score filtering, clean CSV report downloads, and printable score sheets
+              </p>
+            </div>
           </div>
-          <div>
-            <span className="text-[10px] font-extrabold text-brand uppercase tracking-wider bg-brand/10 px-2.5 py-1 rounded-md border border-brand/20">
-              Official Class-Based Analytics & Reports
-            </span>
-            <h2 className="text-2xl font-extrabold text-slate-100 tracking-tight mt-1.5">
-              Anthony Whitebridge Academy Examination Score Sheets
-            </h2>
-            <p className="text-xs text-slate-400 mt-1">
-              Class & Subject score filtering, clean CSV report downloads, and printable score sheets
-            </p>
+
+          {/* Right: Action Buttons Group with Wrap Safety */}
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0 w-full xl:w-auto">
+            <button
+              onClick={() => setIsPurgeModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-rose-950/40 text-rose-400 border border-rose-500/30 hover:bg-rose-900/40 transition cursor-pointer shadow-sm"
+              title="Purge active and trial exam submissions to reset candidate statuses back to Not Taken"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Purge Active &amp; Trial Submissions</span>
+            </button>
+
+            <button
+              onClick={() => {
+                if (!isFilterComplete) {
+                  if (onShowToast) onShowToast('Please select both a Class and Subject before generating reports.', 'warning');
+                  return;
+                }
+                handleDownloadClassCsv();
+              }}
+              disabled={!isFilterComplete}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition shadow-sm ${
+                isFilterComplete
+                  ? 'bg-orange-500 hover:bg-orange-600 text-white cursor-pointer'
+                  : 'opacity-50 cursor-not-allowed bg-slate-800 text-slate-400 border border-slate-700'
+              }`}
+              title={
+                isFilterComplete
+                  ? 'Download clean CSV report for selected class and subject'
+                  : 'Please select a specific Class and Subject to generate score sheets and exports.'
+              }
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download Class Report (CSV)</span>
+            </button>
+
+            <button
+              onClick={() => {
+                if (!isFilterComplete) {
+                  if (onShowToast) onShowToast('Please select both a Class and Subject before generating reports.', 'warning');
+                  return;
+                }
+                handleInitiatePrint(selectedClass);
+              }}
+              disabled={!isFilterComplete}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition shadow-sm ${
+                isFilterComplete
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
+                  : 'opacity-50 cursor-not-allowed bg-slate-800 text-slate-400 border border-slate-700'
+              }`}
+              title={
+                isFilterComplete
+                  ? 'Print official score sheet for selected class and subject'
+                  : 'Please select a specific Class and Subject to generate score sheets and exports.'
+              }
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Print Score Sheet</span>
+            </button>
+
+            <button
+              onClick={() => {
+                if (!isFilterComplete) {
+                  if (onShowToast) onShowToast('Please select both a Class and Subject before generating reports.', 'warning');
+                  return;
+                }
+                handleDownloadVectorPdf();
+              }}
+              disabled={!isFilterComplete}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition shadow-sm ${
+                isFilterComplete
+                  ? 'bg-orange-500 hover:bg-orange-600 text-white cursor-pointer'
+                  : 'opacity-50 cursor-not-allowed bg-slate-800 text-slate-400 border border-slate-700'
+              }`}
+              title={
+                isFilterComplete
+                  ? 'Download vector PDF score sheet directly to memory'
+                  : 'Please select a specific Class and Subject to generate score sheets and exports.'
+              }
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Vector PDF</span>
+            </button>
+
+            <button
+              onClick={() => {
+                if (!isFilterComplete) {
+                  if (onShowToast) onShowToast('Please select both a Class and Subject before generating reports.', 'warning');
+                  return;
+                }
+                handleExportExcel();
+              }}
+              disabled={!isFilterComplete}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border border-slate-700 transition ${
+                isFilterComplete
+                  ? 'bg-slate-800 hover:bg-slate-700 text-emerald-400 cursor-pointer'
+                  : 'opacity-50 cursor-not-allowed bg-slate-800 text-slate-400'
+              }`}
+              title={
+                isFilterComplete
+                  ? 'Export official examination results spreadsheet (.xlsx)'
+                  : 'Please select a specific Class and Subject to generate score sheets and exports.'
+              }
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Excel (.xlsx)</span>
+            </button>
           </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 z-10 shrink-0">
-          {/* Purge Submissions Button */}
-          <button
-            onClick={() => setIsPurgeModalOpen(true)}
-            className="px-4 py-2.5 rounded-xl bg-rose-600/15 hover:bg-rose-600/25 text-rose-400 border border-rose-500/40 text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer shadow-sm shadow-rose-500/10"
-            title="Purge active and trial exam submissions to reset candidate statuses back to Not Taken"
-          >
-            <Trash2 className="w-4 h-4 text-rose-400" />
-            <span>Purge Active & Trial Submissions</span>
-          </button>
-
-          {/* Download CSV Report Button - Strictly guarded by selectedClass */}
-          <button
-            onClick={() => {
-              if (!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes') {
-                if (onShowToast) onShowToast('Select a class first before generating reports.', 'warning');
-                return;
-              }
-              handleDownloadClassCsv();
-            }}
-            disabled={!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes'}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 shadow-md ${
-              selectedClass && selectedClass !== 'ALL' && selectedClass !== 'All Classes'
-                ? 'bg-brand hover:bg-brand-600 text-white shadow-brand/25 brand-glow-sm cursor-pointer'
-                : 'opacity-50 cursor-not-allowed bg-slate-700 text-slate-400 border border-slate-700'
-            }`}
-            title={
-              selectedClass && selectedClass !== 'ALL' && selectedClass !== 'All Classes'
-                ? 'Download clean CSV report for selected class and subject'
-                : 'Please select a specific class to generate score sheets and exports.'
-            }
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>Download Class Report (CSV)</span>
-          </button>
-
-          {/* Print Score Sheet Button - Strictly guarded by selectedClass */}
-          <button
-            onClick={() => {
-              if (!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes') {
-                if (onShowToast) onShowToast('Select a class first before generating reports.', 'warning');
-                return;
-              }
-              handleInitiatePrint(selectedClass);
-            }}
-            disabled={!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes'}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 shadow-md ${
-              selectedClass && selectedClass !== 'ALL' && selectedClass !== 'All Classes'
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
-                : 'opacity-50 cursor-not-allowed bg-slate-700 text-slate-400 border border-slate-700'
-            }`}
-            title={
-              selectedClass && selectedClass !== 'ALL' && selectedClass !== 'All Classes'
-                ? 'Print official score sheet for selected class and subject'
-                : 'Please select a specific class to generate score sheets and exports.'
-            }
-          >
-            <Printer className="w-4 h-4" />
-            <span>Print Score Sheet</span>
-          </button>
-
-          {/* Excel (.xlsx) Export Button - Strictly guarded by selectedClass */}
-          <button
-            onClick={() => {
-              if (!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes') {
-                if (onShowToast) onShowToast('Select a class first before generating reports.', 'warning');
-                return;
-              }
-              handleExportExcel();
-            }}
-            disabled={!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes'}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 ${
-              selectedClass && selectedClass !== 'ALL' && selectedClass !== 'All Classes'
-                ? 'bg-slate-800 hover:bg-slate-700 border border-darkBorder text-slate-200 cursor-pointer'
-                : 'opacity-50 cursor-not-allowed bg-slate-700 text-slate-400 border border-slate-700'
-            }`}
-            title={
-              selectedClass && selectedClass !== 'ALL' && selectedClass !== 'All Classes'
-                ? 'Export official examination results spreadsheet (.xlsx)'
-                : 'Please select a specific class to generate score sheets and exports.'
-            }
-          >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-            <span>Excel (.xlsx)</span>
-          </button>
         </div>
       </div>
 
-      {/* Screen Control Bar (Hidden on Print) */}
-      <div className="print:hidden bg-slate-900 border border-darkBorder rounded-2xl p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 shadow-xl">
-        <div className="relative flex-1 min-w-[220px]">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+      {/* Search & Dropdowns Filter Control Bar (Hidden on Print) */}
+      <div className="print:hidden w-full bg-slate-900 border border-slate-800 rounded-xl p-3 mb-6 flex flex-col md:flex-row items-center gap-3">
+        <div className="relative flex-1 w-full min-w-0">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             placeholder="Search candidate name or reg number..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-950 text-xs pl-10 pr-4 py-2.5 rounded-xl border border-darkBorder focus:outline-none focus:border-brand text-slate-200"
+            className="w-full pl-9 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:border-orange-500"
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Class Filter Dropdown with High-Contrast Dark Theme Styling */}
-          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-700 px-3.5 py-2 rounded-xl text-white">
-            <Filter className="w-4 h-4 text-brand shrink-0" />
-            <label className="text-xs text-slate-400 font-medium shrink-0">Class:</label>
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          {/* Class Dropdown */}
+          <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2">
+            <Filter className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+            <span className="text-xs text-slate-400">Class:</span>
             <select
               value={selectedClass}
-              onChange={(e) => setSelectedClass(e.target.value)}
-              className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-orange-500 focus:outline-none cursor-pointer"
+              onChange={(e) => handleClassChange(e.target.value)}
+              className="bg-transparent text-sm text-white font-medium focus:outline-none cursor-pointer"
             >
-              <option value="ALL" className="bg-[#0f172a] text-white py-1 font-medium">All Classes ({dynamicClasses.length} Arms)</option>
+              <option value="" className="bg-slate-900 text-slate-400">Select Class...</option>
+              <option value="ALL" className="bg-slate-900 text-white">All Classes ({dynamicClasses.length} Arms)</option>
               {dynamicClasses.map((cls) => (
-                <option key={cls} value={cls} className="bg-[#0f172a] text-white py-1 font-medium">
+                <option key={cls} value={cls} className="bg-slate-900 text-white">
                   {cls}
                 </option>
               ))}
             </select>
           </div>
 
-          {/* Subject Filter Dropdown with High-Contrast Dark Theme Styling */}
-          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-700 px-3.5 py-2 rounded-xl text-white">
-            <Award className="w-4 h-4 text-brand shrink-0" />
-            <label className="text-xs text-slate-400 font-medium shrink-0">Subject:</label>
+          {/* Subject Dropdown */}
+          <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2">
+            <BookOpen className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+            <span className="text-xs text-slate-400">Subject:</span>
             <select
               value={selectedSubject}
               onChange={(e) => setSelectedSubject(e.target.value)}
-              className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-orange-500 focus:outline-none cursor-pointer"
+              disabled={!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes'}
+              className="bg-transparent text-sm text-white font-medium focus:outline-none cursor-pointer disabled:opacity-50"
             >
-              <option value="" className="bg-[#0f172a] text-slate-400 py-1 font-medium">
-                {selectedClass === 'ALL' ? 'Select Class First' : `Select Subject (${currentClassSubjects.length} Available)`}
+              <option value="" className="bg-slate-900 text-slate-400">
+                {!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes' ? 'Select Class First' : `Select Subject (${currentClassSubjects.length} Available)`}
               </option>
-              {(selectedClass === 'ALL' ? dynamicSubjects : currentClassSubjects).map((sub) => (
-                <option key={sub} value={sub} className="bg-[#0f172a] text-white py-1 font-medium">
+              {currentClassSubjects.map((sub) => (
+                <option key={sub} value={sub} className="bg-slate-900 text-white">
                   {sub}
                 </option>
               ))}
@@ -608,11 +721,38 @@ export default function LiveResults({
 
       {/* Class Sections Display Area (Screen View Only) */}
       <div className="print:hidden space-y-6">
-        {Object.keys(groupedByClass).length === 0 ? (
-          <div className="bg-slate-900 border border-darkBorder rounded-2xl p-12 text-center text-slate-400">
+        {!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes' ? (
+          <div className="bg-slate-900 border border-darkBorder rounded-2xl p-12 text-center text-slate-400 shadow-xl space-y-3">
             <Users className="w-12 h-12 mx-auto text-slate-600 mb-3" />
-            <p className="text-base font-bold text-slate-300">No candidates found for the selected class scope.</p>
-            <p className="text-xs text-slate-500 mt-1">Try selecting "All School Classes" or clearing search criteria.</p>
+            <p className="text-base font-bold text-slate-200">
+              Please select a Class and Subject above to view candidate examination scores and export score sheets.
+            </p>
+            <p className="text-xs text-slate-500">
+              Select a specific Class and Subject from the top dropdown filters to display candidate score sheets.
+            </p>
+          </div>
+        ) : !selectedSubject || selectedSubject === '' || selectedSubject === 'Select Subject' ? (
+          <div className="bg-slate-900 border border-darkBorder rounded-2xl p-12 text-center text-slate-400 shadow-xl space-y-3">
+            <Users className="w-12 h-12 mx-auto text-slate-600 mb-3" />
+            <p className="text-base font-bold text-slate-200">
+              Class selected: <span className="text-orange-400 font-extrabold">{selectedClass}</span>. Please select a Subject above to generate the official score sheet.
+            </p>
+            <p className="text-xs text-slate-500">
+              Choose one of the {currentClassSubjects.length} registered subjects for {selectedClass}.
+            </p>
+          </div>
+        ) : loading ? (
+          <div className="bg-slate-900 border border-darkBorder rounded-2xl p-12 text-center text-slate-400 shadow-xl space-y-3">
+            <RefreshCw className="w-10 h-10 mx-auto text-brand animate-spin mb-3" />
+            <p className="text-base font-bold text-slate-200">Loading examination scores for {selectedClass} - {selectedSubject}...</p>
+          </div>
+        ) : Object.keys(groupedByClass).length === 0 ? (
+          <div className="bg-slate-900 border border-darkBorder rounded-2xl p-12 text-center text-slate-400 shadow-xl space-y-3">
+            <Users className="w-12 h-12 mx-auto text-slate-600 mb-3" />
+            <p className="text-base font-bold text-slate-200">
+              No exam submissions or live candidate sessions found for <span className="text-orange-400 font-extrabold">{selectedClass}</span> - <span className="text-orange-400 font-extrabold">{selectedSubject}</span>.
+            </p>
+            <p className="text-xs text-slate-500">No candidate has submitted or started an exam for this subject under {activeTerm}.</p>
           </div>
         ) : (
           Object.entries(groupedByClass).map(([className, roster]) => {

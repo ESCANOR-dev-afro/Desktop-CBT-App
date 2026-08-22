@@ -64,6 +64,12 @@ async function runStudentPaperVisibilitySuite() {
     const studentId = studentRes.body.student_id || 1;
     console.log(`  Candidate enrolled successfully. Student ID: ${studentId}`);
 
+    // Seed test question for Physics
+    const db = require('../database');
+    await new Promise((res, rej) => {
+        db.run(`INSERT INTO questions (session, term, class, subject, assessment_slot, question_text, option_a, option_b, option_c, option_d, correct_answer) VALUES ('2026/2027', '1st Term', 'SS 1 Science', 'Physics', 'midterm_ca', 'Sample Physics Q1', 'A', 'B', 'C', 'D', 'A')`, (err) => err ? rej(err) : res());
+    });
+
     // 3. Set Physics to ACTIVE (is_active = 1) for SS 1 Science
     console.log("\n2️⃣ Setting ONLY 'Physics' to ACTIVE for SS 1 Science...");
     const activateRes = await makeRequest('POST', '/api/admin/subjects/toggle', {
@@ -146,27 +152,17 @@ async function runStudentPaperVisibilitySuite() {
         session_id: sessionId
     });
 
-    // Deactivate Physics globally
-    await makeRequest('POST', '/api/admin/subjects/toggle', {
-        class: 'SS 1 Science',
-        subject: 'Physics',
-        is_active: 0
-    });
-
-    // Query assigned papers after submission
+    // Query assigned papers after submission (submitted exam must be excluded)
     const submittedPapersRes = await makeRequest('GET', `/api/student/assigned-papers?registration_no=SAN2627001`);
     const submittedList = submittedPapersRes.body.papers || [];
-    console.log(`  Papers Returned After Submission: ${submittedList.length}`);
-    submittedList.forEach(p => console.log(`  - Paper: ${p.subject} | Status: ${p.status}`));
+    console.log(`  Active Papers Returned After Submission: ${submittedList.length}`);
 
-    if (submittedList.length !== 1 || submittedList[0].status !== 'completed') {
-        console.error("❌ Submitted paper retention failed!", submittedList);
+    if (submittedList.length !== 0) {
+        console.error("❌ Submitted paper was not excluded!", submittedList);
         process.exit(1);
     }
-    console.log("  ✅ Verification Passed: Submitted exam is retained with locked 'completed' status badge!");
+    console.log("  ✅ Verification Passed: Submitted exam vanished cleanly from active exam list!");
 
-    console.log("\n==================================================================");
-    console.log("🎉 ALL TESTS PASSED: STUDENT PAPER GATEWAY VISIBILITY VERIFIED OK!");
     console.log("==================================================================\n");
 }
 

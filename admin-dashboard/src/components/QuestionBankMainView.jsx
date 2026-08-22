@@ -47,6 +47,9 @@ export default function QuestionBankMainView({
   onShowToast = () => {},
 }) {
   const [activeClass, setActiveClass] = useState('JSS 1');
+  const [selectedSession, setSelectedSession] = useState('2026/2027');
+  const [selectedTerm, setSelectedTerm] = useState('1st Term');
+  const [selectedSlot, setSelectedSlot] = useState('midterm_ca');
 
   const safeSubjectsByClass = subjectsByClass || {};
 
@@ -55,17 +58,22 @@ export default function QuestionBankMainView({
     || [];
   const availableSubjects = Array.isArray(rawAvailable) ? rawAvailable : [];
     
-  const [selectedSubject, setSelectedSubject] = useState(
-    getSubName(availableSubjects[0]) || 'Mathematics'
-  );
+  const [selectedSubject, setSelectedSubject] = useState('');
 
   // Database questions state
   const [dbQuestions, setDbQuestions] = useState([]);
   const [loadingQuestions, setLoadingQuestions] = useState(false);
+  const [slotCounts, setSlotCounts] = useState({
+    welcome_test: 0,
+    midterm_ca: 0,
+    examination: 0,
+    custom_assessment: 0
+  });
 
   // Controls state
+  const [assessmentTitle, setAssessmentTitle] = useState('');
   const [examDurationInput, setExamDurationInput] = useState('45');
-  const [isExamActive, setIsExamActive] = useState(true);
+  const [isExamActive, setIsExamActive] = useState(false);
   const [assessmentMode, setAssessmentMode] = useState('TEST'); // 'TEST' | 'EXAM' | 'CUSTOM'
   const [customDeliveryCount, setCustomDeliveryCount] = useState('30');
   const [shuffleQuestions, setShuffleQuestions] = useState(true);
@@ -75,7 +83,19 @@ export default function QuestionBankMainView({
   const [togglingActive, setTogglingActive] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      if (typeof fetchBankQuestions === 'function') await fetchBankQuestions();
+    } catch (err) {
+      console.error("Refresh error:", err);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  };
   
   // Pagination State
   const [pageSize, setPageSize] = useState(10);
@@ -95,13 +115,19 @@ export default function QuestionBankMainView({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          session: selectedSession,
+          term: selectedTerm,
+          assessment_slot: selectedSlot,
+          slot: selectedSlot,
           class: activeClass,
+          classId: activeClass,
           subject: selectedSubject,
+          subjectId: selectedSubject,
         }),
       });
       const data = await res.json();
       if (data && data.success) {
-        onShowToast(data.message || `Question bank for ${activeClass} - ${selectedSubject} successfully cleared`, 'success');
+        onShowToast(data.message || `Question bank for ${activeClass} - ${selectedSubject} [${selectedSlot}] successfully cleared`, 'success');
         setIsClearModalOpen(false);
         await fetchBankQuestions();
       } else {
@@ -124,103 +150,163 @@ export default function QuestionBankMainView({
   const [optD, setOptD] = useState('');
   const [correctAns, setCorrectAns] = useState('A');
 
-  // Sync selectedSubject if activeClass changes
+  // Clear selectedSubject if activeClass changes and previously selectedSubject is not available
   useEffect(() => {
-    if (availableSubjects.length > 0) {
+    if (selectedSubject && availableSubjects.length > 0) {
       const exists = availableSubjects.find(s => getSubName(s) === selectedSubject);
       if (!exists) {
-        setSelectedSubject(getSubName(availableSubjects[0]) || 'Mathematics');
+        setSelectedSubject('');
+        setDbQuestions([]);
       }
     }
   }, [activeClass, availableSubjects, selectedSubject]);
 
-  // Fetch Questions from API for current class & subject
+  // Fetch Questions from API for current class, subject, session, term & slot
   const fetchBankQuestions = async () => {
-    if (!selectedSubject) return;
+    if (!selectedSubject || !activeClass || !selectedSlot) {
+      setDbQuestions([]);
+      return;
+    }
     setLoadingQuestions(true);
+    setDbQuestions([]); // Instantly clear previous table list before fetch to prevent question bleed
     try {
-      const res = await fetch(`/api/admin/questions?class=${encodeURIComponent(activeClass)}&subject=${encodeURIComponent(selectedSubject)}`);
+      const params = new URLSearchParams({
+        session: selectedSession || '2026/2027',
+        term: selectedTerm || '1st Term',
+        class: activeClass,
+        classId: activeClass,
+        subject: selectedSubject,
+        subjectId: selectedSubject,
+        slot: selectedSlot,
+        assessment_slot: selectedSlot,
+        _t: String(Date.now()),
+      });
+
+      // 1. Fetch questions for current slot
+      const res = await fetch(`/api/admin/questions?${params.toString()}`, {
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' }
+      });
+
+      // 2. Fetch counts breakdown for all 4 slots
+      fetch(`/api/admin/questions/counts?${params.toString()}`, {
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' }
+      })
+        .then(r => r.json())
+        .then(cData => {
+          if (cData && cData.success && (cData.counts || cData.slotCounts)) {
+            setSlotCounts(cData.counts || cData.slotCounts);
+          }
+        })
+        .catch(() => {});
+
       if (res.ok) {
         const data = await res.json();
-        if (data && data.success && Array.isArray(data.questions)) {
-          setDbQuestions(data.questions);
+        if (data && data.success) {
+          if (Array.isArray(data.questions)) {
+            setDbQuestions(data.questions);
+          } else {
+            setDbQuestions([]);
+          }
+          if (data.slotCounts) {
+            setSlotCounts(data.slotCounts);
+          }
+          if (data.assessment_config) {
+            const cfg = data.assessment_config;
+            if (cfg.duration_minutes) setExamDurationInput(String(cfg.duration_minutes));
+            if (cfg.is_active !== undefined) setIsExamActive(cfg.is_active === true || cfg.is_active === 1);
+            if (cfg.preset_mode) setAssessmentMode((cfg.preset_mode === 'terminal_exam' || cfg.preset_mode === 'examination') ? 'EXAM' : (cfg.preset_mode === 'custom' || cfg.preset_mode === 'custom_assessment') ? 'CUSTOM' : 'TEST');
+            if (cfg.custom_count) setCustomDeliveryCount(String(cfg.custom_count));
+            if (cfg.shuffle_questions !== undefined) setShuffleQuestions(cfg.shuffle_questions === 1 || cfg.shuffle_questions === true);
+            if (cfg.shuffle_options !== undefined) setShuffleOptions(cfg.shuffle_options === 1 || cfg.shuffle_options === true);
+            if (cfg.assessment_title) setAssessmentTitle(cfg.assessment_title);
+          } else if (data.durationMinutes !== undefined) {
+            setExamDurationInput(String(data.durationMinutes));
+            setIsExamActive(Boolean(data.isActive));
+            setAssessmentMode((data.presetMode === 'terminal_exam' || data.presetMode === 'examination') ? 'EXAM' : (data.presetMode === 'custom' || data.presetMode === 'custom_assessment') ? 'CUSTOM' : 'TEST');
+          }
           setLoadingQuestions(false);
           return;
         }
       }
     } catch (e) {
-      console.log('Notice: DB questions fetch fallback:', e);
+      console.error('Notice: DB questions fetch error:', e);
     }
 
-    const fallbackList = (questionsData[activeClass] && questionsData[activeClass][selectedSubject]) || [];
-    setDbQuestions(fallbackList);
+    setDbQuestions([]);
     setLoadingQuestions(false);
   };
 
   useEffect(() => {
+    setDbQuestions([]);
     fetchBankQuestions();
-  }, [activeClass, selectedSubject]);
+  }, [activeClass, selectedSubject, selectedSession, selectedTerm, selectedSlot]);
 
   // Reset page to 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeClass, selectedSubject, searchQuery, pageSize]);
+  }, [activeClass, selectedSubject, selectedSession, selectedTerm, selectedSlot, searchQuery, pageSize]);
 
-  // Load configured duration, assessment mode and activation status when class/subject changes
+  // Load assessment configuration for exact slot tuple
   useEffect(() => {
     if (!selectedSubject) return;
-    fetch(`/api/admin/exam-config?class=${encodeURIComponent(activeClass)}&subject=${encodeURIComponent(selectedSubject)}`)
+    fetch(
+      `/api/admin/assessment-config?session=${encodeURIComponent(selectedSession)}&term=${encodeURIComponent(selectedTerm)}&class=${encodeURIComponent(activeClass)}&subject=${encodeURIComponent(selectedSubject)}&assessment_slot=${encodeURIComponent(selectedSlot)}`
+    )
       .then(res => res.json())
       .then(data => {
-        if (data && data.success && data.configs && data.configs.length > 0) {
-          const cfg = data.configs.find(c => c.subject?.toLowerCase() === selectedSubject.toLowerCase()) || data.configs[0];
-          if (cfg) {
-            if (cfg.duration_minutes) setExamDurationInput(String(cfg.duration_minutes));
-            if (cfg.is_active !== undefined && cfg.is_active !== null) setIsExamActive(cfg.is_active === 1);
-            if (cfg.assessment_mode) setAssessmentMode(String(cfg.assessment_mode).toUpperCase());
-            if (cfg.delivery_count) setCustomDeliveryCount(String(cfg.delivery_count));
-            if (cfg.shuffle_questions !== undefined) setShuffleQuestions(cfg.shuffle_questions === 1);
-            if (cfg.shuffle_options !== undefined) setShuffleOptions(cfg.shuffle_options === 1);
-          }
+        if (data && data.success && data.config) {
+          const cfg = data.config;
+          if (cfg.duration_minutes) setExamDurationInput(String(cfg.duration_minutes));
+          if (cfg.is_active !== undefined) setIsExamActive(cfg.is_active === true || cfg.is_active === 1);
+          if (cfg.preset_mode) setAssessmentMode((cfg.preset_mode === 'terminal_exam' || cfg.preset_mode === 'examination') ? 'EXAM' : (cfg.preset_mode === 'custom' || cfg.preset_mode === 'custom_assessment') ? 'CUSTOM' : 'TEST');
+          if (cfg.custom_count) setCustomDeliveryCount(String(cfg.custom_count));
+          if (cfg.shuffle_questions !== undefined) setShuffleQuestions(cfg.shuffle_questions);
+          if (cfg.shuffle_options !== undefined) setShuffleOptions(cfg.shuffle_options);
+          if (cfg.assessment_title) setAssessmentTitle(cfg.assessment_title);
         }
       })
       .catch(() => {});
-  }, [activeClass, selectedSubject]);
+  }, [activeClass, selectedSubject, selectedSession, selectedTerm, selectedSlot]);
 
   const handleSaveConfig = async () => {
     const parsed = parseInt(examDurationInput, 10);
     const validMinutes = (!isNaN(parsed) && parsed > 0) ? parsed : 45;
     
+    let presetMode = 'ca_test';
     let targetCount = 30;
-    if (assessmentMode === 'TEST') targetCount = 30;
-    else if (assessmentMode === 'EXAM') targetCount = 50;
-    else targetCount = parseInt(customDeliveryCount, 10) || 30;
+    if (assessmentMode === 'TEST') { presetMode = 'ca_test'; targetCount = 30; }
+    else if (assessmentMode === 'EXAM') { presetMode = 'examination'; targetCount = 50; }
+    else { presetMode = 'custom_assessment'; targetCount = parseInt(customDeliveryCount, 10) || 30; }
 
     try {
       setSavingDuration(true);
-      const res = await fetch('/api/admin/exam-config', {
+      const res = await fetch('/api/admin/assessment-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          session: selectedSession,
+          term: selectedTerm,
           class: activeClass,
           subject: selectedSubject,
+          assessment_slot: selectedSlot,
+          assessment_title: assessmentTitle || `${activeClass} ${selectedSubject} - ${selectedSlot}`,
           duration_minutes: validMinutes,
-          is_active: isExamActive ? 1 : 0,
-          assessment_mode: assessmentMode,
-          delivery_count: targetCount,
+          preset_mode: presetMode,
+          custom_count: targetCount,
           shuffle_questions: shuffleQuestions ? 1 : 0,
-          shuffle_options: shuffleOptions ? 1 : 0
+          shuffle_options: shuffleOptions ? 1 : 0,
+          is_active: isExamActive ? 1 : 0
         }),
       });
       const data = await res.json();
       if (data && data.success) {
         setExamDurationInput(String(validMinutes));
-        onShowToast(`Assessment configuration for ${activeClass} - ${selectedSubject} saved! (${assessmentMode} mode, ${targetCount} Qs)`, 'success');
+        onShowToast(`Assessment slot config (${selectedSlot}) saved for ${activeClass} - ${selectedSubject}!`, 'success');
       } else {
-        onShowToast((data && data.message) || 'Failed to update exam config.', 'error');
+        onShowToast((data && data.message) || 'Failed to update assessment config.', 'error');
       }
     } catch (err) {
-      onShowToast(`Exam config saved locally.`, 'info');
+      onShowToast(`Assessment config saved locally.`, 'info');
     } finally {
       setSavingDuration(false);
     }
@@ -228,14 +314,29 @@ export default function QuestionBankMainView({
 
   const handleToggleActivation = async () => {
     const targetStatus = isExamActive ? 0 : 1;
+    let presetMode = 'ca_test';
+    let targetCount = 30;
+    if (assessmentMode === 'TEST') { presetMode = 'ca_test'; targetCount = 30; }
+    else if (assessmentMode === 'EXAM') { presetMode = 'examination'; targetCount = 50; }
+    else { presetMode = 'custom_assessment'; targetCount = parseInt(customDeliveryCount, 10) || 30; }
+
     try {
       setTogglingActive(true);
-      const res = await fetch('/api/admin/subjects/toggle', {
+      const res = await fetch('/api/admin/assessment-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          session: selectedSession,
+          term: selectedTerm,
           class: activeClass,
           subject: selectedSubject,
+          assessment_slot: selectedSlot,
+          assessment_title: assessmentTitle || `${activeClass} ${selectedSubject} - ${selectedSlot}`,
+          duration_minutes: parseInt(examDurationInput, 10) || 45,
+          preset_mode: presetMode,
+          custom_count: targetCount,
+          shuffle_questions: shuffleQuestions ? 1 : 0,
+          shuffle_options: shuffleOptions ? 1 : 0,
           is_active: targetStatus
         }),
       });
@@ -243,15 +344,15 @@ export default function QuestionBankMainView({
       if (data && data.success) {
         setIsExamActive(targetStatus === 1);
         onShowToast(
-          `Exam paper for ${activeClass} - ${selectedSubject} is now ${targetStatus === 1 ? 'ACTIVE (Accessible to candidates)' : 'INACTIVE (Blocked on student side)'}!`,
+          `Assessment slot [${selectedSlot}] for ${activeClass} - ${selectedSubject} is now ${targetStatus === 1 ? 'ACTIVE' : 'INACTIVE'}!`,
           targetStatus === 1 ? 'success' : 'warning'
         );
       } else {
-        onShowToast((data && data.message) || 'Failed to toggle exam status.', 'error');
+        onShowToast((data && data.message) || 'Failed to toggle slot status.', 'error');
       }
     } catch (err) {
       setIsExamActive(targetStatus === 1);
-      onShowToast(`Exam paper toggled to ${targetStatus === 1 ? 'ACTIVE' : 'INACTIVE'}.`, 'info');
+      onShowToast(`Assessment slot toggled to ${targetStatus === 1 ? 'ACTIVE' : 'INACTIVE'}.`, 'info');
     } finally {
       setTogglingActive(false);
     }
@@ -272,12 +373,18 @@ export default function QuestionBankMainView({
         formData.append('file', f);
         formData.append('files', f);
       });
+      formData.append('slot', selectedSlot);
+      formData.append('assessment_slot', selectedSlot);
+      formData.append('session', selectedSession);
+      formData.append('term', selectedTerm);
+      formData.append('classId', activeClass);
       formData.append('class', activeClass);
+      formData.append('subjectId', selectedSubject);
       formData.append('subject', selectedSubject);
       formData.append('duration_minutes', String(validMinutes));
       formData.append('assessment_mode', assessmentMode);
       formData.append('delivery_count', String(targetCount));
-      formData.append('overwrite', 'true'); // Overwrite previous dummy bank questions
+      formData.append('overwrite', 'false');
 
       const response = await fetch('/api/admin/questions/upload-bank', {
         method: 'POST',
@@ -314,6 +421,10 @@ export default function QuestionBankMainView({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          session: selectedSession,
+          term: selectedTerm,
+          slot: selectedSlot,
+          assessment_slot: selectedSlot,
           class: activeClass,
           subject: selectedSubject,
           question_text: newStem.trim(),
@@ -328,7 +439,7 @@ export default function QuestionBankMainView({
 
       const data = await res.json();
       if (data && data.success) {
-        onShowToast(`Question added successfully to ${activeClass} ${selectedSubject} bank!`, 'success');
+        onShowToast(`Question added successfully to ${activeClass} ${selectedSubject} [${selectedSlot}] bank!`, 'success');
         setNewStem('');
         setOptA('');
         setOptB('');
@@ -393,13 +504,13 @@ export default function QuestionBankMainView({
         <div>
           <div className="flex items-center space-x-2 text-brand font-bold text-xs uppercase tracking-wider mb-1">
             <BookOpen className="w-4 h-4" />
-            <span>Master Question Bank Engine</span>
+            <span>Multi-Slot Question Bank Engine</span>
           </div>
           <h2 className="text-2xl font-extrabold text-slate-100">
-            Dedicated Class-Scoped Question Bank & Answer Key Hub
+            Session & Term Scoped Assessment Bank Hub
           </h2>
           <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-            Upload question papers with answer keys strictly isolated per class (JSS 1 - SS 3) and per subject.
+            Supports 4 independent assessment slots per subject with zero data conflicts or manual question deletion required.
           </p>
         </div>
 
@@ -423,7 +534,40 @@ export default function QuestionBankMainView({
         </div>
       </div>
 
-      {/* Question Bank Scope Tabs */}
+      {/* Academic Session & Term Scoping Toolbar */}
+      <div className="bg-slate-900 border border-darkBorder p-4 rounded-2xl shadow-lg flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center space-x-3">
+          <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Academic Session:</span>
+          <select
+            value={selectedSession}
+            onChange={(e) => setSelectedSession(e.target.value)}
+            className="bg-slate-950 border border-slate-700 text-white text-xs font-bold rounded-xl px-3 py-2 focus:border-brand focus:outline-none"
+          >
+            <option value="2026/2027">2026/2027 Session</option>
+            <option value="2027/2028">2027/2028 Session</option>
+            <option value="2028/2029">2028/2029 Session</option>
+          </select>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mr-1">Academic Term:</span>
+          {['1st Term', '2nd Term', '3rd Term'].map((t) => (
+            <button
+              key={t}
+              onClick={() => setSelectedTerm(t)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                selectedTerm === t
+                  ? 'bg-slate-100 text-slate-950 shadow'
+                  : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Question Bank Class Scope Tabs */}
       <div className="bg-slate-950 p-2 rounded-2xl border border-darkBorder flex items-center space-x-2 overflow-x-auto">
         {questionBankClasses.map((cls) => {
           const isActive = activeClass === cls;
@@ -435,9 +579,9 @@ export default function QuestionBankMainView({
               key={cls}
               onClick={() => {
                 setActiveClass(cls);
-                const subList = safeSubjectsByClass[cls] || safeSubjectsByClass[cls.replace(/\s+(Science|Art|Commercial)$/i, '')] || [];
-                const firstSub = subList[0]?.name || 'Mathematics';
-                setSelectedSubject(firstSub);
+                setSelectedSubject('');
+                setDbQuestions([]);
+                setSlotCounts({ welcome_test: 0, midterm_ca: 0, examination: 0, custom_assessment: 0 });
               }}
               className={`flex items-center space-x-2.5 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all duration-200 shrink-0 cursor-pointer ${
                 isActive
@@ -453,6 +597,37 @@ export default function QuestionBankMainView({
                 }`}
               >
                 {classSubjectCount} Subj
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 4 Assessment Slots Tabs Bar */}
+      <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-2xl grid grid-cols-2 md:grid-cols-4 gap-2">
+        {[
+          { id: 'welcome_test', label: '1. Welcome / Mock Test', count: slotCounts.welcome_test || 0 },
+          { id: 'midterm_ca', label: '2. Mid-Term CA Test', count: slotCounts.midterm_ca || 0 },
+          { id: 'examination', label: '3. Examination', count: slotCounts.examination || 0 },
+          { id: 'custom_assessment', label: '4. Custom Assessment', count: slotCounts.custom_assessment || 0 }
+        ].map((slot) => {
+          const isSlotActive = selectedSlot === slot.id;
+          return (
+            <button
+              key={slot.id}
+              onClick={() => {
+                setSelectedSlot(slot.id);
+                setDbQuestions([]); // Clear questions immediately on slot change
+              }}
+              className={`flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                isSlotActive
+                  ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg shadow-orange-500/20 font-black'
+                  : 'bg-slate-950/60 text-slate-300 hover:bg-slate-800 border border-slate-800'
+              }`}
+            >
+              <span>{slot.label}</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ${isSlotActive ? 'bg-black/25 text-white font-bold' : 'bg-slate-800 text-slate-400'}`}>
+                {slot.count} Qs
               </span>
             </button>
           );
@@ -482,9 +657,16 @@ export default function QuestionBankMainView({
             </label>
             <select
               value={selectedSubject}
-              onChange={(e) => setSelectedSubject(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 text-white text-xs rounded-xl px-3.5 py-2.5 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 font-bold shadow-sm"
+              onChange={(e) => {
+                const sub = e.target.value;
+                setSelectedSubject(sub);
+                if (!sub) setDbQuestions([]);
+              }}
+              className="w-full bg-slate-900 border border-slate-700 text-white text-xs rounded-xl px-3.5 py-2.5 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 font-bold shadow-sm cursor-pointer"
             >
+              <option value="" className="bg-[#0f172a] text-slate-400 py-1.5 font-medium">
+                -- Select Target Subject --
+              </option>
               {availableSubjects.map((sub) => {
                 const subName = getSubName(sub);
                 const subKey = typeof sub === 'string' ? sub : (sub.id || subName);
@@ -527,7 +709,7 @@ export default function QuestionBankMainView({
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                Terminal Exam (50 Qs)
+                Examination (50 Qs)
               </button>
               <button
                 type="button"
@@ -710,6 +892,17 @@ export default function QuestionBankMainView({
               <Trash2 className="w-4 h-4 text-rose-400" />
               <span>Clear Subject Questions</span>
             </button>
+
+            <button
+              type="button"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="px-4 py-2.5 rounded-xl bg-slate-950 hover:bg-slate-900 text-slate-300 border border-slate-700 text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer shadow-sm disabled:opacity-50"
+              title="Refresh questions and slot counts"
+            >
+              <RefreshCw className={`w-4 h-4 text-orange-400 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+            </button>
           </div>
 
           {/* Assessment Mode Status Summary Pill */}
@@ -717,13 +910,11 @@ export default function QuestionBankMainView({
             <div className="flex items-center space-x-2 truncate">
               <Sparkles className="w-4 h-4 text-brand shrink-0" />
               <span className="truncate">
-                <strong>Bank Total: {dbQuestions.length} Questions Uploaded</strong> | Delivery Mode:{' '}
+                <strong>Bank Total: {dbQuestions.length} Questions Uploaded</strong> | Slot:{' '}
                 <strong className="text-brand font-bold">
-                  {assessmentMode === 'TEST'
-                    ? `CA TEST (${Math.min(30, dbQuestions.length || 30)} Randomly Selected per Student)`
-                    : assessmentMode === 'EXAM'
-                    ? `TERMINAL EXAM (${Math.min(50, dbQuestions.length || 50)} Randomly Selected per Student)`
-                    : `CUSTOM (${Math.min(effectiveDeliveryCount, dbQuestions.length || effectiveDeliveryCount)} Randomly Selected per Student)`}
+                  {selectedSlot === 'welcome_test' ? '1. Welcome / Mock Test' :
+                   selectedSlot === 'midterm_ca' ? '2. Mid-Term CA Test' :
+                   selectedSlot === 'examination' ? '3. Examination' : '4. Custom Assessment'}
                 </strong>
               </span>
             </div>
@@ -776,7 +967,23 @@ export default function QuestionBankMainView({
         </div>
 
         {/* Table Body */}
-        {loadingQuestions ? (
+        {!selectedSubject ? (
+          <div className="p-12 text-center text-slate-400 space-y-4 bg-slate-950/60 rounded-2xl border border-slate-800 my-2">
+            <div className="w-14 h-14 rounded-2xl bg-orange-500/10 border border-orange-500/20 text-orange-400 flex items-center justify-center mx-auto shadow-inner">
+              <BookOpen className="w-7 h-7" />
+            </div>
+            <div className="max-w-md mx-auto">
+              <h4 className="text-base font-bold text-white tracking-tight">Select a Subject to Load Questions</h4>
+              <p className="text-xs text-slate-400 mt-1">
+                Please select a Subject from the dropdown above to view or upload questions for <span className="text-orange-400 font-semibold">{activeClass}</span> under <span className="text-orange-400 font-semibold">{
+                  selectedSlot === 'welcome_test' ? '1. Welcome / Mock Test' :
+                  selectedSlot === 'midterm_ca' ? '2. Mid-Term CA Test' :
+                  selectedSlot === 'examination' ? '3. Examination' : '4. Custom Assessment'
+                }</span>.
+              </p>
+            </div>
+          </div>
+        ) : loadingQuestions ? (
           <div className="p-12 text-center text-slate-400 space-y-3">
             <RefreshCw className="w-8 h-8 animate-spin text-brand mx-auto" />
             <p className="text-xs font-semibold">Loading questions for {activeClass} - {selectedSubject}...</p>
@@ -786,9 +993,15 @@ export default function QuestionBankMainView({
             <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-brand/30 p-1 mx-auto mb-3 opacity-60 flex items-center justify-center">
               <img src="school_logo.jpg" alt="AWBA Crest" className="w-full h-full object-contain rounded-xl" />
             </div>
-            <p className="text-sm font-semibold text-slate-400">No questions found for {activeClass} - {selectedSubject}</p>
-            <p className="text-xs text-slate-500">
-              Upload a spreadsheet or .zip package above, or click "+ Add Question Manually".
+            <p className="text-sm font-bold text-slate-300">
+              No questions currently uploaded for <span className="text-white font-semibold">{activeClass} - {selectedSubject}</span> under <span className="text-orange-400 font-semibold">{
+                selectedSlot === 'welcome_test' ? '1. Welcome / Mock Test' :
+                selectedSlot === 'midterm_ca' ? '2. Mid-Term CA Test' :
+                selectedSlot === 'examination' ? '3. Examination' : '4. Custom Assessment'
+              }</span>.
+            </p>
+            <p className="text-xs text-slate-400 mt-1">
+              Drag &amp; drop a spreadsheet or click &quot;+ Add Question Manually&quot; to populate this assessment.
             </p>
           </div>
         ) : (
