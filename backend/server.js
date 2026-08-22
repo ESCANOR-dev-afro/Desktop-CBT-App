@@ -94,12 +94,19 @@ app.get('/api/health', (req, res) => {
 // STATIC ASSET SERVING & SPA ROUTING
 // ==========================================
 
-// Dist folder paths
-const adminDistPath = path.join(__dirname, '../admin-dashboard/dist');
-const studentDistPath = path.join(__dirname, '../student_client_react/dist');
+// Dist / Public folder paths
+const adminStaticPath = fs.existsSync(path.join(__dirname, '../admin-dashboard/dist'))
+  ? path.join(__dirname, '../admin-dashboard/dist')
+  : path.join(__dirname, 'public/admin');
+
+const studentStaticPath = fs.existsSync(path.join(__dirname, '../student_client_react/dist'))
+  ? path.join(__dirname, '../student_client_react/dist')
+  : path.join(__dirname, 'public');
 
 // 1. Serve Admin Static Files (Must be declared before general static files)
-app.use('/admin', express.static(adminDistPath, {
+app.use('/admin', express.static(adminStaticPath, {
+  etag: false,
+  maxAge: '0',
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -114,11 +121,13 @@ app.get('/admin', (req, res) => {
 
 // Admin SPA Fallback (handles sub-routes like /admin/classes, /admin/scores, etc.)
 app.get('/admin/*splat', (req, res) => {
-  res.sendFile(path.join(adminDistPath, 'index.html'));
+  res.sendFile(path.join(adminStaticPath, 'index.html'));
 });
 
 // 2. Serve Student Static Files
-app.use(express.static(studentDistPath, {
+app.use(express.static(studentStaticPath, {
+  etag: false,
+  maxAge: '0',
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -133,7 +142,7 @@ app.use('/api', (req, res) => {
 
 // 4. Student SPA Fallback Handler
 app.use((req, res) => {
-  res.sendFile(path.join(studentDistPath, 'index.html'));
+  res.sendFile(path.join(studentStaticPath, 'index.html'));
 });
 
 // ==========================================

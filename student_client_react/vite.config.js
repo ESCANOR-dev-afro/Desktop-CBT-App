@@ -6,11 +6,16 @@ export default defineConfig({
   plugins: [
     react(),
     legacy({
-      targets: ['defaults', 'not IE 11', 'chrome >= 60', 'firefox >= 60', 'edge >= 79'],
+      targets: ['defaults', 'chrome >= 60', 'edge >= 18', 'firefox >= 55', 'safari >= 11', 'not IE 11'],
+      additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
       polyfills: false
     })
   ],
   base: './',
+  build: {
+    target: 'es2015',
+    cssTarget: 'chrome60'
+  },
   server: {
     host: '0.0.0.0',
     port: 3000

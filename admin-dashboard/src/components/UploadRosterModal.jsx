@@ -77,7 +77,7 @@ function UploadRosterModal({
           });
         }
       } catch (err) {
-        response = await fetch('http://localhost:3000/api/admin/upload-roster', {
+        response = await fetch('/api/admin/upload-roster', {
           method: 'POST',
           body: formData,
         });
