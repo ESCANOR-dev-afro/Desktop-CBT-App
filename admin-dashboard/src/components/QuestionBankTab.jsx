@@ -150,35 +150,35 @@ export default function QuestionBankTab({
       {/* Top Bar: Subject Selector & Docx Dropzone */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Isolated Subject Selector & Activation Card */}
-        <div className="bg-slate-900 border border-darkBorder p-5 rounded-2xl flex flex-col justify-between space-y-4 shadow-xl">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder p-5 rounded-2xl flex flex-col justify-between space-y-4 shadow-xs dark:shadow-xl transition-colors">
           <div>
             <div className="flex items-center space-x-2 text-brand font-bold text-xs uppercase tracking-wider mb-1">
               <BookOpen className="w-4 h-4" />
               <span>Isolated Subject Scope</span>
             </div>
-            <h3 className="text-base font-bold text-slate-100">
+            <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
               {currentClass} Question Bank
             </h3>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Select subject to view questions or toggle candidate exam session activation.
             </p>
           </div>
 
           <div className="space-y-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                 Target Subject *
               </label>
               <select
                 value={selectedSubject}
                 onChange={(e) => setSelectedSubject(e.target.value)}
-                className="w-full bg-slate-950 border border-darkBorder text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-bold shadow-sm"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-bold shadow-xs cursor-pointer"
               >
                 {availableSubjects.map((sub) => {
                   const name = getSubName(sub);
                   const key = typeof sub === 'string' ? sub : (sub?.id || name);
                   return (
-                    <option key={key} value={name} className="bg-slate-900 text-slate-100 py-1 font-medium">
+                    <option key={key} value={name} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">
                       {name}
                     </option>
                   );
@@ -188,25 +188,25 @@ export default function QuestionBankTab({
 
             {/* Exam Activation Status Button Toggle */}
             <div>
-              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+              <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
                 Exam Activation Status
               </label>
               <button
                 type="button"
                 onClick={handleToggleExamActivation}
                 disabled={togglingStatus || !selectedSubject}
-                className={`w-full py-2.5 px-3.5 rounded-xl border text-xs font-bold transition-all flex items-center justify-between shadow-md cursor-pointer ${
+                className={`w-full py-2.5 px-3.5 rounded-xl border text-xs font-bold transition-all flex items-center justify-between shadow-xs cursor-pointer ${
                   isSubjectActive
-                    ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/20 shadow-emerald-500/10'
-                    : 'bg-slate-950 border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                    ? 'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-300 dark:border-emerald-500/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-500/20'
+                    : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
                 }`}
               >
                 <div className="flex items-center space-x-2">
-                  <span className={`w-2.5 h-2.5 rounded-full ${isSubjectActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`}></span>
+                  <span className={`w-2.5 h-2.5 rounded-full ${isSubjectActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400 dark:bg-slate-500'}`}></span>
                   <span>{isSubjectActive ? 'ACTIVE (Live for Candidates)' : 'INACTIVE (Click to Enable)'}</span>
                 </div>
                 <span className={`text-[10px] uppercase px-2 py-0.5 rounded font-extrabold border ${
-                  isSubjectActive ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300' : 'bg-slate-800 border-slate-700 text-slate-400'
+                  isSubjectActive ? 'bg-emerald-100 dark:bg-emerald-500/20 border-emerald-300 dark:border-emerald-400/40 text-emerald-800 dark:text-emerald-300' : 'bg-slate-200 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-400'
                 }`}>
                   {togglingStatus ? 'Updating...' : (isSubjectActive ? 'TOGGLE OFF' : 'TOGGLE ON')}
                 </span>
@@ -214,9 +214,9 @@ export default function QuestionBankTab({
             </div>
           </div>
 
-          <div className="pt-3 border-t border-darkBorder flex items-center justify-between text-xs text-slate-400">
+          <div className="pt-3 border-t border-slate-200 dark:border-darkBorder flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
             <span>Questions in Bank:</span>
-            <span className="font-bold text-slate-100 bg-brand/10 px-2.5 py-0.5 rounded-full border border-brand/20 text-brand">
+            <span className="font-bold text-brand bg-brand/10 px-2.5 py-0.5 rounded-full border border-brand/20">
               {currentSubjectQuestions.length} Items
             </span>
           </div>
@@ -234,19 +234,19 @@ export default function QuestionBankTab({
             setIsDragging(false);
             handleSimulatedDocxUpload('Dropped_Exam_Paper.docx');
           }}
-          className={`lg:col-span-2 border-2 border-dashed rounded-2xl p-6 transition-all flex flex-col items-center justify-center text-center ${
+          className={`lg:col-span-2 border-2 border-dashed rounded-2xl p-6 transition-all flex flex-col items-center justify-center text-center shadow-xs ${
             isDragging
               ? 'border-brand bg-brand/10 scale-[0.99]'
-              : 'border-slate-800 hover:border-brand/50 bg-slate-900/60'
+              : 'border-slate-300 dark:border-slate-800 hover:border-brand/50 bg-slate-50 dark:bg-slate-900/60'
           }`}
         >
           <div className="p-3.5 bg-brand/15 border border-brand/30 rounded-2xl text-brand mb-3">
             <UploadCloud className="w-8 h-8" />
           </div>
-          <h4 className="text-sm font-bold text-slate-100 mb-1">
+          <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">
             Upload Question Document (.docx / .xlsx)
           </h4>
-          <p className="text-xs text-slate-400 max-w-md mb-4 leading-relaxed">
+          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mb-4 leading-relaxed">
             Drag & drop MS Word or Excel question papers. Automated parser extracts stems, options A-D, and answer keys isolated to <strong className="text-brand">{currentClass} - {selectedSubject || 'All Subjects'}</strong>.
           </p>
 
@@ -271,30 +271,30 @@ export default function QuestionBankTab({
       </div>
 
       {/* Questions List Header & Search */}
-      <div className="bg-slate-900 border border-darkBorder rounded-2xl p-5 space-y-4 shadow-xl">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pb-4 border-b border-darkBorder">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl p-5 space-y-4 shadow-xs dark:shadow-xl transition-colors">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-darkBorder">
           <div className="relative flex-1 sm:w-80">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input
               type="text"
               placeholder={`Search ${currentClass} ${selectedSubject} questions...`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-950 text-xs pl-9 pr-4 py-2.5 rounded-xl border border-darkBorder focus:outline-none focus:border-brand text-slate-200"
+              className="w-full bg-slate-50 dark:bg-slate-950 text-xs pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-darkBorder focus:outline-none focus:border-brand text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 transition-colors"
             />
           </div>
 
-          <div className="text-xs text-slate-400">
-            Showing <strong className="text-slate-200">{filteredQuestions.length}</strong> questions in <strong className="text-brand">{currentClass} - {selectedSubject || 'All Subjects'}</strong>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Showing <strong className="text-slate-800 dark:text-slate-200">{filteredQuestions.length}</strong> questions in <strong className="text-brand">{currentClass} - {selectedSubject || 'All Subjects'}</strong>
           </div>
         </div>
 
         {filteredQuestions.length === 0 ? (
           <div className="p-12 text-center text-slate-500 space-y-2">
-            <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-brand/30 p-1 mx-auto mb-3 opacity-60 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-brand/30 p-1 mx-auto mb-3 opacity-60 flex items-center justify-center shadow-xs">
               <img src="school_logo.jpg" alt="AWBA Crest" className="w-full h-full object-contain rounded-xl" />
             </div>
-            <p className="text-sm font-semibold text-slate-400">No questions found</p>
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-400">No questions found</p>
             <p className="text-xs text-slate-500">
               Upload a .docx question paper or select a different subject above.
             </p>
@@ -317,7 +317,7 @@ export default function QuestionBankTab({
               return (
                 <div
                   key={q.id || idx}
-                  className="bg-slate-950 border border-darkBorder rounded-xl overflow-hidden hover:border-slate-700 transition-all"
+                  className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder rounded-xl overflow-hidden hover:border-brand/40 transition-all shadow-2xs"
                 >
                   <div
                     onClick={() =>
@@ -326,16 +326,16 @@ export default function QuestionBankTab({
                     className="p-4 flex items-start justify-between cursor-pointer select-none"
                   >
                     <div className="flex items-start space-x-3">
-                      <span className="w-6 h-6 rounded-full bg-slate-900 border border-darkBorder font-bold text-xs text-brand flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="w-6 h-6 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder font-bold text-xs text-brand flex items-center justify-center shrink-0 mt-0.5 shadow-xs">
                         {idx + 1}
                       </span>
                       <div>
-                        <h5 className="text-xs font-semibold text-slate-200 leading-relaxed">
+                        <h5 className="text-xs font-semibold text-slate-900 dark:text-slate-200 leading-relaxed">
                           {stemText}
                         </h5>
 
                         {q.diagram_image_url && (
-                          <div className="mt-2 mb-1 max-w-sm rounded-xl overflow-hidden border border-darkBorder bg-slate-900 p-2">
+                          <div className="mt-2 mb-1 max-w-sm rounded-xl overflow-hidden border border-slate-200 dark:border-darkBorder bg-white dark:bg-slate-900 p-2">
                             <img
                               src={q.diagram_image_url.startsWith('/') ? q.diagram_image_url : `/${q.diagram_image_url}`}
                               alt="Diagram"
@@ -356,7 +356,7 @@ export default function QuestionBankTab({
                       </div>
                     </div>
 
-                    <button className="text-slate-500 hover:text-slate-300 p-1">
+                    <button className="text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 p-1">
                       {isExpanded ? (
                         <ChevronUp className="w-4 h-4" />
                       ) : (
@@ -367,8 +367,8 @@ export default function QuestionBankTab({
 
                   {/* Accordion Options Details */}
                   {isExpanded && (
-                    <div className="px-4 pb-4 pt-2 border-t border-darkBorder/60 bg-slate-900/40 space-y-2">
-                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    <div className="px-4 pb-4 pt-2 border-t border-slate-200 dark:border-darkBorder/60 bg-slate-100/60 dark:bg-slate-900/40 space-y-2">
+                      <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
                         Options & Verified Answer Key:
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -380,13 +380,13 @@ export default function QuestionBankTab({
                               key={oIdx}
                               className={`p-2.5 rounded-lg text-xs font-medium border flex items-center justify-between ${
                                 isCorrect
-                                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300 font-semibold'
-                                  : 'bg-slate-950 border-darkBorder text-slate-400'
+                                  ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/40 text-emerald-800 dark:text-emerald-300 font-semibold'
+                                  : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-darkBorder text-slate-700 dark:text-slate-400 shadow-2xs'
                               }`}
                             >
                               <span>{formattedText}</span>
                               {isCorrect && (
-                                <span className="flex items-center space-x-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">
+                                <span className="flex items-center space-x-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-500/20 px-2 py-0.5 rounded">
                                   <Check className="w-3 h-3" />
                                   <span>CORRECT</span>
                                 </span>

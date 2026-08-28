@@ -148,18 +148,18 @@ function UploadRosterModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="bg-slate-900 border border-darkBorder w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] transition-colors">
         {/* Header */}
-        <div className="p-5 border-b border-darkBorder flex items-center justify-between bg-slate-950/60">
+        <div className="p-5 border-b border-slate-200 dark:border-darkBorder flex items-center justify-between bg-slate-50 dark:bg-slate-950/60">
           <div className="flex items-center space-x-3">
             <div className="p-2 rounded-xl bg-brand/15 border border-brand/30 text-brand">
               <FileSpreadsheet className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-extrabold text-slate-100">
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
                 Upload Class Roster List (.xlsx / .csv)
               </h3>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Bulk register candidate records with automatically enforced UPPERCASE surnames
               </p>
             </div>
@@ -167,7 +167,7 @@ function UploadRosterModal({
 
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+            className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -177,17 +177,17 @@ function UploadRosterModal({
         <div className="p-6 overflow-y-auto space-y-5">
           {/* Locked Class Workspace Context Badge */}
           <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1.5 uppercase tracking-wider">
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
               Target Class Roster Workspace *
             </label>
-            <div className="w-full bg-slate-950 border border-brand/40 text-slate-100 text-xs rounded-xl px-4 py-3 flex items-center justify-between font-extrabold shadow-sm">
+            <div className="w-full bg-slate-50 dark:bg-slate-950 border border-brand/40 text-slate-900 dark:text-slate-100 text-xs rounded-xl px-4 py-3 flex items-center justify-between font-extrabold shadow-xs">
               <div className="flex items-center space-x-2.5">
                 <div className="p-1.5 rounded-lg bg-brand/15 text-brand border border-brand/30">
                   <ShieldCheck className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="text-slate-100 font-extrabold text-sm">{targetWorkspaceClass}</span>
-                  <p className="text-[10px] text-slate-400 font-normal mt-0.5">Candidate records will be enrolled strictly into this active workspace</p>
+                  <span className="text-slate-900 dark:text-slate-100 font-extrabold text-sm">{targetWorkspaceClass}</span>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">Candidate records will be enrolled strictly into this active workspace</p>
                 </div>
               </div>
               <span className="text-[10px] font-mono font-bold uppercase bg-brand/15 text-brand px-2.5 py-1 rounded-md border border-brand/30 shrink-0 ml-2">
@@ -198,7 +198,7 @@ function UploadRosterModal({
 
           {/* Inline Error Alert */}
           {uploadError && (
-            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center space-x-2.5">
+            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs flex items-center space-x-2.5">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{uploadError}</span>
             </div>
@@ -225,18 +225,18 @@ function UploadRosterModal({
               className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all flex flex-col items-center justify-center ${
                 isDragging
                   ? 'border-brand bg-brand/10 scale-[0.99]'
-                  : 'border-slate-800 hover:border-brand/40 bg-slate-950/60'
+                  : 'border-slate-300 dark:border-slate-800 hover:border-brand/40 bg-slate-50 dark:bg-slate-950/60'
               }`}
             >
               <div className="w-12 h-12 rounded-2xl bg-brand/10 border border-brand/20 text-brand flex items-center justify-center mb-3">
                 <UploadCloud className="w-6 h-6" />
               </div>
 
-              <h4 className="text-sm font-bold text-slate-100 mb-1">
+              <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">
                 Drag & Drop Excel Spreadsheet
               </h4>
-              <p className="text-xs text-slate-400 max-w-sm mb-4 leading-relaxed">
-                Expected columns: <strong className="text-slate-200">Surname</strong>, <strong className="text-slate-200">First Name</strong>, <strong className="text-slate-200">Registration ID</strong>, <strong className="text-slate-200">Allocated Subjects</strong>.
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mb-4 leading-relaxed">
+                Expected columns: <strong className="text-slate-800 dark:text-slate-200">Surname</strong>, <strong className="text-slate-800 dark:text-slate-200">First Name</strong>, <strong className="text-slate-800 dark:text-slate-200">Registration ID</strong>, <strong className="text-slate-800 dark:text-slate-200">Allocated Subjects</strong>.
               </p>
 
               <label className="px-4 py-2.5 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-brand/20 flex items-center space-x-2 brand-glow-sm">
@@ -272,7 +272,7 @@ function UploadRosterModal({
             /* Parsed Preview Table */
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2 text-emerald-400 font-bold text-xs">
+                <div className="flex items-center space-x-2 text-emerald-600 dark:text-emerald-400 font-bold text-xs">
                   <CheckCircle className="w-4 h-4" />
                   <span>Parsed {parsedPreview.length} Candidates for {targetWorkspaceClass}</span>
                 </div>
@@ -282,15 +282,15 @@ function UploadRosterModal({
                     setSelectedFile(null);
                     setUploadError(null);
                   }}
-                  className="text-xs text-slate-400 hover:text-slate-200 underline cursor-pointer"
+                  className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 underline cursor-pointer"
                 >
                   Choose Different File
                 </button>
               </div>
 
-              <div className="border border-darkBorder rounded-xl overflow-hidden bg-slate-950 max-h-56 overflow-y-auto">
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="bg-slate-900 text-slate-400 font-bold border-b border-darkBorder uppercase text-[10px]">
+              <div className="border border-slate-200 dark:border-darkBorder rounded-xl overflow-hidden bg-white dark:bg-slate-950 max-h-56 overflow-y-auto">
+                <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+                  <thead className="bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-darkBorder uppercase text-[10px]">
                     <tr>
                       <th className="p-3">Surname (UPPERCASE)</th>
                       <th className="p-3">First Name</th>
@@ -298,13 +298,13 @@ function UploadRosterModal({
                       <th className="p-3">Allocated Subjects</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-darkBorder/60">
+                  <tbody className="divide-y divide-slate-100 dark:divide-darkBorder/60">
                     {parsedPreview.map((st, i) => (
-                      <tr key={i} className="hover:bg-slate-900/50">
-                        <td className="p-3 font-extrabold text-white">{st.surname}</td>
-                        <td className="p-3 text-slate-300">{st.first_name || '-'}</td>
+                      <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-900/50">
+                        <td className="p-3 font-extrabold text-slate-900 dark:text-white">{st.surname}</td>
+                        <td className="p-3 text-slate-700 dark:text-slate-300">{st.first_name || '-'}</td>
                         <td className="p-3 font-mono text-brand font-bold">{st.reg_number || st.regNo}</td>
-                        <td className="p-3 text-slate-400 truncate max-w-xs">{st.assigned_subject || st.assignedSubjects}</td>
+                        <td className="p-3 text-slate-500 dark:text-slate-400 truncate max-w-xs">{st.assigned_subject || st.assignedSubjects}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -315,10 +315,10 @@ function UploadRosterModal({
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-darkBorder bg-slate-950 flex items-center justify-end space-x-3">
+        <div className="p-4 border-t border-slate-200 dark:border-darkBorder bg-slate-50 dark:bg-slate-950 flex items-center justify-end space-x-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-900 transition-colors cursor-pointer"
+            className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors cursor-pointer"
           >
             Cancel
           </button>
@@ -356,12 +356,12 @@ class ModalErrorBoundary extends React.Component {
     if (this.state.hasError) {
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-rose-500/40 w-full max-w-md rounded-2xl shadow-2xl p-6 text-center space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto">
+          <div className="bg-white dark:bg-slate-900 border border-rose-500/40 w-full max-w-md rounded-2xl shadow-2xl p-6 text-center space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-500 dark:text-rose-400 flex items-center justify-center mx-auto">
               <AlertCircle className="w-6 h-6" />
             </div>
-            <h3 className="text-base font-extrabold text-slate-100">Upload Component Notice</h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">Upload Component Notice</h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
               {this.state.error?.message || 'An error occurred during file parsing.'}
             </p>
             <button
@@ -369,7 +369,7 @@ class ModalErrorBoundary extends React.Component {
                 this.setState({ hasError: false, error: null });
                 if (this.props.onClose) this.props.onClose();
               }}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer"
             >
               Close Modal
             </button>

@@ -22,13 +22,13 @@ export default class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="bg-slate-900 border border-darkBorder rounded-2xl p-8 text-center space-y-4 max-w-xl mx-auto my-12 shadow-2xl">
-          <div className="w-14 h-14 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto text-amber-400">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl p-8 text-center space-y-4 max-w-xl mx-auto my-12 shadow-2xl transition-colors">
+          <div className="w-14 h-14 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto text-amber-600 dark:text-amber-400">
             <AlertTriangle className="w-7 h-7" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-slate-100">View Rendering Notice</h3>
-            <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto leading-relaxed">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">View Rendering Notice</h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-md mx-auto leading-relaxed">
               An unexpected state transition occurred while loading this view section. Click below to re-initialize the console view.
             </p>
           </div>

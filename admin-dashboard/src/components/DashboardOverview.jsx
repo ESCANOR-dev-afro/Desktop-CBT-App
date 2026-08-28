@@ -29,7 +29,7 @@ export default function DashboardOverview({
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* Executive Welcome Header with Official School Logo & Subtle Background Watermark */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-darkBorder p-6 rounded-2xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative overflow-hidden">
+      <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 dark:border-darkBorder p-6 rounded-2xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative overflow-hidden">
         {/* Subtle Watermark School Logo in Background */}
         <img
           src="school_logo.jpg"
@@ -50,35 +50,35 @@ export default function DashboardOverview({
             <span className="text-[10px] font-extrabold text-brand uppercase tracking-wider bg-brand/10 px-2.5 py-1 rounded-md border border-brand/20">
               Official Executive Control Panel
             </span>
-            <h2 className="text-2xl font-extrabold text-slate-100 tracking-tight mt-1.5">
+            <h2 className="text-2xl font-extrabold text-white tracking-tight mt-1.5">
               Anthony Whitebridge Academy CBT Overview
             </h2>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-300 mt-1">
               Real-time computer-based testing infrastructure, candidate enrollment & class subject isolation monitor.
             </p>
           </div>
         </div>
 
         <div className="flex items-center space-x-3 z-10 shrink-0">
-          <div className="px-4 py-2 bg-slate-950/80 border border-darkBorder rounded-xl text-xs font-semibold text-slate-300 flex items-center space-x-2">
+          <div className="px-4 py-2 bg-slate-950/80 border border-slate-800 rounded-xl text-xs font-semibold text-slate-300 flex items-center space-x-2">
             <Server className="w-4 h-4 text-emerald-400" />
-            <span>Server Latency: <strong className="text-slate-100">12ms</strong></span>
+            <span>Server Latency: <strong className="text-white">12ms</strong></span>
           </div>
         </div>
       </div>
 
       {/* Metric Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        <div className="bg-slate-900 border border-darkBorder p-5 rounded-2xl space-y-3 relative overflow-hidden shadow-lg group hover:border-brand/50 transition-all">
-          <div className="flex items-center justify-between text-slate-400">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder p-5 rounded-2xl space-y-3 relative overflow-hidden shadow-xs dark:shadow-lg group hover:border-brand/50 transition-all">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
             <span className="text-xs font-bold uppercase tracking-wider">Total Enrolled Candidates</span>
             <div className="p-2.5 bg-brand/15 text-brand rounded-xl border border-brand/30">
               <Users className="w-5 h-5" />
             </div>
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-3xl font-black text-slate-100">{totalStudents}</span>
-            <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 flex items-center space-x-1">
+            <span className="text-3xl font-black text-slate-900 dark:text-slate-100">{totalStudents}</span>
+            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-500/20 flex items-center space-x-1">
               <TrendingUp className="w-3 h-3" />
               <span>+14.2%</span>
             </span>
@@ -86,15 +86,15 @@ export default function DashboardOverview({
           <p className="text-[10px] text-slate-500">Across 6 Secondary School Classes</p>
         </div>
 
-        <div className="bg-slate-900 border border-darkBorder p-5 rounded-2xl space-y-3 relative overflow-hidden shadow-lg group hover:border-brand/50 transition-all">
-          <div className="flex items-center justify-between text-slate-400">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder p-5 rounded-2xl space-y-3 relative overflow-hidden shadow-xs dark:shadow-lg group hover:border-brand/50 transition-all">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
             <span className="text-xs font-bold uppercase tracking-wider">Isolated Class Subjects</span>
             <div className="p-2.5 bg-brand/15 text-brand rounded-xl border border-brand/30">
               <BookOpen className="w-5 h-5" />
             </div>
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-3xl font-black text-slate-100">{totalSubjects}</span>
+            <span className="text-3xl font-black text-slate-900 dark:text-slate-100">{totalSubjects}</span>
             <span className="text-xs font-bold text-brand bg-brand/10 px-2 py-0.5 rounded-full border border-brand/20">
               Strict Isolated
             </span>
@@ -102,32 +102,32 @@ export default function DashboardOverview({
           <p className="text-[10px] text-slate-500">Zero cross-class subject leaking</p>
         </div>
 
-        <div className="bg-slate-900 border border-darkBorder p-5 rounded-2xl space-y-3 relative overflow-hidden shadow-lg group hover:border-brand/50 transition-all">
-          <div className="flex items-center justify-between text-slate-400">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder p-5 rounded-2xl space-y-3 relative overflow-hidden shadow-xs dark:shadow-lg group hover:border-brand/50 transition-all">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
             <span className="text-xs font-bold uppercase tracking-wider">CBT System Uptime</span>
-            <div className="p-2.5 bg-emerald-500/15 text-emerald-400 rounded-xl border border-emerald-500/30">
+            <div className="p-2.5 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 rounded-xl border border-emerald-500/30">
               <Activity className="w-5 h-5" />
             </div>
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-3xl font-black text-slate-100">99.98%</span>
-            <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+            <span className="text-3xl font-black text-slate-900 dark:text-slate-100">99.98%</span>
+            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-500/20">
               Optimal
             </span>
           </div>
           <p className="text-[10px] text-slate-500">Local node network active</p>
         </div>
 
-        <div className="bg-slate-900 border border-darkBorder p-5 rounded-2xl space-y-3 relative overflow-hidden shadow-lg group hover:border-brand/50 transition-all">
-          <div className="flex items-center justify-between text-slate-400">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder p-5 rounded-2xl space-y-3 relative overflow-hidden shadow-xs dark:shadow-lg group hover:border-brand/50 transition-all">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
             <span className="text-xs font-bold uppercase tracking-wider">Average CBT Score</span>
             <div className="p-2.5 bg-brand/15 text-brand rounded-xl border border-brand/30">
               <Award className="w-5 h-5" />
             </div>
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-3xl font-black text-slate-100">84.5%</span>
-            <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+            <span className="text-3xl font-black text-slate-900 dark:text-slate-100">84.5%</span>
+            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-500/20">
               Distinction
             </span>
           </div>
@@ -138,11 +138,11 @@ export default function DashboardOverview({
       {/* Middle Section: Class Allocation Grid & Audit Activity Stream */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Class Workspaces Grid */}
-        <div className="lg:col-span-2 bg-slate-900 border border-darkBorder p-6 rounded-2xl space-y-4 shadow-xl">
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder p-6 rounded-2xl space-y-4 shadow-xs dark:shadow-xl">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-base font-bold text-slate-100">School Classes Allocation</h3>
-              <p className="text-xs text-slate-400">Select any class to enter its dedicated CBT workspace</p>
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">School Classes Allocation</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Select any class to enter its dedicated CBT workspace</p>
             </div>
             <span className="text-xs font-bold text-brand bg-brand/10 px-2.5 py-1 rounded-full border border-brand/20">
               6 Classes Configured
@@ -158,33 +158,33 @@ export default function DashboardOverview({
                 <div
                   key={cls}
                   onClick={() => onSelectClass(cls)}
-                  className="bg-slate-950 border border-darkBorder hover:border-brand p-4 rounded-xl space-y-3 cursor-pointer transition-all duration-150 group"
+                  className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder hover:border-brand p-4 rounded-xl space-y-3 cursor-pointer transition-all duration-150 group shadow-xs hover:shadow-md"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2.5">
                       <img
                         src="school_logo.jpg"
                         alt=""
-                        className="w-8 h-8 rounded-lg border border-brand/30 p-0.5 bg-slate-900 object-contain shrink-0"
+                        className="w-8 h-8 rounded-lg border border-brand/30 p-0.5 bg-white dark:bg-slate-900 object-contain shrink-0"
                       />
-                      <span className="font-extrabold text-sm text-slate-100 group-hover:text-brand transition-colors">
+                      <span className="font-extrabold text-sm text-slate-900 dark:text-slate-100 group-hover:text-brand transition-colors">
                         {cls} Workspace
                       </span>
                     </div>
-                    <ArrowUpRight className="w-4 h-4 text-slate-500 group-hover:text-brand transition-colors" />
+                    <ArrowUpRight className="w-4 h-4 text-slate-400 dark:text-slate-500 group-hover:text-brand transition-colors" />
                   </div>
 
-                  <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
+                  <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-1">
                     <span>{count} Candidates</span>
-                    <span className="font-bold text-slate-200">{subs.length} Subjects</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-200">{subs.length} Subjects</span>
                   </div>
 
                   {/* Isolated subjects preview pills */}
-                  <div className="flex flex-wrap gap-1 pt-1 border-t border-darkBorder/60">
+                  <div className="flex flex-wrap gap-1 pt-1 border-t border-slate-200 dark:border-darkBorder/60">
                     {subs.slice(0, 3).map((sub) => (
                       <span
                         key={sub.id}
-                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-900 text-slate-300 border border-darkBorder"
+                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-darkBorder shadow-xs"
                       >
                         {sub.name}
                       </span>
@@ -202,29 +202,29 @@ export default function DashboardOverview({
         </div>
 
         {/* Real-time CBT System Logs */}
-        <div className="bg-slate-900 border border-darkBorder p-6 rounded-2xl space-y-4 shadow-xl flex flex-col justify-between">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder p-6 rounded-2xl space-y-4 shadow-xs dark:shadow-xl flex flex-col justify-between">
           <div>
             <div className="flex items-center space-x-2 text-brand font-bold text-xs uppercase tracking-wider mb-1">
               <Zap className="w-4 h-4" />
               <span>Real-Time CBT Security Stream</span>
             </div>
-            <h3 className="text-base font-bold text-slate-100">Audit & System Activity</h3>
-            <p className="text-xs text-slate-400 mt-1">Live audit trail of CBT system actions</p>
+            <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Audit & System Activity</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Live audit trail of CBT system actions</p>
 
             <div className="mt-4 space-y-3">
               {activityLogs.map((log) => (
                 <div
                   key={log.id}
-                  className="p-3 bg-slate-950 rounded-xl border border-darkBorder flex items-start space-x-3 text-xs"
+                  className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-darkBorder flex items-start space-x-3 text-xs"
                 >
                   <div className="w-2 h-2 rounded-full bg-brand shrink-0 mt-1.5" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-slate-200 font-medium leading-snug">{log.event}</p>
+                    <p className="text-slate-800 dark:text-slate-200 font-medium leading-snug">{log.event}</p>
                     <div className="flex items-center space-x-2 mt-1 text-[10px] text-slate-500">
-                      <Clock className="w-3 h-3 text-slate-600" />
+                      <Clock className="w-3 h-3 text-slate-400 dark:text-slate-600" />
                       <span>{log.time}</span>
                       <span>•</span>
-                      <span className="font-bold text-slate-400">{log.category}</span>
+                      <span className="font-bold text-slate-600 dark:text-slate-400">{log.category}</span>
                     </div>
                   </div>
                 </div>
@@ -232,8 +232,8 @@ export default function DashboardOverview({
             </div>
           </div>
 
-          <div className="pt-3 border-t border-darkBorder">
-            <div className="p-3 bg-brand/10 border border-brand/30 rounded-xl flex items-center space-x-2 text-xs text-brand">
+          <div className="pt-3 border-t border-slate-200 dark:border-darkBorder">
+            <div className="p-3 bg-brand/10 border border-brand/30 rounded-xl flex items-center space-x-2 text-xs text-brand font-semibold">
               <ShieldCheck className="w-4 h-4 shrink-0" />
               <span>Anti-Cheating Lockout Engine Active</span>
             </div>

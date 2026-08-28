@@ -33,18 +33,18 @@ export default function AdminLoginGate({ onLoginSuccess }) {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-gradient-to-br from-[#080E1A] via-[#0B132B] to-[#050811] text-slate-100 font-sans selection:bg-orange-500 selection:text-white">
-      <div className="w-full max-w-4xl bg-[#0F192E] border border-[#1E293B] rounded-[24px] shadow-2xl overflow-hidden grid grid-cols-1 md:grid-cols-12 z-10">
+    <div className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-slate-100 dark:bg-gradient-to-br dark:from-[#080E1A] dark:via-[#0B132B] dark:to-[#050811] text-slate-900 dark:text-slate-100 font-sans selection:bg-orange-500 selection:text-white transition-colors">
+      <div className="w-full max-w-4xl bg-white dark:bg-[#0F192E] border border-slate-200 dark:border-[#1E293B] rounded-[24px] shadow-2xl overflow-hidden grid grid-cols-1 md:grid-cols-12 z-10">
         
         {/* Left Brand Panel */}
-        <div className="md:col-span-5 bg-gradient-to-b from-[#0B132B] to-[#0D1730] p-8 md:p-10 flex flex-col justify-between border-b md:border-b-0 md:border-r border-[#1E293B] relative overflow-hidden">
+        <div className="md:col-span-5 bg-slate-50 dark:bg-gradient-to-b dark:from-[#0B132B] dark:to-[#0D1730] p-8 md:p-10 flex flex-col justify-between border-b md:border-b-0 md:border-r border-slate-200 dark:border-[#1E293B] relative overflow-hidden">
           {/* Subtle background glow */}
           <div className="absolute -top-16 -left-16 w-48 h-48 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute -bottom-16 -right-16 w-48 h-48 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
           
           <div className="relative z-10 space-y-6">
             {/* School Logo Crest */}
-            <div className="w-20 h-20 bg-slate-900/90 border-2 border-slate-700/60 rounded-2xl p-2 shadow-xl flex items-center justify-center">
+            <div className="w-20 h-20 bg-white dark:bg-slate-900/90 border-2 border-slate-200 dark:border-slate-700/60 rounded-2xl p-2 shadow-md flex items-center justify-center">
               <img
                 src="school_logo.jpg"
                 alt="Anthony Whitebridge Academy Logo"
@@ -54,52 +54,52 @@ export default function AdminLoginGate({ onLoginSuccess }) {
             </div>
 
             <div>
-              <h1 className="text-xl md:text-2xl font-black tracking-tight text-white leading-tight uppercase">
+              <h1 className="text-xl md:text-2xl font-black tracking-tight text-slate-900 dark:text-white leading-tight uppercase">
                 ANTHONY WHITEBRIDGE
               </h1>
-              <p className="text-xs font-bold text-orange-400 tracking-widest uppercase mt-0.5">
+              <p className="text-xs font-bold text-orange-600 dark:text-orange-400 tracking-widest uppercase mt-0.5">
                 ACADEMY CBT PLATFORM
               </p>
-              <p className="text-xs text-slate-400 font-medium italic mt-2">
-                "...the future begins here"
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium italic mt-2">
+                &quot;...the future begins here&quot;
               </p>
             </div>
           </div>
 
           <div className="relative z-10 mt-8 space-y-4">
             {/* Restricted Badge */}
-            <div className="inline-flex items-center space-x-2 bg-orange-500/10 border border-orange-500/30 text-orange-400 text-[11px] font-bold tracking-wider uppercase px-3.5 py-1.5 rounded-full">
+            <div className="inline-flex items-center space-x-2 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/30 text-orange-600 dark:text-orange-400 text-[11px] font-bold tracking-wider uppercase px-3.5 py-1.5 rounded-full">
               <Lock className="w-3.5 h-3.5" />
               <span>RESTRICTED ACCESS • ADMIN ONLY</span>
             </div>
 
-            <p className="text-[11px] text-slate-500 leading-relaxed">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
               Authorized administrative control center for exam configuration, candidate roster management, and live score telemetry.
             </p>
           </div>
         </div>
 
         {/* Right Login Panel */}
-        <div className="md:col-span-7 bg-[#0F192E] p-8 md:p-10 flex flex-col justify-between space-y-6">
+        <div className="md:col-span-7 bg-white dark:bg-[#0F192E] p-8 md:p-10 flex flex-col justify-between space-y-6">
           <div>
             {/* Header */}
             <div className="space-y-1 mb-8">
               <div className="flex items-center space-x-2">
-                <div className="p-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-400">
+                <div className="p-2 rounded-xl bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 text-orange-600 dark:text-orange-400">
                   <KeyRound className="w-5 h-5" />
                 </div>
-                <h2 className="text-2xl font-black text-white tracking-tight">
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                   Welcome Admin
                 </h2>
               </div>
-              <p className="text-sm font-medium text-slate-400">
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
                 Enter password to continue
               </p>
             </div>
 
             {/* Error Banner */}
             {error && (
-              <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-semibold flex items-center space-x-3 animate-fadeIn">
+              <div className="mb-6 p-4 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400 text-xs font-semibold flex items-center space-x-3 animate-fadeIn">
                 <ShieldAlert className="w-5 h-5 shrink-0" />
                 <span>{error}</span>
               </div>
@@ -108,11 +108,11 @@ export default function AdminLoginGate({ onLoginSuccess }) {
             {/* Single Input Form */}
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block">
                   Admin Passcode
                 </label>
                 <div className="relative flex items-center">
-                  <div className="absolute left-3.5 text-slate-500 pointer-events-none">
+                  <div className="absolute left-3.5 text-slate-400 dark:text-slate-500 pointer-events-none">
                     <Lock className="w-4 h-4" />
                   </div>
                   <input
@@ -122,12 +122,12 @@ export default function AdminLoginGate({ onLoginSuccess }) {
                     placeholder="ENTER ADMIN PASSWORD"
                     autoFocus
                     required
-                    className="w-full bg-[#080E1A] border border-[#1E293B] text-white text-sm font-mono tracking-wider placeholder-slate-600 rounded-xl pl-10 pr-10 py-3.5 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all uppercase"
+                    className="w-full bg-slate-50 dark:bg-[#080E1A] border border-slate-200 dark:border-[#1E293B] text-slate-900 dark:text-white text-sm font-mono tracking-wider placeholder-slate-400 dark:placeholder-slate-600 rounded-xl pl-10 pr-10 py-3.5 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all uppercase"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 text-slate-500 hover:text-slate-300 transition-colors p-1"
+                    className="absolute right-3.5 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors p-1 cursor-pointer"
                     tabIndex={-1}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -139,7 +139,7 @@ export default function AdminLoginGate({ onLoginSuccess }) {
               <button
                 type="submit"
                 disabled={loading || !password.trim()}
-                className="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-[#EA580C] to-[#F97316] hover:from-[#D97706] hover:to-[#EA580C] text-white text-sm font-bold tracking-wide uppercase shadow-lg shadow-orange-500/20 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center space-x-2 group"
+                className="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-[#EA580C] to-[#F97316] hover:from-[#D97706] hover:to-[#EA580C] text-white text-sm font-bold tracking-wide uppercase shadow-lg shadow-orange-500/20 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center space-x-2 group cursor-pointer"
               >
                 {loading ? (
                   <span className="flex items-center space-x-2">
@@ -160,9 +160,9 @@ export default function AdminLoginGate({ onLoginSuccess }) {
           </div>
 
           {/* Footer */}
-          <div className="pt-4 border-t border-[#1E293B]/60 text-center">
-            <p className="text-[11px] text-slate-500 font-medium flex items-center justify-center space-x-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          <div className="pt-4 border-t border-slate-200 dark:border-[#1E293B]/60 text-center">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center justify-center space-x-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>Session Protected • Local LAN Examination Engine</span>
             </p>
           </div>

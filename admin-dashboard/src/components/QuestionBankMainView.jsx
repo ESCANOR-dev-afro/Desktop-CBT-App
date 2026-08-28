@@ -500,16 +500,16 @@ export default function QuestionBankMainView({
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* Top Banner */}
-      <div className="bg-slate-900 border border-darkBorder p-6 rounded-2xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder p-6 rounded-2xl shadow-xs dark:shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 transition-colors">
         <div>
           <div className="flex items-center space-x-2 text-brand font-bold text-xs uppercase tracking-wider mb-1">
             <BookOpen className="w-4 h-4" />
             <span>Multi-Slot Question Bank Engine</span>
           </div>
-          <h2 className="text-2xl font-extrabold text-slate-100">
+          <h2 className="text-2xl font-extrabold text-slate-900 dark:text-slate-100">
             Session & Term Scoped Assessment Bank Hub
           </h2>
-          <p className="text-xs text-slate-400 mt-1 max-w-2xl">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-2xl">
             Supports 4 independent assessment slots per subject with zero data conflicts or manual question deletion required.
           </p>
         </div>
@@ -517,7 +517,7 @@ export default function QuestionBankMainView({
         <div className="flex items-center space-x-3 shrink-0">
           <button
             onClick={fetchBankQuestions}
-            className="p-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 border border-darkBorder text-xs font-semibold transition-all flex items-center space-x-1.5 cursor-pointer"
+            className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-darkBorder text-xs font-semibold transition-all flex items-center space-x-1.5 cursor-pointer shadow-xs"
             title="Refresh questions from database"
           >
             <RefreshCw className={`w-4 h-4 ${loadingQuestions ? 'animate-spin text-brand' : ''}`} />
@@ -535,30 +535,30 @@ export default function QuestionBankMainView({
       </div>
 
       {/* Academic Session & Term Scoping Toolbar */}
-      <div className="bg-slate-900 border border-darkBorder p-4 rounded-2xl shadow-lg flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder p-4 rounded-2xl shadow-xs dark:shadow-lg flex flex-wrap items-center justify-between gap-4 transition-colors">
         <div className="flex items-center space-x-3">
-          <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Academic Session:</span>
+          <span className="text-xs font-extrabold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Academic Session:</span>
           <select
             value={selectedSession}
             onChange={(e) => setSelectedSession(e.target.value)}
-            className="bg-slate-950 border border-slate-700 text-white text-xs font-bold rounded-xl px-3 py-2 focus:border-brand focus:outline-none"
+            className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-bold rounded-xl px-3 py-2 focus:border-brand focus:outline-none cursor-pointer"
           >
-            <option value="2026/2027">2026/2027 Session</option>
-            <option value="2027/2028">2027/2028 Session</option>
-            <option value="2028/2029">2028/2029 Session</option>
+            <option value="2026/2027" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">2026/2027 Session</option>
+            <option value="2027/2028" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">2027/2028 Session</option>
+            <option value="2028/2029" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">2028/2029 Session</option>
           </select>
         </div>
 
         <div className="flex items-center space-x-2">
-          <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mr-1">Academic Term:</span>
+          <span className="text-xs font-extrabold text-slate-600 dark:text-slate-400 uppercase tracking-wider mr-1">Academic Term:</span>
           {['1st Term', '2nd Term', '3rd Term'].map((t) => (
             <button
               key={t}
               onClick={() => setSelectedTerm(t)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 selectedTerm === t
-                  ? 'bg-slate-100 text-slate-950 shadow'
-                  : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                  ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950 shadow'
+                  : 'bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-800'
               }`}
             >
               {t}
@@ -568,7 +568,7 @@ export default function QuestionBankMainView({
       </div>
 
       {/* Question Bank Class Scope Tabs */}
-      <div className="bg-slate-950 p-2 rounded-2xl border border-darkBorder flex items-center space-x-2 overflow-x-auto">
+      <div className="bg-slate-100 dark:bg-slate-950 p-2 rounded-2xl border border-slate-200 dark:border-darkBorder flex items-center space-x-2 overflow-x-auto transition-colors">
         {questionBankClasses.map((cls) => {
           const isActive = activeClass === cls;
           const classSubjectList = safeSubjectsByClass[cls] || safeSubjectsByClass[cls.replace(/\s+(Science|Art|Commercial)$/i, '')] || [];
@@ -586,14 +586,14 @@ export default function QuestionBankMainView({
               className={`flex items-center space-x-2.5 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all duration-200 shrink-0 cursor-pointer ${
                 isActive
                   ? 'bg-brand text-white shadow-lg shadow-brand/25 brand-glow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-900/60'
               }`}
             >
               <Layers className="w-4 h-4" />
               <span>{cls} Bank</span>
               <span
                 className={`text-[10px] px-2 py-0.5 rounded-full ${
-                  isActive ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-400'
+                  isActive ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                 }`}
               >
                 {classSubjectCount} Subj
@@ -604,7 +604,7 @@ export default function QuestionBankMainView({
       </div>
 
       {/* 4 Assessment Slots Tabs Bar */}
-      <div className="bg-slate-900/90 border border-slate-800 p-2 rounded-2xl grid grid-cols-2 md:grid-cols-4 gap-2">
+      <div className="bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-2 rounded-2xl grid grid-cols-2 md:grid-cols-4 gap-2 shadow-xs transition-colors">
         {[
           { id: 'welcome_test', label: '1. Welcome / Mock Test', count: slotCounts.welcome_test || 0 },
           { id: 'midterm_ca', label: '2. Mid-Term CA Test', count: slotCounts.midterm_ca || 0 },
@@ -622,11 +622,11 @@ export default function QuestionBankMainView({
               className={`flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 isSlotActive
                   ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg shadow-orange-500/20 font-black'
-                  : 'bg-slate-950/60 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                  : 'bg-slate-50 dark:bg-slate-950/60 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
               }`}
             >
               <span>{slot.label}</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ${isSlotActive ? 'bg-black/25 text-white font-bold' : 'bg-slate-800 text-slate-400'}`}>
+              <span className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ${isSlotActive ? 'bg-black/25 text-white font-bold' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}>
                 {slot.count} Qs
               </span>
             </button>
@@ -637,22 +637,22 @@ export default function QuestionBankMainView({
       {/* Controls Bar: Subject Selector & Docx/Excel File Dropzone */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Subject Scope & Assessment Mode Configurator */}
-        <div className="bg-slate-900 border border-darkBorder p-5 rounded-2xl flex flex-col justify-between space-y-4 shadow-xl">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder p-5 rounded-2xl flex flex-col justify-between space-y-4 shadow-xs dark:shadow-xl transition-colors">
           <div>
             <div className="flex items-center space-x-2 text-brand font-bold text-xs uppercase tracking-wider mb-1">
               <ShieldCheck className="w-4 h-4" />
               <span>Subject & Assessment Config</span>
             </div>
-            <h3 className="text-base font-bold text-slate-100">
+            <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
               {activeClass} Subject Selector
             </h3>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Select an isolated subject for {activeClass} and configure pool delivery rules.
             </p>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               Select Target Subject *
             </label>
             <select
@@ -662,16 +662,16 @@ export default function QuestionBankMainView({
                 setSelectedSubject(sub);
                 if (!sub) setDbQuestions([]);
               }}
-              className="w-full bg-slate-900 border border-slate-700 text-white text-xs rounded-xl px-3.5 py-2.5 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 font-bold shadow-sm cursor-pointer"
+              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs rounded-xl px-3.5 py-2.5 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 font-bold shadow-xs cursor-pointer"
             >
-              <option value="" className="bg-[#0f172a] text-slate-400 py-1.5 font-medium">
+              <option value="" className="bg-white dark:bg-[#0f172a] text-slate-400 py-1.5 font-medium">
                 -- Select Target Subject --
               </option>
               {availableSubjects.map((sub) => {
                 const subName = getSubName(sub);
                 const subKey = typeof sub === 'string' ? sub : (sub.id || subName);
                 return (
-                  <option key={subKey} value={subName} className="bg-[#0f172a] text-white py-1.5 font-medium">
+                  <option key={subKey} value={subName} className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-white py-1.5 font-medium">
                     {subName}
                   </option>
                 );
@@ -680,22 +680,22 @@ export default function QuestionBankMainView({
           </div>
 
           {/* Assessment Mode Segmented Selector */}
-          <div className="pt-2 border-t border-darkBorder/60 space-y-2">
+          <div className="pt-2 border-t border-slate-200 dark:border-darkBorder/60 space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center space-x-1.5">
                 <Sliders className="w-3.5 h-3.5 text-brand" />
                 <span>Assessment Mode Preset *</span>
               </label>
             </div>
 
-            <div className="grid grid-cols-3 gap-1.5 bg-slate-950 p-1 rounded-xl border border-darkBorder">
+            <div className="grid grid-cols-3 gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-darkBorder">
               <button
                 type="button"
                 onClick={() => setAssessmentMode('TEST')}
                 className={`py-2 px-2 text-[11px] font-extrabold rounded-lg transition-all text-center cursor-pointer ${
                   assessmentMode === 'TEST'
                     ? 'bg-brand text-white shadow-md shadow-brand/20'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                 }`}
               >
                 CA Test (30 Qs)
@@ -706,7 +706,7 @@ export default function QuestionBankMainView({
                 className={`py-2 px-2 text-[11px] font-extrabold rounded-lg transition-all text-center cursor-pointer ${
                   assessmentMode === 'EXAM'
                     ? 'bg-brand text-white shadow-md shadow-brand/20'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                 }`}
               >
                 Examination (50 Qs)
@@ -717,7 +717,7 @@ export default function QuestionBankMainView({
                 className={`py-2 px-2 text-[11px] font-extrabold rounded-lg transition-all text-center cursor-pointer ${
                   assessmentMode === 'CUSTOM'
                     ? 'bg-brand text-white shadow-md shadow-brand/20'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                 }`}
               >
                 Custom Count
@@ -727,7 +727,7 @@ export default function QuestionBankMainView({
             {/* Custom Count Input */}
             {assessmentMode === 'CUSTOM' && (
               <div className="mt-2 animate-in fade-in duration-150">
-                <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
                   Questions to Deliver to Student (Custom N) *
                 </label>
                 <input
@@ -736,7 +736,7 @@ export default function QuestionBankMainView({
                   max="500"
                   value={customDeliveryCount}
                   onChange={(e) => setCustomDeliveryCount(e.target.value)}
-                  className="w-full bg-slate-950 border border-darkBorder text-slate-100 text-xs font-bold rounded-xl px-3 py-2 focus:border-brand focus:outline-none"
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-100 text-xs font-bold rounded-xl px-3 py-2 focus:border-brand focus:outline-none"
                   placeholder="e.g. 20, 40, 60"
                 />
               </div>
@@ -744,25 +744,25 @@ export default function QuestionBankMainView({
           </div>
 
           {/* Shuffling Controls */}
-          <div className="pt-2 border-t border-darkBorder/60 space-y-2">
+          <div className="pt-2 border-t border-slate-200 dark:border-darkBorder/60 space-y-2">
             <div className="flex items-center justify-between text-xs">
-              <label className="flex items-center space-x-2 text-slate-300 cursor-pointer">
+              <label className="flex items-center space-x-2 text-slate-700 dark:text-slate-300 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={shuffleQuestions}
                   onChange={(e) => setShuffleQuestions(e.target.checked)}
-                  className="w-4 h-4 rounded border-darkBorder text-brand focus:ring-brand accent-brand cursor-pointer"
+                  className="w-4 h-4 rounded border-slate-300 dark:border-darkBorder text-brand focus:ring-brand accent-brand cursor-pointer"
                 />
                 <span className="font-medium">Shuffle Question Order</span>
               </label>
             </div>
             <div className="flex items-center justify-between text-xs">
-              <label className="flex items-center space-x-2 text-slate-300 cursor-pointer">
+              <label className="flex items-center space-x-2 text-slate-700 dark:text-slate-300 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={shuffleOptions}
                   onChange={(e) => setShuffleOptions(e.target.checked)}
-                  className="w-4 h-4 rounded border-darkBorder text-brand focus:ring-brand accent-brand cursor-pointer"
+                  className="w-4 h-4 rounded border-slate-300 dark:border-darkBorder text-brand focus:ring-brand accent-brand cursor-pointer"
                 />
                 <span className="font-medium">Shuffle Option Order (A-D)</span>
               </label>
@@ -770,9 +770,9 @@ export default function QuestionBankMainView({
           </div>
 
           {/* Exam Duration Scheduling Input */}
-          <div className="pt-2 border-t border-darkBorder/60">
+          <div className="pt-2 border-t border-slate-200 dark:border-darkBorder/60">
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-slate-300">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                 Exam Duration (Minutes) *
               </label>
               <span className="text-[10px] text-slate-500 font-mono">
@@ -795,7 +795,7 @@ export default function QuestionBankMainView({
                     setExamDurationInput('45');
                   }
                 }}
-                className="w-24 bg-slate-950 border border-darkBorder text-slate-100 text-xs font-bold rounded-xl px-3 py-2 focus:border-brand focus:outline-none text-center"
+                className="w-24 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-100 text-xs font-bold rounded-xl px-3 py-2 focus:border-brand focus:outline-none text-center"
               />
               <button
                 type="button"
@@ -808,16 +808,16 @@ export default function QuestionBankMainView({
             </div>
           </div>
 
-          <div className="pt-3 border-t border-darkBorder flex items-center justify-between text-xs">
-            <span className="text-slate-400">Exam Activation Status:</span>
+          <div className="pt-3 border-t border-slate-200 dark:border-darkBorder flex items-center justify-between text-xs">
+            <span className="text-slate-500 dark:text-slate-400">Exam Activation Status:</span>
             <button
               type="button"
               onClick={handleToggleActivation}
               disabled={togglingActive}
               className={`px-3 py-1 rounded-xl text-[11px] font-bold border transition-all cursor-pointer flex items-center space-x-1.5 ${
                 isExamActive
-                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/25 shadow-sm shadow-emerald-500/10'
-                  : 'bg-rose-500/15 text-rose-400 border-rose-500/40 hover:bg-rose-500/25 shadow-sm shadow-rose-500/10'
+                  ? 'bg-emerald-50 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/40 hover:bg-emerald-100 dark:hover:bg-emerald-500/25 shadow-xs'
+                  : 'bg-rose-50 dark:bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-500/40 hover:bg-rose-100 dark:hover:bg-rose-500/25 shadow-xs'
               }`}
             >
               <CheckCircle className="w-3.5 h-3.5" />
@@ -840,20 +840,20 @@ export default function QuestionBankMainView({
               handleFileUpload(e.dataTransfer.files);
             }
           }}
-          className={`lg:col-span-2 border-2 border-dashed rounded-2xl p-6 transition-all flex flex-col items-center justify-center text-center ${
+          className={`lg:col-span-2 border-2 border-dashed rounded-2xl p-6 transition-all flex flex-col items-center justify-center text-center shadow-xs ${
             isDragging
               ? 'border-brand bg-brand/10 scale-[0.99]'
-              : 'border-slate-800 hover:border-brand/50 bg-slate-900/60'
+              : 'border-slate-300 dark:border-slate-800 hover:border-brand/50 bg-slate-50 dark:bg-slate-900/60'
           }`}
         >
           <div className="p-3.5 bg-brand/15 border border-brand/30 rounded-2xl text-brand mb-3">
             <UploadCloud className="w-8 h-8" />
           </div>
-          <h4 className="text-sm font-bold text-slate-100 mb-1">
+          <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">
             Upload Question Document, Spreadsheet & Diagram Images
           </h4>
-          <p className="text-xs text-slate-400 max-w-md mb-4 leading-relaxed">
-            Drag & drop spreadsheet (<strong className="text-slate-200">.xlsx / .csv</strong>) or a single <strong className="text-slate-200">.zip package</strong> containing questions & diagram images. Previous outdated questions will be overwritten automatically.
+          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mb-4 leading-relaxed">
+            Drag & drop spreadsheet (<strong className="text-slate-800 dark:text-slate-200">.xlsx / .csv</strong>) or a single <strong className="text-slate-800 dark:text-slate-200">.zip package</strong> containing questions & diagram images. Previous outdated questions will be overwritten automatically.
           </p>
 
           <div className="flex flex-wrap items-center justify-center gap-3 mb-4">
@@ -886,10 +886,10 @@ export default function QuestionBankMainView({
             <button
               type="button"
               onClick={() => setIsClearModalOpen(true)}
-              className="px-4 py-2.5 rounded-xl bg-rose-600/15 hover:bg-rose-600/25 text-rose-400 border border-rose-500/40 text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer shadow-sm shadow-rose-500/10"
+              className="px-4 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-600/15 hover:bg-rose-100 dark:hover:bg-rose-600/25 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/40 text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer shadow-xs"
               title={`Clear all questions for ${activeClass} - ${selectedSubject}`}
             >
-              <Trash2 className="w-4 h-4 text-rose-400" />
+              <Trash2 className="w-4 h-4 text-rose-500 dark:text-rose-400" />
               <span>Clear Subject Questions</span>
             </button>
 
@@ -897,16 +897,16 @@ export default function QuestionBankMainView({
               type="button"
               onClick={handleManualRefresh}
               disabled={isRefreshing}
-              className="px-4 py-2.5 rounded-xl bg-slate-950 hover:bg-slate-900 text-slate-300 border border-slate-700 text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer shadow-sm disabled:opacity-50"
+              className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer shadow-xs disabled:opacity-50"
               title="Refresh questions and slot counts"
             >
-              <RefreshCw className={`w-4 h-4 text-orange-400 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 text-orange-500 dark:text-orange-400 ${isRefreshing ? 'animate-spin' : ''}`} />
               <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
             </button>
           </div>
 
           {/* Assessment Mode Status Summary Pill */}
-          <div className="w-full bg-slate-950 p-3 rounded-xl border border-darkBorder flex items-center justify-between text-xs text-slate-300">
+          <div className="w-full bg-slate-100 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-darkBorder flex items-center justify-between text-xs text-slate-700 dark:text-slate-300 transition-colors">
             <div className="flex items-center space-x-2 truncate">
               <Sparkles className="w-4 h-4 text-brand shrink-0" />
               <span className="truncate">
@@ -926,22 +926,22 @@ export default function QuestionBankMainView({
       </div>
 
       {/* Scannable Question Bank Table View */}
-      <div className="bg-slate-900 border border-darkBorder rounded-2xl p-5 space-y-4 shadow-xl">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl p-5 space-y-4 shadow-xs dark:shadow-xl transition-colors">
         {/* Search, Filter, Page Size Controls */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pb-4 border-b border-darkBorder">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-darkBorder">
           <div className="relative flex-1 sm:w-80">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input
               type="text"
               placeholder={`Search ${activeClass} ${selectedSubject} questions...`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-950 text-xs pl-9 pr-4 py-2.5 rounded-xl border border-darkBorder focus:outline-none focus:border-brand text-slate-200"
+              className="w-full bg-slate-50 dark:bg-slate-950 text-xs pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-darkBorder focus:outline-none focus:border-brand text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 transition-colors"
             />
           </div>
 
           <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2 text-xs text-slate-400">
+            <div className="flex items-center space-x-2 text-xs text-slate-500 dark:text-slate-400">
               <span>Show:</span>
               <select
                 value={pageSize}
@@ -949,7 +949,7 @@ export default function QuestionBankMainView({
                   const val = e.target.value === 'All' ? 'All' : parseInt(e.target.value, 10);
                   setPageSize(val);
                 }}
-                className="bg-slate-950 border border-darkBorder text-slate-200 font-bold rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-brand"
+                className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder text-slate-800 dark:text-slate-200 font-bold rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-brand cursor-pointer"
               >
                 <option value={10}>10 per page</option>
                 <option value={25}>25 per page</option>
@@ -959,8 +959,8 @@ export default function QuestionBankMainView({
               </select>
             </div>
 
-            <div className="text-xs text-slate-400 font-medium">
-              Showing <strong className="text-slate-100">{paginatedQuestions.length}</strong> of{' '}
+            <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+              Showing <strong className="text-slate-900 dark:text-slate-100">{paginatedQuestions.length}</strong> of{' '}
               <strong className="text-brand font-bold">{totalQuestions}</strong> questions in Bank
             </div>
           </div>
@@ -968,14 +968,14 @@ export default function QuestionBankMainView({
 
         {/* Table Body */}
         {!selectedSubject ? (
-          <div className="p-12 text-center text-slate-400 space-y-4 bg-slate-950/60 rounded-2xl border border-slate-800 my-2">
-            <div className="w-14 h-14 rounded-2xl bg-orange-500/10 border border-orange-500/20 text-orange-400 flex items-center justify-center mx-auto shadow-inner">
+          <div className="p-12 text-center text-slate-500 dark:text-slate-400 space-y-4 bg-slate-50 dark:bg-slate-950/60 rounded-2xl border border-slate-200 dark:border-slate-800 my-2">
+            <div className="w-14 h-14 rounded-2xl bg-orange-500/10 border border-orange-500/20 text-orange-500 dark:text-orange-400 flex items-center justify-center mx-auto shadow-inner">
               <BookOpen className="w-7 h-7" />
             </div>
             <div className="max-w-md mx-auto">
-              <h4 className="text-base font-bold text-white tracking-tight">Select a Subject to Load Questions</h4>
-              <p className="text-xs text-slate-400 mt-1">
-                Please select a Subject from the dropdown above to view or upload questions for <span className="text-orange-400 font-semibold">{activeClass}</span> under <span className="text-orange-400 font-semibold">{
+              <h4 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">Select a Subject to Load Questions</h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Please select a Subject from the dropdown above to view or upload questions for <span className="text-orange-600 dark:text-orange-400 font-semibold">{activeClass}</span> under <span className="text-orange-600 dark:text-orange-400 font-semibold">{
                   selectedSlot === 'welcome_test' ? '1. Welcome / Mock Test' :
                   selectedSlot === 'midterm_ca' ? '2. Mid-Term CA Test' :
                   selectedSlot === 'examination' ? '3. Examination' : '4. Custom Assessment'
@@ -984,31 +984,31 @@ export default function QuestionBankMainView({
             </div>
           </div>
         ) : loadingQuestions ? (
-          <div className="p-12 text-center text-slate-400 space-y-3">
+          <div className="p-12 text-center text-slate-500 dark:text-slate-400 space-y-3">
             <RefreshCw className="w-8 h-8 animate-spin text-brand mx-auto" />
             <p className="text-xs font-semibold">Loading questions for {activeClass} - {selectedSubject}...</p>
           </div>
         ) : filteredQuestions.length === 0 ? (
           <div className="p-12 text-center text-slate-500 space-y-2">
-            <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-brand/30 p-1 mx-auto mb-3 opacity-60 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-brand/30 p-1 mx-auto mb-3 opacity-60 flex items-center justify-center shadow-xs">
               <img src="school_logo.jpg" alt="AWBA Crest" className="w-full h-full object-contain rounded-xl" />
             </div>
-            <p className="text-sm font-bold text-slate-300">
-              No questions currently uploaded for <span className="text-white font-semibold">{activeClass} - {selectedSubject}</span> under <span className="text-orange-400 font-semibold">{
+            <p className="text-sm font-bold text-slate-800 dark:text-slate-300">
+              No questions currently uploaded for <span className="text-slate-900 dark:text-white font-semibold">{activeClass} - {selectedSubject}</span> under <span className="text-orange-600 dark:text-orange-400 font-semibold">{
                 selectedSlot === 'welcome_test' ? '1. Welcome / Mock Test' :
                 selectedSlot === 'midterm_ca' ? '2. Mid-Term CA Test' :
                 selectedSlot === 'examination' ? '3. Examination' : '4. Custom Assessment'
               }</span>.
             </p>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Drag &amp; drop a spreadsheet or click &quot;+ Add Question Manually&quot; to populate this assessment.
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-darkBorder">
+          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-darkBorder">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-950 border-b border-darkBorder text-slate-400 font-bold uppercase text-[11px] tracking-wider">
+                <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-darkBorder text-slate-600 dark:text-slate-400 font-bold uppercase text-[11px] tracking-wider">
                   <th className="p-3.5 w-12 text-center">#</th>
                   <th className="p-3.5">Question Text & Stem</th>
                   <th className="p-3.5 w-64">Options Preview (A - D)</th>
@@ -1017,7 +1017,7 @@ export default function QuestionBankMainView({
                   <th className="p-3.5 w-28 text-center">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-darkBorder/60 bg-slate-900/40">
+              <tbody className="divide-y divide-slate-100 dark:divide-darkBorder/60 bg-white dark:bg-slate-900/40 text-slate-800 dark:text-slate-200">
                 {paginatedQuestions.map((q, idx) => {
                   const absoluteIndex = startIndex + idx + 1;
                   const stemText = q.question_text || q.stem || '';
@@ -1029,7 +1029,7 @@ export default function QuestionBankMainView({
                   const correctKey = q.correct_answer || (q.correctIndex === 1 ? 'B' : q.correctIndex === 2 ? 'C' : q.correctIndex === 3 ? 'D' : 'A');
 
                   return (
-                    <tr key={q.id || idx} className="hover:bg-slate-900/90 transition-colors">
+                    <tr key={q.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-900/90 transition-colors">
                       {/* S/N Index */}
                       <td className="p-3.5 text-center font-bold text-brand font-mono">
                         {absoluteIndex}
@@ -1038,12 +1038,12 @@ export default function QuestionBankMainView({
                       {/* Stem Text */}
                       <td className="p-3.5">
                         <div className="flex items-start justify-between space-x-2">
-                          <span className="text-slate-200 font-medium leading-relaxed">
+                          <span className="text-slate-900 dark:text-slate-200 font-medium leading-relaxed">
                             {truncatedStem}
                           </span>
                           <button
                             onClick={() => setPreviewQuestion(q)}
-                            className="p-1 rounded bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-brand border border-darkBorder transition-colors shrink-0 cursor-pointer"
+                            className="p-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-950 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-brand dark:hover:text-brand border border-slate-200 dark:border-darkBorder transition-colors shrink-0 cursor-pointer shadow-2xs"
                             title="Preview Full Question & Options"
                           >
                             <Eye className="w-3.5 h-3.5" />
@@ -1054,18 +1054,18 @@ export default function QuestionBankMainView({
                       {/* Options Preview */}
                       <td className="p-3.5">
                         <div className="space-y-1">
-                          <div className="truncate text-[11px] text-slate-300">
-                            <span className="font-bold text-slate-500 mr-1">A:</span> {optA}
+                          <div className="truncate text-[11px] text-slate-700 dark:text-slate-300">
+                            <span className="font-bold text-slate-400 dark:text-slate-500 mr-1">A:</span> {optA}
                           </div>
-                          <div className="truncate text-[11px] text-slate-300">
-                            <span className="font-bold text-slate-500 mr-1">B:</span> {optB}
+                          <div className="truncate text-[11px] text-slate-700 dark:text-slate-300">
+                            <span className="font-bold text-slate-400 dark:text-slate-500 mr-1">B:</span> {optB}
                           </div>
                         </div>
                       </td>
 
                       {/* Correct Key */}
                       <td className="p-3.5 text-center">
-                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 font-extrabold text-xs">
+                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-200 dark:border-emerald-500/40 text-emerald-600 dark:text-emerald-400 font-extrabold text-xs">
                           {correctKey}
                         </span>
                       </td>
@@ -1075,13 +1075,13 @@ export default function QuestionBankMainView({
                         {q.diagram_image_url ? (
                           <span
                             onClick={() => setPreviewQuestion(q)}
-                            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 text-[10px] font-bold cursor-pointer hover:bg-blue-500/25"
+                            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30 text-[10px] font-bold cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-500/25"
                           >
                             <ImageIcon className="w-3 h-3" />
                             <span>YES</span>
                           </span>
                         ) : (
-                          <span className="text-[10px] text-slate-500 font-semibold">No</span>
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold">No</span>
                         )}
                       </td>
 
@@ -1090,7 +1090,7 @@ export default function QuestionBankMainView({
                         <div className="flex items-center justify-center space-x-2">
                           <button
                             onClick={() => setPreviewQuestion(q)}
-                            className="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 text-slate-300 border border-darkBorder transition-colors cursor-pointer"
+                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-950 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-darkBorder transition-colors cursor-pointer shadow-2xs"
                             title="View Full Question"
                           >
                             <Eye className="w-3.5 h-3.5" />
@@ -1099,7 +1099,7 @@ export default function QuestionBankMainView({
                             <button
                               onClick={() => handleDeleteQuestion(q.id)}
                               disabled={deletingId === q.id}
-                              className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 transition-colors cursor-pointer shadow-2xs"
                               title="Delete Question"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -1117,10 +1117,10 @@ export default function QuestionBankMainView({
 
         {/* Pagination Bar */}
         {totalQuestions > 0 && !isPaginatedAll && (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-darkBorder text-xs text-slate-400">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-darkBorder text-xs text-slate-500 dark:text-slate-400">
             <div>
-              Showing <strong className="text-slate-200">{startIndex + 1}</strong> to{' '}
-              <strong className="text-slate-200">{Math.min(startIndex + numericPageSize, totalQuestions)}</strong> of{' '}
+              Showing <strong className="text-slate-800 dark:text-slate-200">{startIndex + 1}</strong> to{' '}
+              <strong className="text-slate-800 dark:text-slate-200">{Math.min(startIndex + numericPageSize, totalQuestions)}</strong> of{' '}
               <strong className="text-brand font-bold">{totalQuestions}</strong> questions
             </div>
 
@@ -1128,20 +1128,20 @@ export default function QuestionBankMainView({
               <button
                 onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                 disabled={validPage === 1}
-                className="px-3 py-1.5 rounded-xl bg-slate-950 border border-darkBorder text-slate-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1 font-semibold cursor-pointer"
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-950 dark:hover:bg-slate-900 border border-slate-200 dark:border-darkBorder text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1 font-semibold cursor-pointer shadow-xs"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
                 <span>Prev</span>
               </button>
 
-              <span className="px-3 py-1.5 rounded-xl bg-slate-900 border border-darkBorder font-mono font-bold text-slate-200">
+              <span className="px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-darkBorder font-mono font-bold text-slate-800 dark:text-slate-200">
                 Page {validPage} of {totalPages}
               </span>
 
               <button
                 onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                 disabled={validPage === totalPages}
-                className="px-3 py-1.5 rounded-xl bg-slate-950 border border-darkBorder text-slate-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1 font-semibold cursor-pointer"
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-950 dark:hover:bg-slate-900 border border-slate-200 dark:border-darkBorder text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1 font-semibold cursor-pointer shadow-xs"
               >
                 <span>Next</span>
                 <ChevronRight className="w-3.5 h-3.5" />
@@ -1154,19 +1154,19 @@ export default function QuestionBankMainView({
       {/* Full Question Preview Modal */}
       {previewQuestion && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-slate-900 border border-darkBorder w-full max-w-2xl rounded-2xl shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-darkBorder pb-3">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder w-full max-w-2xl rounded-2xl shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto transition-colors">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-darkBorder pb-3">
               <div className="flex items-center space-x-2">
                 <span className="w-7 h-7 rounded-lg bg-brand/15 border border-brand/30 text-brand font-extrabold flex items-center justify-center text-xs">
                   Q
                 </span>
-                <h3 className="text-base font-extrabold text-slate-100">
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
                   Full Question Preview #{previewQuestion.id || ''}
                 </h3>
               </div>
               <button
                 onClick={() => setPreviewQuestion(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1174,10 +1174,10 @@ export default function QuestionBankMainView({
 
             {/* Stem Statement */}
             <div>
-              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+              <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1">
                 Question Statement / Stem:
               </label>
-              <p className="text-xs text-slate-100 bg-slate-950 p-4 rounded-xl border border-darkBorder leading-relaxed font-medium">
+              <p className="text-xs text-slate-900 dark:text-slate-100 bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-200 dark:border-darkBorder leading-relaxed font-medium">
                 {previewQuestion.question_text || previewQuestion.stem}
               </p>
             </div>
@@ -1185,14 +1185,14 @@ export default function QuestionBankMainView({
             {/* Diagram Image Preview */}
             {previewQuestion.diagram_image_url && (
               <div>
-                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1">
                   Linked Diagram Asset:
                 </label>
-                <div className="p-3 bg-slate-950 border border-darkBorder rounded-xl text-center">
+                <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder rounded-xl text-center">
                   <img
                     src={previewQuestion.diagram_image_url.startsWith('/') ? previewQuestion.diagram_image_url : `/${previewQuestion.diagram_image_url}`}
                     alt="Question Diagram"
-                    className="max-h-60 max-w-full object-contain mx-auto rounded-lg border border-darkBorder"
+                    className="max-h-60 max-w-full object-contain mx-auto rounded-lg border border-slate-200 dark:border-darkBorder"
                   />
                 </div>
               </div>
@@ -1200,7 +1200,7 @@ export default function QuestionBankMainView({
 
             {/* Options List */}
             <div>
-              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+              <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-2">
                 Multiple-Choice Options & Correct Answer Key:
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1218,20 +1218,20 @@ export default function QuestionBankMainView({
                       key={opt.key}
                       className={`p-3 rounded-xl text-xs font-medium border flex items-center justify-between ${
                         isCorrect
-                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 font-bold'
-                          : 'bg-slate-950 border-darkBorder text-slate-300'
+                          ? 'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-300 dark:border-emerald-500/40 text-emerald-800 dark:text-emerald-300 font-bold'
+                          : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-darkBorder text-slate-700 dark:text-slate-300'
                       }`}
                     >
                       <div className="flex items-center space-x-2 truncate">
                         <span className={`w-5 h-5 rounded flex items-center justify-center font-bold text-[10px] ${
-                          isCorrect ? 'bg-emerald-500 text-slate-950' : 'bg-slate-900 text-slate-400'
+                          isCorrect ? 'bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-900 text-slate-600 dark:text-slate-400'
                         }`}>
                           {opt.key}
                         </span>
                         <span className="truncate">{opt.text}</span>
                       </div>
                       {isCorrect && (
-                        <span className="flex items-center space-x-1 text-[10px] font-extrabold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full shrink-0">
+                        <span className="flex items-center space-x-1 text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-500/20 px-2 py-0.5 rounded-full shrink-0">
                           <Check className="w-3 h-3" />
                           <span>CORRECT</span>
                         </span>
@@ -1257,14 +1257,14 @@ export default function QuestionBankMainView({
       {/* Manual Question Modal */}
       {isAddQuestionModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-slate-900 border border-darkBorder w-full max-w-xl rounded-2xl shadow-2xl p-6 space-y-4">
-            <h3 className="text-base font-extrabold text-slate-100">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder w-full max-w-xl rounded-2xl shadow-2xl p-6 space-y-4 transition-colors">
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
               Add Question to {activeClass} - {selectedSubject}
             </h3>
 
             <form onSubmit={handleManualAddQuestion} className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Question Text / Stem *
                 </label>
                 <textarea
@@ -1272,67 +1272,67 @@ export default function QuestionBankMainView({
                   value={newStem}
                   onChange={(e) => setNewStem(e.target.value)}
                   placeholder="Enter full question statement..."
-                  className="w-full bg-slate-950 text-xs p-3 rounded-xl border border-darkBorder text-slate-200 focus:outline-none focus:border-brand"
+                  className="w-full bg-slate-50 dark:bg-slate-950 text-xs p-3 rounded-xl border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-200 focus:outline-none focus:border-brand"
                   required
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Option A *</label>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Option A *</label>
                   <input
                     type="text"
                     value={optA}
                     onChange={(e) => setOptA(e.target.value)}
-                    className="w-full bg-slate-950 text-xs p-2.5 rounded-xl border border-darkBorder text-slate-200 focus:outline-none focus:border-brand"
+                    className="w-full bg-slate-50 dark:bg-slate-950 text-xs p-2.5 rounded-xl border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-200 focus:outline-none focus:border-brand"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Option B *</label>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Option B *</label>
                   <input
                     type="text"
                     value={optB}
                     onChange={(e) => setOptB(e.target.value)}
-                    className="w-full bg-slate-950 text-xs p-2.5 rounded-xl border border-darkBorder text-slate-200 focus:outline-none focus:border-brand"
+                    className="w-full bg-slate-50 dark:bg-slate-950 text-xs p-2.5 rounded-xl border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-200 focus:outline-none focus:border-brand"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Option C *</label>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Option C *</label>
                   <input
                     type="text"
                     value={optC}
                     onChange={(e) => setOptC(e.target.value)}
-                    className="w-full bg-slate-950 text-xs p-2.5 rounded-xl border border-darkBorder text-slate-200 focus:outline-none focus:border-brand"
+                    className="w-full bg-slate-50 dark:bg-slate-950 text-xs p-2.5 rounded-xl border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-200 focus:outline-none focus:border-brand"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Option D *</label>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Option D *</label>
                   <input
                     type="text"
                     value={optD}
                     onChange={(e) => setOptD(e.target.value)}
-                    className="w-full bg-slate-950 text-xs p-2.5 rounded-xl border border-darkBorder text-slate-200 focus:outline-none focus:border-brand"
+                    className="w-full bg-slate-50 dark:bg-slate-950 text-xs p-2.5 rounded-xl border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-200 focus:outline-none focus:border-brand"
                     required
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Correct Answer Key *
                 </label>
                 <select
                   value={correctAns}
                   onChange={(e) => setCorrectAns(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 text-white text-xs px-3 py-2 rounded-xl font-bold focus:outline-none focus:border-orange-500"
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs px-3 py-2 rounded-xl font-bold focus:outline-none focus:border-orange-500 cursor-pointer"
                 >
-                  <option value="A" className="bg-[#0f172a] text-white">Option A</option>
-                  <option value="B" className="bg-[#0f172a] text-white">Option B</option>
-                  <option value="C" className="bg-[#0f172a] text-white">Option C</option>
-                  <option value="D" className="bg-[#0f172a] text-white">Option D</option>
+                  <option value="A" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-white">Option A</option>
+                  <option value="B" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-white">Option B</option>
+                  <option value="C" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-white">Option C</option>
+                  <option value="D" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-white">Option D</option>
                 </select>
               </div>
 
@@ -1340,7 +1340,7 @@ export default function QuestionBankMainView({
                 <button
                   type="button"
                   onClick={() => setIsAddQuestionModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 cursor-pointer"
+                  className="px-4 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1359,32 +1359,32 @@ export default function QuestionBankMainView({
       {/* Clear Subject Questions Confirmation Modal */}
       {isClearModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-darkBorder rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative transition-colors">
             <button
               onClick={() => setIsClearModalOpen(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white cursor-pointer"
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-500/15 border border-rose-200 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 flex items-center justify-center">
               <Trash2 className="w-6 h-6" />
             </div>
 
             <div>
-              <h3 className="text-lg font-bold text-slate-100">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
                 Clear Subject Question Bank?
               </h3>
-              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                Are you sure you want to clear the question bank for <strong className="text-slate-100 font-bold">{activeClass} - {selectedSubject}</strong> only?
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1.5 leading-relaxed">
+                Are you sure you want to clear the question bank for <strong className="text-slate-900 dark:text-slate-100 font-bold">{activeClass} - {selectedSubject}</strong> only?
               </p>
             </div>
 
-            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-darkBorder">
+            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-200 dark:border-darkBorder">
               <button
                 type="button"
                 onClick={() => setIsClearModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-slate-200 transition-all cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-all cursor-pointer"
               >
                 Cancel
               </button>

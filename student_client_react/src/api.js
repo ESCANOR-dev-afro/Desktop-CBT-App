@@ -87,12 +87,22 @@ export const loginStudent = async (regNumber, surname) => {
 };
 
 /**
- * Fetch assigned exam papers for student (strictly active and uncompleted)
+ * Fetch assigned exam papers for student (all active configs with submission status)
  */
-export const getAssignedPapers = async (studentId, regNumber) => {
+export const getAssignedPapers = async (studentId, regNumber, className) => {
   const params = new URLSearchParams();
-  if (studentId) params.append('student_id', studentId);
-  if (regNumber) params.append('registration_no', regNumber);
+  if (studentId) {
+    params.append('student_id', studentId);
+    params.append('studentId', studentId);
+  }
+  if (regNumber) {
+    params.append('registration_no', regNumber);
+    params.append('regNumber', regNumber);
+    params.append('reg_number', regNumber);
+  }
+  if (className) {
+    params.append('class', className);
+  }
   try {
     const response = await apiClient.get(`/student/assigned-exams?${params.toString()}`);
     return response.data;
@@ -123,16 +133,21 @@ export const getExamQuestions = async (subject, studentId, sessionId, className,
 /**
  * Background autosave choice
  */
-export const autosaveAnswer = async (studentId, questionId, selectedOption) => {
+export const autosaveAnswer = async (studentId, questionId, selectedOption, extra = {}) => {
   try {
-    const response = await apiClient.post('/exam/autosave', {
+    const payload = {
       student_id: studentId,
+      studentId: studentId,
       question_id: questionId,
+      questionId: questionId,
       selected_option: selectedOption,
-    });
+      selectedOption: selectedOption,
+      ...extra,
+    };
+    const response = await apiClient.post('/exam/autosave', payload);
     return response.data;
   } catch (err) {
-    console.warn('Background autosave failed (retryable):', err.message);
+    console.warn('Background autosave notice:', err.message);
   }
 };
 
@@ -154,12 +169,18 @@ export const sendHeartbeat = async (studentId, sessionId) => {
 /**
  * Submit exam
  */
-export const submitExam = async (studentId, sessionId, userAnswers) => {
-  const response = await apiClient.post('/exam/submit', {
+export const submitExam = async (studentId, sessionId, userAnswers, subject, extraParams = {}) => {
+  const payload = {
     student_id: studentId,
+    studentId: studentId,
     session_id: sessionId,
+    sessionId: sessionId,
     user_answers: userAnswers,
-  });
+    answers: userAnswers,
+    subject: subject || undefined,
+    ...extraParams,
+  };
+  const response = await apiClient.post('/exam/submit', payload);
   return response.data;
 };
 

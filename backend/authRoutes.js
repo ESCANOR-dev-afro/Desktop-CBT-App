@@ -216,29 +216,50 @@ router.get('/subjects', async (req, res, next) => {
 });
 
 /**
- * POST /api/student/login (Alias: /api/login)
+ * Normalizes surname for compound, hyphenated, spaced, or underscore variations:
+ * Strips all whitespace, hyphens, underscores, and forces uppercase.
+ * e.g. "EKONG-PAUL" -> "EKONGPAUL", "EKONG PAUL" -> "EKONGPAUL", "Ekong_Paul" -> "EKONGPAUL"
+ */
+function normalizeSurname(str) {
+    return (str || '')
+        .toString()
+        .toUpperCase()
+        .replace(/[\s\-_]/g, '')
+        .trim();
+}
+
+/**
+ * POST /api/student/login (Aliases: /api/login, /api/auth/student-login, /api/auth/login)
  * 
- * Authenticates student using registration_no (normalized uppercase e.g. AWA26270042) & password/surname (UPPERCASE).
+ * Authenticates student using registration_no (normalized uppercase e.g. AWA26270042) & surname (compound normalized).
  * Unique registration numbers prevent collisions between students sharing identical surnames.
  */
 const handleStudentLogin = async (req, res, next) => {
     try {
-        const { reg_number, registration_no, regNo, surname, password, workstation_ip } = req.body;
+        const { reg_number, registration_no, regNo, regNumber, surname, password, workstation_ip } = req.body;
 
-        const rawReg = registration_no || reg_number || regNo;
-        const rawPass = password || surname;
+        const rawReg = registration_no || reg_number || regNo || regNumber;
+        const rawPass = surname || password;
 
         if (!rawReg || !rawPass) {
             return res.status(400).json({
                 success: false,
-                message: "Registration number and surname/password are required."
+                message: "Registration number and surname are required."
             });
         }
 
-        // Step a: Normalize registration_no to UPPERCASE (e.g., awa26270042 -> AWA26270042)
+        // Step a: Normalize registration_no to UPPERCASE and sanitize input surname
         const formattedRegNumber = String(rawReg).trim().toUpperCase();
         const formattedSurname = String(rawPass).trim().toUpperCase();
+        const normalizedInputSurname = normalizeSurname(rawPass);
         const clientIp = workstation_ip || req.ip || '127.0.0.1';
+
+        if (!formattedRegNumber || !normalizedInputSurname) {
+            return res.status(400).json({
+                success: false,
+                message: "Registration number and surname are required."
+            });
+        }
 
         // Step b: Query matching student record strictly by registration_no (guarantees collision safety)
         const studentSql = `
@@ -248,27 +269,32 @@ const handleStudentLogin = async (req, res, next) => {
         `;
         let student = await dbGet(studentSql, [formattedRegNumber, formattedRegNumber]);
 
-        // Step c: If student found by reg_no, verify surname/password
+        // Step c: If student found by reg_no, verify compound normalized surname/password
         if (student) {
             const dbSurname = String(student.surname || '').trim().toUpperCase();
+            const normalizedDbSurname = normalizeSurname(student.surname);
             const crypto = require('crypto');
             const passHash = crypto.createHash('sha256').update(formattedSurname).digest('hex');
 
-            const isSurnameMatch = dbSurname === formattedSurname;
-            const isPasswordMatch = student.password && (student.password === passHash || student.password === formattedSurname);
+            const isSurnameMatch = normalizedDbSurname === normalizedInputSurname || dbSurname === formattedSurname;
+            const isPasswordMatch = student.password && (
+                student.password === passHash ||
+                student.password === formattedSurname ||
+                normalizeSurname(student.password) === normalizedInputSurname
+            );
 
             if (!isSurnameMatch && !isPasswordMatch) {
-                console.log(`⚠️ [Login Password Mismatch]: Candidate Reg Number "${formattedRegNumber}" exists, but entered password/surname "${formattedSurname}" did not match DB surname "${dbSurname}".`);
+                console.log(`⚠️ [Login Password Mismatch]: Candidate Reg Number "${formattedRegNumber}" exists, but entered surname "${formattedSurname}" (normalized: "${normalizedInputSurname}") did not match DB surname "${student.surname}" (normalized: "${normalizedDbSurname}").`);
                 return res.status(401).json({
                     success: false,
-                    message: "Invalid Registration Number or Surname/Password. Please check your details and try again."
+                    message: "Invalid Surname. Please enter your surname as registered."
                 });
             }
         } else {
             console.log(`⚠️ [Login Unknown Reg Number]: Registration Number "${formattedRegNumber}" not found in database.`);
             return res.status(401).json({
                 success: false,
-                message: "Invalid Registration Number or Surname. Please check your details and try again."
+                message: "Invalid Registration Number. Please verify your ID."
             });
         }
 
@@ -355,8 +381,10 @@ const handleStudentLogin = async (req, res, next) => {
             message: "Login successful",
             student: {
                 id: student.id,
+                regNo: student.registration_no || student.reg_number,
                 reg_number: student.registration_no || student.reg_number,
                 registration_no: student.registration_no || student.reg_number,
+                name: student.first_name ? `${student.surname}, ${student.first_name}` : student.surname,
                 surname: student.surname,
                 first_name: student.first_name || '',
                 class: student.class,
@@ -377,6 +405,8 @@ const handleStudentLogin = async (req, res, next) => {
 
 router.post('/login', handleStudentLogin);
 router.post('/student/login', handleStudentLogin);
+router.post('/auth/student-login', handleStudentLogin);
+router.post('/auth/login', handleStudentLogin);
 
 /**
  * POST /api/student/verify-session
@@ -439,7 +469,8 @@ router.post('/student/verify-session', async (req, res, next) => {
 });
 
 /**
- * Fetch strictly active and uncompleted exams with question bank count > 0 for a student
+ * Fetch all active assessment configurations for a student's class tier, session, and term,
+ * enriched with per-subject student session / submission status.
  */
 async function fetchActiveExamsForStudent({ studentId, studentClass, session, term }) {
     let currentSession = session;
@@ -457,7 +488,8 @@ async function fetchActiveExamsForStudent({ studentId, studentClass, session, te
     const classVars = getClassVariations(studentClass);
     const classPlaceholders = classVars.map(() => 'LOWER(TRIM(ac.class)) = LOWER(TRIM(?))').join(' OR ');
 
-    // Strict SQL Join checking is_active = 1, session, term, class, and bank question count > 0
+    // Strict SQL Query checking is_active = 1, session, term, class, and bank question count > 0.
+    // Does NOT filter out submitted papers so the student dashboard displays full multi-subject status.
     const sql = `
         SELECT 
             ac.id AS config_id,
@@ -476,76 +508,140 @@ async function fetchActiveExamsForStudent({ studentId, studentClass, session, te
             1 AS is_active,
             COUNT(q.id) AS question_count
         FROM assessment_configs ac
-        JOIN questions q ON (
+        LEFT JOIN questions q ON (
             (LOWER(TRIM(q.class)) = LOWER(TRIM(ac.class)) OR (ac.class IS NULL OR TRIM(ac.class) = '') OR (q.class IS NULL OR TRIM(q.class) = ''))
             AND LOWER(TRIM(q.subject)) = LOWER(TRIM(ac.subject))
             AND (LOWER(TRIM(q.assessment_slot)) = LOWER(TRIM(ac.assessment_slot)) 
                  OR (LOWER(TRIM(q.assessment_slot)) = 'examination' AND LOWER(TRIM(ac.assessment_slot)) = 'terminal_exam')
                  OR (LOWER(TRIM(q.assessment_slot)) = 'custom_assessment' AND LOWER(TRIM(ac.assessment_slot)) = 'custom_exam'))
-            AND q.session = ac.session
-            AND q.term = ac.term
+            AND LOWER(TRIM(q.session)) = LOWER(TRIM(ac.session))
+            AND LOWER(TRIM(q.term)) = LOWER(TRIM(ac.term))
         )
         WHERE (${classPlaceholders ? '(' + classPlaceholders + ' OR ac.class IS NULL OR TRIM(ac.class) = \'\')' : '(ac.class IS NULL OR TRIM(ac.class) = \'\')'})
-          AND ac.session = ?
-          AND ac.term = ?
+          AND LOWER(TRIM(ac.session)) = LOWER(TRIM(?))
+          AND LOWER(TRIM(ac.term)) = LOWER(TRIM(?))
           AND ac.is_active = 1
-          AND ac.id NOT IN (
-              SELECT COALESCE(exam_id, 0) FROM student_exam_sessions 
-              WHERE student_id = ? AND status IN ('SUBMITTED', 'COMPLETED')
-          )
-          AND LOWER(TRIM(ac.subject)) NOT IN (
-              SELECT LOWER(TRIM(subject_name)) FROM student_exam_sessions 
-              WHERE student_id = ? AND status IN ('SUBMITTED', 'COMPLETED')
-              UNION
-              SELECT LOWER(TRIM(subject)) FROM exam_sessions 
-              WHERE student_id = ? AND (status = 'submitted' OR is_locked = 1)
-          )
         GROUP BY ac.id
-        HAVING question_count > 0
         ORDER BY ac.subject ASC
     `;
 
-    const queryParams = [...classVars, currentSession, currentTerm, studentId || 0, studentId || 0, studentId || 0];
+    const queryParams = [...classVars, currentSession, currentTerm];
     const rows = await dbAll(sql, queryParams);
 
-    // Fetch in-progress session if any
-    const activeSessions = studentId ? await dbAll(
-        `SELECT session_id, LOWER(subject_name) as subject, expires_at FROM student_exam_sessions WHERE student_id = ? AND status = 'IN_PROGRESS' AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-         UNION
-         SELECT id as session_id, LOWER(subject) as subject, NULL as expires_at FROM exam_sessions WHERE student_id = ? AND status = 'active' AND is_locked = 0`,
-        [studentId, studentId]
-    ) : [];
-    const activeSubjectsMap = new Map(activeSessions.map(s => [s.subject ? s.subject.trim().toLowerCase() : '', s.session_id]));
+    // Fetch student's session history across both session tables for status resolution
+    let studentExamSessions = [];
+    let legacyExamSessions = [];
+    let studentAnswersSubjects = [];
+
+    if (studentId) {
+        studentExamSessions = await dbAll(
+            `SELECT session_id, LOWER(TRIM(subject_name)) AS subject, assessment_slot, status, score, started_at, expires_at 
+             FROM student_exam_sessions 
+             WHERE student_id = ?`,
+            [studentId]
+        );
+
+        legacyExamSessions = await dbAll(
+            `SELECT id, LOWER(TRIM(subject)) AS subject, assessment_slot, status, is_locked, score, login_time 
+             FROM exam_sessions 
+             WHERE student_id = ?`,
+            [studentId]
+        );
+
+        studentAnswersSubjects = await dbAll(
+            `SELECT DISTINCT LOWER(TRIM(q.subject)) AS subject 
+             FROM answers a 
+             JOIN questions q ON a.question_id = q.id 
+             WHERE a.student_id = ?`,
+            [studentId]
+        );
+    }
+
+    const normSlot = (s) => {
+        if (!s) return 'midterm_ca';
+        const l = String(s).trim().toLowerCase();
+        if (l === 'terminal_exam' || l === 'terminal' || l === 'exam') return 'examination';
+        if (l === 'custom_exam' || l === 'custom') return 'custom_assessment';
+        return l;
+    };
+
+    const now = new Date().getTime();
 
     return (rows || []).map(row => {
         const subLower = (row.subject || '').trim().toLowerCase();
-        const activeSessionId = activeSubjectsMap.get(subLower) || null;
-        const hasActive = !!activeSessionId;
+        const rowSlot = normSlot(row.assessment_slot);
+
+        // 1. Check for submitted / completed sessions
+        const submittedSES = studentExamSessions.find(s => s.subject === subLower && (s.status === 'SUBMITTED' || s.status === 'COMPLETED') && (normSlot(s.assessment_slot) === rowSlot || !s.assessment_slot || studentExamSessions.filter(x => x.subject === subLower).length === 1));
+        const submittedLegacy = legacyExamSessions.find(s => s.subject === subLower && (s.status === 'submitted' || s.is_locked === 1) && (normSlot(s.assessment_slot) === rowSlot || !s.assessment_slot || legacyExamSessions.filter(x => x.subject === subLower).length === 1));
+        const isSubmitted = !!(submittedSES || submittedLegacy);
+
+        // 2. Check for active in-progress sessions (if not submitted)
+        let activeSessionId = null;
+        let isInProgress = false;
+
+        if (!isSubmitted) {
+            const inProgressSES = studentExamSessions.find(s => {
+                if (s.subject !== subLower || s.status !== 'IN_PROGRESS') return false;
+                if (s.assessment_slot && normSlot(s.assessment_slot) !== rowSlot) return false;
+                if (!s.expires_at) return true;
+                return new Date(s.expires_at).getTime() > now;
+            });
+
+            const inProgressLegacy = legacyExamSessions.find(s => s.subject === subLower && (normSlot(s.assessment_slot) === rowSlot || !s.assessment_slot) && s.status === 'active' && s.is_locked === 0);
+
+            if (inProgressSES) {
+                isInProgress = true;
+                activeSessionId = inProgressSES.session_id;
+            } else if (inProgressLegacy) {
+                isInProgress = true;
+                activeSessionId = inProgressLegacy.id;
+            }
+        }
+
+        const status = isSubmitted ? 'SUBMITTED' : (isInProgress ? 'IN_PROGRESS' : 'AVAILABLE');
+        const canStart = !isSubmitted;
+        const score = isSubmitted ? (submittedSES?.score ?? submittedLegacy?.score ?? null) : null;
+        const submittedAt = isSubmitted ? (submittedSES?.started_at || submittedLegacy?.login_time || null) : null;
 
         return {
             id: row.config_id || row.id,
             config_id: row.config_id || row.id,
             session: row.session,
             term: row.term,
+            academic_session: row.session,
             class: row.class || studentClass,
+            class_tier: row.class || studentClass,
             subject: row.subject,
             name: row.subject,
+            slot_name: row.assessment_slot || 'Standard Assessment',
             assessment_slot: row.assessment_slot || 'midterm_ca',
             slot: row.assessment_slot || 'midterm_ca',
-            assessment_title: row.assessment_title || `${row.subject} - ${row.assessment_slot || 'midterm_ca'}`,
+            assessment_title: row.assessment_title || `${row.subject} - ${row.assessment_slot || 'Standard Assessment'}`,
             duration_minutes: row.duration_minutes || 45,
+            duration: row.duration_minutes || 45,
             preset_mode: row.preset_mode || 'ca_test',
-            custom_count: row.custom_count || 30,
-            question_count: row.question_count || 30,
+            questions_count: (row.custom_count && parseInt(row.custom_count, 10) > 0) ? parseInt(row.custom_count, 10) : (row.question_count || 30),
+            question_count: (row.custom_count && parseInt(row.custom_count, 10) > 0) ? parseInt(row.custom_count, 10) : (row.question_count || 30),
+            total_questions: (row.custom_count && parseInt(row.custom_count, 10) > 0) ? parseInt(row.custom_count, 10) : (row.question_count || 30),
+            custom_count: (row.custom_count && parseInt(row.custom_count, 10) > 0) ? parseInt(row.custom_count, 10) : 30,
             is_active: 1,
             isActive: true,
-            status: hasActive ? 'in_progress' : 'available',
-            hasActiveSession: hasActive,
-            has_active_session: hasActive,
-            sessionStatus: hasActive ? 'IN_PROGRESS' : null,
+            status: status,
+            canStart: canStart,
+            isSubmitted: isSubmitted,
+            is_submitted: isSubmitted,
+            hasActiveSession: isInProgress,
+            has_active_session: isInProgress,
+            sessionStatus: isInProgress ? 'IN_PROGRESS' : (isSubmitted ? 'SUBMITTED' : null),
+            session_status: isInProgress ? 'in_progress' : (isSubmitted ? 'submitted' : null),
             sessionId: activeSessionId,
             session_id: activeSessionId,
-            message: hasActive ? 'Exam session active. Tap Resume to continue.' : 'Ready to Start'
+            score: score,
+            submitted_at: submittedAt,
+            message: isSubmitted 
+                ? 'Examination Completed & Submitted' 
+                : (isInProgress ? 'Exam session active. Tap Resume to continue.' : 'Ready to Start')
         };
     });
 }
@@ -553,33 +649,18 @@ async function fetchActiveExamsForStudent({ studentId, studentClass, session, te
 /**
  * GET /api/student/:student_id/dashboard
  * 
- * Retrieves student profile metadata, assigned subjects, and completion/scheduled status.
+ * Retrieves student profile metadata and assigned exam papers with normalized statuses.
  */
 router.get('/student/:student_id/dashboard', async (req, res, next) => {
     try {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
         const { student_id } = req.params;
-        const sessionId = req.query.session_id || req.query.sessionId || null;
 
         const studentSql = `SELECT id, reg_number, surname, first_name, class, assigned_subject FROM students WHERE id = ?`;
         const student = await dbGet(studentSql, [student_id]);
 
         if (!student) {
             return res.status(404).json({ success: false, message: "Student not found." });
-        }
-
-        // If session_id is provided, verify session status
-        if (sessionId) {
-            const checkSess = await dbGet(`SELECT status, is_locked FROM exam_sessions WHERE id = ? AND student_id = ?`, [sessionId, student_id]);
-            if (checkSess) {
-                if (checkSess.status === 'submitted' || checkSess.is_locked === 1) {
-                    return res.status(401).json({
-                        success: false,
-                        valid: false,
-                        message: "Exam session is locked or already submitted."
-                    });
-                }
-            }
         }
 
         const formattedSubjects = await fetchActiveExamsForStudent({
@@ -702,6 +783,8 @@ const handleGetAssignedPapers = async (req, res, next) => {
             session: session,
             term: term,
             activeExams: activeExams,
+            exams: activeExams,
+            data: activeExams,
             papers: activeExams,
             subjects: activeExams
         });
@@ -715,6 +798,8 @@ const handleGetAssignedPapers = async (req, res, next) => {
 router.get('/student/assigned-exams', handleGetAssignedPapers);
 router.get('/student/assigned-papers', handleGetAssignedPapers);
 router.get('/student/assigned-subjects', handleGetAssignedPapers);
+router.get('/assigned-exams', handleGetAssignedPapers);
+router.get('/assigned-papers', handleGetAssignedPapers);
 
 /**
  * POST /api/student/start-exam

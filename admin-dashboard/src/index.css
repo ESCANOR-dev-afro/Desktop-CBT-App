@@ -7,11 +7,28 @@
   color-scheme: dark;
 }
 
+.light {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
 body {
   margin: 0;
+  overflow-x: hidden;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+body.dark {
   background-color: #0B0F19;
   color: #F3F4F6;
-  overflow-x: hidden;
+}
+
+body.light {
+  background-color: #F8FAFC;
+  color: #0F172A;
 }
 
 /* Custom Scrollbar */

@@ -10,15 +10,15 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-// Path to local SQLite database file
-const DB_PATH = path.join(__dirname, 'cbt_database.db');
+// Path to local SQLite database file (locked to canonical absolute path)
+const DB_PATH = path.resolve(__dirname, 'cbt_database.db');
 
 // Initialize SQLite database instance
 const db = new sqlite3.Database(DB_PATH, (err) => {
     if (err) {
         console.error('❌ [Database Error] Failed to connect to SQLite database:', err.message);
     } else {
-        console.log(`✅ [Database Info] Connected to SQLite database at: ${DB_PATH}`);
+        console.log(`✅ [Database Info] Connected to persistent SQLite database at: ${DB_PATH}`);
     }
 });
 
@@ -274,6 +274,26 @@ function initDatabase() {
             }
         });
 
+        // 7a. Base Table: `student_sessions` (Unified per-subject/config submissions)
+        const createStudentSessionsTable = `
+            CREATE TABLE IF NOT EXISTS student_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER,
+                reg_number TEXT,
+                config_id INTEGER,
+                subject TEXT,
+                answers_json TEXT,
+                score REAL,
+                status TEXT DEFAULT 'submitted',
+                submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+        `;
+        db.run(createStudentSessionsTable, (err) => {
+            if (!err) {
+                db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_student_sessions_reg_cfg ON student_sessions(reg_number, config_id);`, () => {});
+            }
+        });
+
         // 7b. New Table: `assessment_configs` (Fully Scoped per Session, Term, Class, Subject, Slot)
         const createAssessmentConfigsTable = `
             CREATE TABLE IF NOT EXISTS assessment_configs (
@@ -447,15 +467,18 @@ function initDatabase() {
             }
         });
 
-        // Seed data & run auto-normalization
-        seedDatabase();
+        // Seed default catalog data (subjects, terms) — safe INSERT OR IGNORE, no data loss
+        seedDefaultCatalog();
     });
 }
 
 /**
- * Seed database with initial default subjects, students, questions, academic terms, and classes.
+ * Seeds ONLY default catalog data (academic terms, master subject list).
+ * Uses INSERT OR IGNORE — never overwrites or deletes existing records.
+ * Normalization (class_subjects sync, question_options sync) is run ONCE,
+ * not on every server restart.
  */
-function seedDatabase() {
+function seedDefaultCatalog() {
     // 1. Seed Academic Terms ('1st Term', '2nd Term', '3rd Term' for 2026/2027)
     const terms = [
         { name: '1st Term', session: '2026/2027', is_current: 1 },
@@ -477,49 +500,66 @@ function seedDatabase() {
         });
     });
 
-    // 2. Seed Default Master Subjects Catalog
+    // 2. Seed Default Master Subjects Catalog (INSERT OR IGNORE — never overwrites)
     const defaultSubjects = [
-        // Junior Secondary 16 Full Subjects
-        'English Language',
-        'Mathematics',
-        'Basic Science',
-        'Basic Technology',
-        'Social Studies',
-        'Civic Education',
-        'Agricultural Science',
-        'Business Studies',
-        'PHE',
-        'Home Economics',
-        'Music',
-        'Fine Art',
-        'French',
-        'Yoruba',
-        'CRS',
-        'Digital Technology',
-        // Senior Secondary Stream Specific Subjects
-        'Biology',
-        'Chemistry',
-        'Physics',
-        'Further Mathematics',
-        'Economics',
-        'Financial Accounting',
-        'Commerce',
-        'Business Methods',
-        'Government',
-        'Literature in English',
-        'CRS/IRS',
-        'Geography',
-        'Computer Studies',
-        'History',
-        'Account'
+        'English Language', 'Mathematics', 'Basic Science', 'Basic Technology',
+        'Social Studies', 'Civic Education', 'Agricultural Science', 'Business Studies',
+        'PHE', 'Home Economics', 'Music', 'Fine Art', 'French', 'Yoruba', 'CRS',
+        'Digital Technology', 'Biology', 'Chemistry', 'Physics', 'Further Mathematics',
+        'Economics', 'Financial Accounting', 'Commerce', 'Business Methods', 'Government',
+        'Literature in English', 'CRS/IRS', 'Geography', 'Computer Studies', 'History', 'Account'
     ];
 
     const subjectInsertSql = `INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1);`;
     const subjectStmt = db.prepare(subjectInsertSql);
     defaultSubjects.forEach(sub => subjectStmt.run([sub]));
     subjectStmt.finalize(() => {
-        runAutoNormalization();
+        // Only run heavy normalization if explicitly requested or first-time setup
+        checkAndRunNormalization();
     });
+}
+
+/**
+ * Checks whether full normalization has already been performed.
+ * Uses a lightweight `_normalization_meta` table to track completion.
+ * Normalization only runs:
+ *   1. On first-ever server boot (meta table doesn't exist or no entry)
+ *   2. When RUN_NORMALIZE=true environment variable is set
+ * This prevents expensive re-sync operations and any potential CASCADE
+ * side-effects during normal production server restarts.
+ */
+async function checkAndRunNormalization() {
+    try {
+        // Create tracking table if it doesn't exist
+        await runAsync(`CREATE TABLE IF NOT EXISTS _normalization_meta (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            last_run_at DATETIME,
+            version INTEGER DEFAULT 1
+        )`);
+
+        const forceNormalize = process.env.RUN_NORMALIZE === 'true';
+        const meta = await getAsync(`SELECT * FROM _normalization_meta WHERE id = 1`);
+
+        if (meta && !forceNormalize) {
+            // Already normalized — skip heavy operations on restart
+            console.log('🔒 [Normalization] Schema already normalized (last run: ' + meta.last_run_at + '). Skipping re-sync. Set RUN_NORMALIZE=true to force.');
+            return;
+        }
+
+        console.log(forceNormalize 
+            ? '🔄 [Normalization] Forced re-normalization via RUN_NORMALIZE=true...'
+            : '🆕 [Normalization] First-time setup detected. Running full normalization...');
+
+        await runAutoNormalization();
+
+        // Record completion
+        await runAsync(
+            `INSERT INTO _normalization_meta (id, last_run_at, version) VALUES (1, datetime('now'), 1)
+             ON CONFLICT(id) DO UPDATE SET last_run_at = datetime('now'), version = version + 1`
+        );
+    } catch (err) {
+        console.error('⚠️ [Normalization Check Error]:', err.message);
+    }
 }
 
 /**
@@ -528,6 +568,9 @@ function seedDatabase() {
  * - Syncs question options from flat `questions` table to `question_options` table.
  * - Purges concatenated subject strings from subjects table.
  * - Populates `class_subjects` mapping table with strict Junior and Senior stream allocations.
+ *
+ * WARNING: This function is intentionally NOT run on every server restart.
+ * It is only triggered on first-time setup or when RUN_NORMALIZE=true.
  */
 async function runAutoNormalization() {
     try {
@@ -542,7 +585,6 @@ async function runAutoNormalization() {
         studentClasses.forEach(c => allClassNames.add(c.class.trim()));
         questionClasses.forEach(c => allClassNames.add(c.class.trim()));
 
-        // Add full suite of junior arms and senior streams
         const baseClassesList = [
             'JSS 1', 'JSS 1 Gold', 'JSS 1 Silver', 'JSS 1 Diamond',
             'JSS 2', 'JSS 2 Gold', 'JSS 2 Silver', 'JSS 2 Diamond',
@@ -582,7 +624,7 @@ async function runAutoNormalization() {
             }
         }
 
-        // 3. Sync `class_id` on `students`
+        // 3. Sync `class_id` on `students` and `questions`
         const classesRows = await allAsync(`SELECT id, name FROM classes`);
         const classMap = new Map(classesRows.map(c => [c.name.toLowerCase(), c.id]));
         
@@ -612,7 +654,6 @@ async function runAutoNormalization() {
             "Economics", "Digital Technology", "Account", "Commerce", "Government"
         ];
 
-        // Ensure all stream subjects exist in master subjects table
         const allStreamSubjects = Array.from(new Set([
             ...juniorSubjects, ...scienceSubjects, ...commercialSubjects, ...artsSubjects
         ]));
@@ -636,7 +677,6 @@ async function runAutoNormalization() {
             } else if (nameUpper.includes('ART')) {
                 allocated = artsSubjects;
             } else {
-                // Base Senior classes (e.g. SS 1, SS 2, SS 3) default to science subjects
                 allocated = scienceSubjects;
             }
 

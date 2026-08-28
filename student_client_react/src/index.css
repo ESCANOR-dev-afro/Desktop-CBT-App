@@ -3,14 +3,28 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    color-scheme: light;
+  }
+  .dark {
+    color-scheme: dark;
+  }
   body {
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    background: linear-gradient(135deg, #1A0B2E 0%, #311042 25%, #6B21A8 52%, #D97706 82%, #F96302 100%);
-    background-attachment: fixed;
     min-height: 100vh;
     width: 100%;
     margin: 0;
     padding: 0;
+    color: #1E242B;
+    background-color: #F8FAFC;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+  body.dark, html.dark body {
+    background-color: #0B0F19;
+    color: #F1F5F9;
+  }
+  body.light, html.light body {
+    background-color: #F8FAFC;
     color: #1E242B;
   }
 }

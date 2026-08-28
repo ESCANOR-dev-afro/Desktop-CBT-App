@@ -48,12 +48,12 @@ export default function LoginScreen({ onLoginSuccess, errorMessage }) {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 lg:p-8">
+    <div className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-gradient-to-br from-[#1b0826] via-[#3b0764] to-[#c2410c]">
       {/* 2-COLUMN SPLIT CARD matching exact Flutter 920px container */}
-      <div className="w-full max-w-[920px] bg-white rounded-[24px] flutter-card-shadow overflow-hidden grid grid-cols-1 md:grid-cols-11 min-h-[520px]">
+      <div className="w-full max-w-[920px] bg-white rounded-[24px] flutter-card-shadow border border-slate-200/80 overflow-hidden grid grid-cols-1 md:grid-cols-11 min-h-[520px]">
 
         {/* LEFT PANEL: BRAND PANEL (Flex 5/11) */}
-        <div className="md:col-span-5 flutter-brand-panel-gradient text-white p-8 sm:p-10 flex flex-col justify-between items-center text-center relative overflow-hidden">
+        <div className="md:col-span-5 bg-[#f97316] flutter-brand-panel-gradient text-white p-8 sm:p-10 flex flex-col justify-between items-center text-center relative overflow-hidden">
           {/* Subtle Architectural Circle Accents */}
           <div className="absolute -right-10 -top-10 w-44 h-44 rounded-full bg-white/10 pointer-events-none"></div>
           <div className="absolute -left-12 -bottom-12 w-56 h-56 rounded-full bg-white/5 pointer-events-none"></div>
@@ -77,7 +77,7 @@ export default function LoginScreen({ onLoginSuccess, errorMessage }) {
 
             {/* Motto Tagline */}
             <p className="text-orange-100 italic text-sm font-normal mt-1.5">
-              "...the future begins here"
+              &quot;...the future begins here&quot;
             </p>
 
             {/* Pill Tag */}
@@ -96,15 +96,15 @@ export default function LoginScreen({ onLoginSuccess, errorMessage }) {
           </div>
         </div>
 
-        {/* RIGHT PANEL: ACTION FORM PANEL (Flex 6/11) */}
+        {/* RIGHT PANEL: ACTION FORM PANEL (Flex 6/11) - Pure Clean Crisp White Card */}
         <div className="md:col-span-6 bg-white p-8 sm:p-10 flex flex-col justify-between z-10">
           <div>
             {/* Header */}
             <div className="mb-6">
-              <h2 className="text-2xl sm:text-[26px] font-bold text-[#1E242B] tracking-tight">
+              <h2 className="text-2xl sm:text-[26px] font-bold text-slate-900 tracking-tight">
                 Welcome back,
               </h2>
-              <p className="text-sm text-[#64748B] font-medium mt-1">
+              <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
                 Please sign in to your exam session below
               </p>
             </div>
@@ -112,8 +112,8 @@ export default function LoginScreen({ onLoginSuccess, errorMessage }) {
             {/* Error Message Alert */}
             {error && (
               <div className="mb-5 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-[#DC2626] shrink-0 mt-0.5" />
-                <div className="flex-1 font-semibold text-[#1E242B]">{error}</div>
+                <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                <div className="flex-1 font-semibold text-slate-800">{error}</div>
               </div>
             )}
 
@@ -121,50 +121,50 @@ export default function LoginScreen({ onLoginSuccess, errorMessage }) {
             <form noValidate onSubmit={handleCredentialSubmit} className="space-y-4">
               {/* Field 1: Registration Number */}
               <div>
-                <label className="block text-xs font-semibold text-[#1E242B] uppercase tracking-wider mb-1.5">
+                <label className="block text-[11px] font-bold tracking-wider text-slate-700 uppercase mb-1.5">
                   Registration Number
                 </label>
                 <div className="relative">
-                  <IdCard className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-[#F96302]" />
+                  <IdCard className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-500" />
                   <input
                     type="text"
                     required
-                    placeholder="Enter Reg Number (e.g. AWA26270001)"
+                    placeholder="ENTER REG NUMBER (E.G. AWA26270001)"
                     value={regNumber}
                     onChange={(e) => setRegNumber(e.target.value.toUpperCase())}
-                    className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#F96302] focus:bg-white focus:ring-2 focus:ring-[#F96302]/20 rounded-xl pl-11 pr-4 py-3.5 text-[#1E242B] placeholder-[#94A3B8] font-semibold text-sm transition-all uppercase tracking-wider"
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white focus:ring-2 focus:ring-orange-500/20 rounded-xl pl-10 pr-4 py-2.5 sm:py-3 text-sm font-medium text-slate-900 placeholder-slate-400 transition-all uppercase tracking-wider outline-none"
                   />
                 </div>
               </div>
 
               {/* Field 2: Student Surname (Visible, unmasked text input) */}
               <div>
-                <label className="block text-xs font-semibold text-[#1E242B] uppercase tracking-wider mb-1.5">
+                <label className="block text-[11px] font-bold tracking-wider text-slate-700 uppercase mb-1.5">
                   Student Surname
                 </label>
                 <div className="relative">
-                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-[#F96302]" />
+                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-500" />
                   <input
                     type="text"
                     required
-                    placeholder="Enter Surname (e.g. SAMUEL / EKEH)"
+                    placeholder="ENTER SURNAME (E.G. SAMUEL / EKEH)"
                     value={surname}
                     onChange={(e) => setSurname(e.target.value.toUpperCase())}
-                    className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#F96302] focus:bg-white focus:ring-2 focus:ring-[#F96302]/20 rounded-xl pl-11 pr-4 py-3.5 text-[#1E242B] placeholder-[#94A3B8] font-semibold text-sm transition-all uppercase tracking-wider"
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white focus:ring-2 focus:ring-orange-500/20 rounded-xl pl-10 pr-4 py-2.5 sm:py-3 text-sm font-medium text-slate-900 placeholder-slate-400 transition-all uppercase tracking-wider outline-none"
                   />
                 </div>
               </div>
 
               {/* Server Status Strip with Interactive Server Config Button Protected by PIN */}
-              <div className="bg-[#F4F6F9] border border-[#E2E8F0] rounded-xl p-3.5 flex items-center justify-between text-xs font-semibold text-[#64748B]">
-                <div className="flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>Server Configuration (Locked)</span>
-                </div>
+              <div className="flex items-center justify-between px-3.5 py-2.5 bg-slate-50 border border-slate-100 rounded-xl mb-4 text-xs font-semibold text-slate-600">
+                <span className="text-[11px] font-medium text-emerald-600 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
+                  Server Configuration (Locked)
+                </span>
                 <button
                   type="button"
                   onClick={() => setIsAdminPinModalOpen(true)}
-                  className="text-[#F96302] hover:text-[#E05500] font-bold cursor-pointer hover:underline flex items-center gap-1 bg-transparent border-none p-0 transition-colors"
+                  className="text-[11px] font-semibold text-orange-600 hover:text-orange-700 transition cursor-pointer flex items-center gap-1 bg-transparent border-none p-0"
                 >
                   🔒 Server Config
                 </button>
@@ -174,17 +174,17 @@ export default function LoginScreen({ onLoginSuccess, errorMessage }) {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-[#F96302] hover:bg-[#E05500] disabled:bg-[#F96302]/60 text-white font-extrabold py-4 px-6 rounded-xl shadow-lg shadow-[#F96302]/30 transition-all flex items-center justify-center gap-2 group text-base uppercase tracking-wider mt-4"
+                className="w-full py-3 px-4 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-60 text-white font-bold rounded-xl shadow-lg shadow-orange-600/30 transition duration-200 flex items-center justify-center gap-2 tracking-wide text-sm uppercase cursor-pointer"
               >
                 {loading ? (
                   <>
-                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    <RefreshCw className="w-4 h-4 animate-spin" />
                     <span>Verifying...</span>
                   </>
                 ) : (
                   <>
                     <span>START EXAM</span>
-                    <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                   </>
                 )}
               </button>
@@ -192,7 +192,7 @@ export default function LoginScreen({ onLoginSuccess, errorMessage }) {
           </div>
 
           {/* Subtitle Footer */}
-          <div className="pt-6 text-center text-xs font-semibold text-[#94A3B8] border-t border-slate-100 mt-6">
+          <div className="pt-4 text-center text-[11px] font-medium text-slate-400 border-t border-slate-100 mt-6">
             &copy; 2026 Anthony Whitebridge Academy. Local LAN Examination Engine.
           </div>
         </div>

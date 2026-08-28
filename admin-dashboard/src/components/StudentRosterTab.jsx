@@ -91,35 +91,35 @@ export default function StudentRosterTab({
   return (
     <div className="space-y-5">
       {/* Multi-column Flex Controls Bar */}
-      <div className="bg-slate-900 border border-darkBorder p-4 rounded-2xl flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder p-4 rounded-2xl flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4 shadow-xs transition-colors">
         {/* Search input */}
         <div className="relative flex-1 min-w-[240px]">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
           <input
             type="text"
             placeholder={`Search ${currentClass} candidates by name or Reg No...`}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-950 text-xs pl-10 pr-4 py-2.5 rounded-xl border border-darkBorder focus:outline-none focus:border-brand text-slate-200"
+            className="w-full bg-slate-50 dark:bg-slate-950 text-xs pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-darkBorder focus:outline-none focus:border-brand text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 transition-all"
           />
         </div>
 
         {/* Filter controls group */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Subject Filter Dropdown (Isolated to current class) */}
-          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-xl text-white">
+          <div className="flex items-center space-x-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-1.5 rounded-xl text-slate-800 dark:text-white">
             <Filter className="w-3.5 h-3.5 text-brand" />
             <select
               value={subjectFilter}
               onChange={(e) => setSubjectFilter(e.target.value)}
-              className="bg-slate-900 text-xs font-semibold text-white focus:outline-none cursor-pointer border-none"
+              className="bg-slate-50 dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none cursor-pointer border-none"
             >
-              <option value="ALL" className="bg-[#0f172a] text-white py-1 font-medium">All {currentClass} Subjects</option>
+              <option value="ALL" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-white py-1 font-medium">All {currentClass} Subjects</option>
               {availableSubjectsForClass.map((sub) => {
                 const subName = typeof sub === 'string' ? sub : sub.name;
                 const subKey = typeof sub === 'string' ? sub : (sub.id || sub.name);
                 return (
-                  <option key={subKey} value={subName} className="bg-[#0f172a] text-white py-1 font-medium">
+                  <option key={subKey} value={subName} className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-white py-1 font-medium">
                     {subName}
                   </option>
                 );
@@ -128,36 +128,36 @@ export default function StudentRosterTab({
           </div>
 
           {/* Status Filter Dropdown */}
-          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-xl text-white">
+          <div className="flex items-center space-x-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-1.5 rounded-xl text-slate-800 dark:text-white">
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-slate-900 text-xs font-semibold text-white focus:outline-none cursor-pointer border-none"
+              className="bg-slate-50 dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none cursor-pointer border-none"
             >
-              <option value="ALL" className="bg-[#0f172a] text-white py-1 font-medium">All Candidates</option>
-              <option value="Exam Ready" className="bg-[#0f172a] text-white py-1 font-medium">Exam Ready</option>
-              <option value="Active Session" className="bg-[#0f172a] text-white py-1 font-medium">Active Session</option>
-              <option value="Submitted" className="bg-[#0f172a] text-white py-1 font-medium">Submitted</option>
-              <option value="Locked" className="bg-[#0f172a] text-white py-1 font-medium">Locked</option>
+              <option value="ALL" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-white py-1 font-medium">All Candidates</option>
+              <option value="Exam Ready" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-white py-1 font-medium">Exam Ready</option>
+              <option value="Active Session" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-white py-1 font-medium">Active Session</option>
+              <option value="Submitted" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-white py-1 font-medium">Submitted</option>
+              <option value="Locked" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-white py-1 font-medium">Locked</option>
             </select>
           </div>
 
           {/* Excel Roster Upload Button */}
           <button
             onClick={onOpenUploadRoster}
-            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-bold transition-all border border-darkBorder flex items-center space-x-2 shrink-0 cursor-pointer"
+            className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-bold transition-all border border-slate-200 dark:border-darkBorder flex items-center space-x-2 shrink-0 cursor-pointer shadow-xs"
           >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+            <FileSpreadsheet className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
             <span>Upload Class List</span>
           </button>
 
           {/* Clear Class Students Action Button */}
           <button
             onClick={() => setIsResetRosterModalOpen(true)}
-            className="px-4 py-2.5 rounded-xl bg-rose-600/15 hover:bg-rose-600/25 text-rose-400 border border-rose-500/40 text-xs font-bold transition-all flex items-center space-x-2 shrink-0 cursor-pointer shadow-sm shadow-rose-500/10"
+            className="px-4 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-600/15 hover:bg-rose-100 dark:hover:bg-rose-600/25 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/40 text-xs font-bold transition-all flex items-center space-x-2 shrink-0 cursor-pointer shadow-xs"
             title={`Clear all candidates, assigned papers and test results for ${currentClass}`}
           >
-            <Trash2 className="w-4 h-4 text-rose-400" />
+            <Trash2 className="w-4 h-4 text-rose-500 dark:text-rose-400" />
             <span>Clear Class Students</span>
           </button>
 
@@ -173,10 +173,10 @@ export default function StudentRosterTab({
       </div>
 
       {/* Roster Data Table Container */}
-      <div className="bg-slate-900 border border-darkBorder rounded-2xl overflow-hidden shadow-xl">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl overflow-hidden shadow-xs dark:shadow-xl transition-colors">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-300">
-            <thead className="bg-slate-950 text-slate-400 font-semibold border-b border-darkBorder uppercase text-[10px] tracking-wider">
+          <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+            <thead className="bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-darkBorder uppercase text-[10px] tracking-wider">
               <tr>
                 <th className="px-5 py-3.5">Candidate Info</th>
                 <th className="px-4 py-3.5">Reg Number</th>
@@ -186,14 +186,14 @@ export default function StudentRosterTab({
                 <th className="px-5 py-3.5 text-right">Admin Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-darkBorder/60">
+            <tbody className="divide-y divide-slate-100 dark:divide-darkBorder/60">
               {filteredStudents.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
-                    <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-brand/30 p-1 mx-auto mb-3 opacity-60 flex items-center justify-center">
+                    <div className="w-12 h-12 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-brand/30 p-1 mx-auto mb-3 opacity-60 flex items-center justify-center shadow-xs">
                       <img src="school_logo.jpg" alt="AWBA Crest" className="w-full h-full object-contain rounded-xl" />
                     </div>
-                    <p className="text-sm font-semibold text-slate-400">No candidates found for {currentClass}. Use 'Upload Class List' to bulk register candidates.</p>
+                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-400">No candidates found for {currentClass}. Use 'Upload Class List' to bulk register candidates.</p>
                     <p className="text-xs text-slate-500 mt-1">
                       Or click '+ Register Candidate' to add a student manually.
                     </p>
@@ -218,7 +218,7 @@ export default function StudentRosterTab({
                     : availableSubjectsForClass.map(sub => typeof sub === 'string' ? sub : sub.name);
 
                   return (
-                  <tr key={s.id || s.reg_number} className="hover:bg-slate-800/40 transition-colors group">
+                  <tr key={s.id || s.reg_number} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors group">
                     {/* Student Info */}
                     <td className="px-5 py-3.5">
                       <div className="flex items-center space-x-3 min-w-[200px]">
@@ -226,10 +226,10 @@ export default function StudentRosterTab({
                           {surnameUpper[0]}
                         </div>
                         <div className="min-w-0">
-                          <p className="font-bold text-slate-100 truncate group-hover:text-brand transition-colors">
+                          <p className="font-bold text-slate-900 dark:text-slate-100 truncate group-hover:text-brand transition-colors">
                             {displayName}
                           </p>
-                          <p className="text-[10px] text-slate-400 truncate">
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
                             {s.gender || 'Verified'} Candidate
                           </p>
                         </div>
@@ -237,7 +237,7 @@ export default function StudentRosterTab({
                     </td>
 
                     {/* Reg Number */}
-                    <td className="px-4 py-3.5 font-mono font-bold text-slate-200 whitespace-nowrap">
+                    <td className="px-4 py-3.5 font-mono font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
                       {regId}
                     </td>
 
@@ -247,7 +247,7 @@ export default function StudentRosterTab({
                         {subjectList.map((subName, i) => (
                           <span
                             key={i}
-                            className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-950 text-brand border border-brand/20 whitespace-nowrap"
+                            className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-orange-50 dark:bg-slate-950 text-brand border border-brand/20 whitespace-nowrap shadow-2xs"
                           >
                             {subName}
                           </span>
@@ -258,17 +258,17 @@ export default function StudentRosterTab({
                     {/* Status */}
                     <td className="px-4 py-3.5 whitespace-nowrap">
                       {s.status === 'Suspended' ? (
-                        <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                        <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20">
                           <Ban className="w-3 h-3" />
                           <span>Suspended</span>
                         </span>
                       ) : s.status === 'Active' ? (
-                        <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
                           <Clock className="w-3 h-3" />
                           <span>Active Session</span>
                         </span>
                       ) : (
-                        <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
                           <CheckCircle className="w-3 h-3" />
                           <span>Exam Ready</span>
                         </span>
@@ -276,7 +276,7 @@ export default function StudentRosterTab({
                     </td>
 
                     {/* Score */}
-                    <td className="px-4 py-3.5 font-semibold text-slate-200 whitespace-nowrap">
+                    <td className="px-4 py-3.5 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
                       {s.recentScore}
                     </td>
 
@@ -286,14 +286,14 @@ export default function StudentRosterTab({
                         <button
                           onClick={() => handleGeneratePasscode(s.name)}
                           title="Generate CBT Access Passcode"
-                          className="p-1.5 text-slate-400 hover:text-brand hover:bg-slate-800 rounded-lg transition-colors"
+                          className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-brand hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                         >
                           <Key className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => onDeleteStudent(s.id)}
                           title="Delete Candidate Record"
-                          className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors"
+                          className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -307,12 +307,12 @@ export default function StudentRosterTab({
         </div>
 
         {/* Table Footer Stats */}
-        <div className="p-4 bg-slate-950/60 border-t border-darkBorder flex items-center justify-between text-xs text-slate-400">
+        <div className="p-4 bg-slate-50 dark:bg-slate-950/60 border-t border-slate-200 dark:border-darkBorder flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
           <span>
-            Showing <strong className="text-slate-200">{filteredStudents.length}</strong> of{' '}
-            <strong className="text-slate-200">{classStudents.length}</strong> candidates in {currentClass}
+            Showing <strong className="text-slate-800 dark:text-slate-200">{filteredStudents.length}</strong> of{' '}
+            <strong className="text-slate-800 dark:text-slate-200">{classStudents.length}</strong> candidates in {currentClass}
           </span>
-          <button className="flex items-center space-x-1 text-slate-400 hover:text-white transition-colors text-xs font-semibold cursor-pointer">
+          <button className="flex items-center space-x-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors text-xs font-semibold cursor-pointer">
             <FileSpreadsheet className="w-3.5 h-3.5 text-brand" />
             <span>Export Roster CSV</span>
           </button>
@@ -322,33 +322,33 @@ export default function StudentRosterTab({
       {/* Clear Class Students Confirmation Modal */}
       {isResetRosterModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-darkBorder rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative transition-colors">
             <button
               onClick={() => setIsResetRosterModalOpen(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white cursor-pointer"
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
             >
               <Trash2 className="w-4 h-4 hidden" />
               <span>✕</span>
             </button>
 
-            <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-500/15 border border-rose-200 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 flex items-center justify-center">
               <Trash2 className="w-6 h-6" />
             </div>
 
             <div>
-              <h3 className="text-lg font-bold text-slate-100">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
                 Clear Class Student Roster?
               </h3>
-              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                Are you sure you want to delete all <strong className="text-rose-300 font-bold">{classStudents.length}</strong> candidates from <strong className="text-slate-100 font-bold">{currentClass}</strong>? This action is permanent and cannot be undone. Other class rosters will not be affected.
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1.5 leading-relaxed">
+                Are you sure you want to delete all <strong className="text-rose-600 dark:text-rose-300 font-bold">{classStudents.length}</strong> candidates from <strong className="text-slate-900 dark:text-slate-100 font-bold">{currentClass}</strong>? This action is permanent and cannot be undone. Other class rosters will not be affected.
               </p>
             </div>
 
-            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-darkBorder">
+            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-200 dark:border-darkBorder">
               <button
                 type="button"
                 onClick={() => setIsResetRosterModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-slate-200 transition-all cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-all cursor-pointer"
               >
                 Cancel
               </button>

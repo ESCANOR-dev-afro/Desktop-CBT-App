@@ -106,8 +106,8 @@ export default function ClassWorkspace({
       </div>
 
       {/* Horizontally Scrollable Isolated Subjects Pills Bar */}
-      <div className="bg-slate-900/90 border border-darkBorder p-3 rounded-2xl flex items-center space-x-2 overflow-x-auto">
-        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-2 shrink-0 flex items-center space-x-1">
+      <div className="bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-darkBorder p-3 rounded-2xl flex items-center space-x-2 overflow-x-auto shadow-xs transition-colors">
+        <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider px-2 shrink-0 flex items-center space-x-1">
           <ShieldCheck className="w-3.5 h-3.5 text-brand" />
           <span>{currentClass} Scope:</span>
         </span>
@@ -115,30 +115,30 @@ export default function ClassWorkspace({
           {classSubjects.map((sub) => (
             <div
               key={sub.id || sub.name}
-              className="bg-slate-950 border border-darkBorder hover:border-brand/40 px-3 py-1.5 rounded-xl flex items-center space-x-2 shrink-0 transition-colors"
+              className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder hover:border-brand/40 px-3 py-1.5 rounded-xl flex items-center space-x-2 shrink-0 transition-colors shadow-xs"
             >
               <span className="w-2 h-2 rounded-full bg-brand" />
-              <span className="text-xs font-bold text-slate-200">{sub.name}</span>
+              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{sub.name}</span>
             </div>
           ))}
         </div>
       </div>
 
       {/* Modern 2-Tab Sub-Navigation */}
-      <div className="flex items-center space-x-2 bg-slate-950 p-1.5 rounded-2xl border border-darkBorder shadow-inner max-w-fit">
+      <div className="flex items-center space-x-2 bg-slate-100 dark:bg-slate-950 p-1.5 rounded-2xl border border-slate-200 dark:border-darkBorder shadow-inner max-w-fit transition-colors">
         <button
           onClick={() => setActiveTab('roster')}
           className={`flex items-center space-x-2.5 px-5 py-3 rounded-xl text-xs font-extrabold transition-all duration-200 cursor-pointer ${
             activeTab === 'roster'
               ? 'bg-brand text-white shadow-lg shadow-brand/25 brand-glow-sm'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-900/60'
           }`}
         >
           <Users className="w-4 h-4" />
           <span>Class Student Roster</span>
           <span
             className={`text-[10px] px-2 py-0.5 rounded-full ${
-              activeTab === 'roster' ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-400'
+              activeTab === 'roster' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
             }`}
           >
             {classStudents.length}
@@ -150,7 +150,7 @@ export default function ClassWorkspace({
           className={`flex items-center space-x-2.5 px-5 py-3 rounded-xl text-xs font-extrabold transition-all duration-200 cursor-pointer ${
             activeTab === 'monitor'
               ? 'bg-brand text-white shadow-lg shadow-brand/25 brand-glow-sm'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-900/60'
           }`}
         >
           <Monitor className="w-4 h-4" />

@@ -104,11 +104,16 @@ export default function App() {
   };
 
   // Step 2: Subject Selected on Dashboard -> Navigate to Pre-Exam Instructions
-  const handleSelectSubject = ({ subject: sub, questions: qList, durationMinutes: dMins, durationSeconds: dSecs }) => {
+  const handleSelectSubject = ({ subject: sub, sessionId: sId, questions: qList, durationMinutes: dMins, durationSeconds: dSecs }) => {
+    const validMinutes = Number(dMins) > 0 ? Number(dMins) : 10;
+    const validSeconds = Number(dSecs) > 0 ? Number(dSecs) : validMinutes * 60;
+    if (sId) setSessionId(sId);
     setSubject(sub);
     setQuestions(qList);
-    setDurationMinutes(dMins);
-    setTimeRemaining(dSecs);
+    setDurationMinutes(validMinutes);
+    setTimeRemaining(validSeconds);
+    localStorage.setItem('cbt_duration_minutes', String(validMinutes));
+    localStorage.setItem('cbt_time_remaining', String(validSeconds));
 
     const regNo = stdReg(student);
     const cachedAns = storageService.getAnswers(regNo, sub);
@@ -122,10 +127,20 @@ export default function App() {
 
   const stdReg = (st) => st?.reg_number || st?.registration_no || '';
 
-  // Safe Session Reset / Logout
+  // Safe Session Reset / Logout (Only on explicit Logout action)
   const resetSessionState = () => {
     storageService.clearAllExamData();
-    localStorage.clear();
+    localStorage.removeItem('cbt_stage');
+    localStorage.removeItem('cbt_student');
+    localStorage.removeItem('cbt_session_id');
+    localStorage.removeItem('cbt_subject');
+    localStorage.removeItem('cbt_questions');
+    localStorage.removeItem('cbt_duration_minutes');
+    localStorage.removeItem('cbt_time_remaining');
+    localStorage.removeItem('cbt_answers');
+    localStorage.removeItem('cbt_flagged');
+    localStorage.removeItem('cbt_current_index');
+    localStorage.removeItem('cbt_completion_info');
     setStudent(null);
     setSessionId(null);
     setSubject('');
@@ -142,6 +157,29 @@ export default function App() {
   const handleReturnToDashboard = () => {
     setSubject('');
     setQuestions([]);
+    setStage('DASHBOARD');
+  };
+
+  // Step 5: Submission Complete -> Return to Dashboard Hub without terminating student auth
+  const handleReturnToDashboardHub = () => {
+    setSubject('');
+    setQuestions([]);
+    setAnswers({});
+    setFlagged({});
+    setCurrentIndex(0);
+    setTimeRemaining(2700);
+    setCompletionInfo(null);
+    localStorage.removeItem('cbt_subject');
+    localStorage.removeItem('cbt_questions');
+    localStorage.removeItem('cbt_duration_minutes');
+    localStorage.removeItem('cbt_time_remaining');
+    localStorage.removeItem('cbt_answers');
+    localStorage.removeItem('cbt_flagged');
+    localStorage.removeItem('cbt_current_index');
+    localStorage.removeItem('cbt_completion_info');
+    if (student && sessionId) {
+      storageService.saveActiveSession({ student, sessionId, stage: 'DASHBOARD' });
+    }
     setStage('DASHBOARD');
   };
 
@@ -206,7 +244,8 @@ export default function App() {
       {stage === 'SUBMITTED' && (
         <CompletionScreen
           completionInfo={completionInfo}
-          onFinishLogout={resetSessionState}
+          onReturnToHub={handleReturnToDashboardHub}
+          onLogout={resetSessionState}
         />
       )}
     </div>

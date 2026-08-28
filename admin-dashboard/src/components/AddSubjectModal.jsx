@@ -35,9 +35,9 @@ export default function AddSubjectModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-darkBorder w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-150">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-150 transition-colors">
         {/* Modal Header with Official School Logo Badge */}
-        <div className="p-5 border-b border-darkBorder flex items-center justify-between bg-slate-950/50">
+        <div className="p-5 border-b border-slate-200 dark:border-darkBorder flex items-center justify-between bg-slate-50 dark:bg-slate-950/50">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-slate-950 border border-brand/40 p-0.5 shadow-md shadow-brand/10 shrink-0 flex items-center justify-center">
               <img
@@ -47,13 +47,13 @@ export default function AddSubjectModal({
               />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-100">Add New Subject</h3>
-              <p className="text-xs text-slate-400">Anthony Whitebridge Academy • Subject Isolation Engine</p>
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Add New Subject</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Anthony Whitebridge Academy • Subject Isolation Engine</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+            className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -62,7 +62,7 @@ export default function AddSubjectModal({
         {/* Modal Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {/* Isolation Warning Banner */}
-          <div className="p-3.5 rounded-xl bg-brand/10 border border-brand/30 flex items-start space-x-3 text-xs text-brand-200">
+          <div className="p-3.5 rounded-xl bg-orange-50 dark:bg-brand/10 border border-orange-200 dark:border-brand/30 flex items-start space-x-3 text-xs text-orange-950 dark:text-brand-200">
             <ShieldAlert className="w-4 h-4 text-brand shrink-0 mt-0.5" />
             <p className="leading-relaxed">
               <strong className="font-semibold text-brand">Subject Isolation Guarantee:</strong> Adding this subject will automatically propagate and restrict its visibility <span className="underline font-bold">exclusively to {targetClass}</span> across student rosters, question banks, and CBT exams.
@@ -72,16 +72,16 @@ export default function AddSubjectModal({
           {/* Grid Layout for Form Controls */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                 Target Class Scope *
               </label>
               <select
                 value={targetClass}
                 onChange={(e) => setTargetClass(e.target.value)}
-                className="w-full bg-slate-950 border border-darkBorder text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-semibold shadow-sm"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-semibold shadow-xs cursor-pointer"
               >
                 {classesList.map((cls) => (
-                  <option key={cls} value={cls} className="bg-slate-900 text-slate-100 py-1 font-medium">
+                  <option key={cls} value={cls} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">
                     {cls} Class Workspace
                   </option>
                 ))}
@@ -89,25 +89,25 @@ export default function AddSubjectModal({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                 Subject Category *
               </label>
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand cursor-pointer"
               >
-                <option value="Core" className="bg-slate-900 text-slate-100 py-1 font-medium">Core Subjects</option>
-                <option value="Sciences" className="bg-slate-900 text-slate-100 py-1 font-medium">Sciences</option>
-                <option value="Humanities" className="bg-slate-900 text-slate-100 py-1 font-medium">Humanities / Arts</option>
-                <option value="Commercial" className="bg-slate-900 text-slate-100 py-1 font-medium">Commercial</option>
-                <option value="Technical" className="bg-slate-900 text-slate-100 py-1 font-medium">Technical / Vocational</option>
+                <option value="Core" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">Core Subjects</option>
+                <option value="Sciences" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">Sciences</option>
+                <option value="Humanities" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">Humanities / Arts</option>
+                <option value="Commercial" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">Commercial</option>
+                <option value="Technical" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">Technical / Vocational</option>
               </select>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               Subject Name *
             </label>
             <input
@@ -116,12 +116,12 @@ export default function AddSubjectModal({
               required
               value={subjectName}
               onChange={(e) => setSubjectName(e.target.value)}
-              className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+              className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               Assigned Lead Instructor
             </label>
             <input
@@ -129,22 +129,22 @@ export default function AddSubjectModal({
               placeholder="e.g. Dr. E. Okafor"
               value={teacher}
               onChange={(e) => setTeacher(e.target.value)}
-              className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+              className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
             />
           </div>
 
           {/* Action Buttons */}
-          <div className="pt-4 border-t border-darkBorder flex items-center justify-end space-x-3">
+          <div className="pt-4 border-t border-slate-200 dark:border-darkBorder flex items-center justify-end space-x-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl border border-darkBorder text-xs font-semibold text-slate-300 hover:bg-slate-800 transition-colors"
+              className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-darkBorder text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-lg shadow-brand/25 flex items-center space-x-2"
+              className="px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-lg shadow-brand/25 flex items-center space-x-2 cursor-pointer"
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>Confirm & Isolate Subject</span>

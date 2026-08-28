@@ -717,16 +717,23 @@ const handleUploadRosterPipeline = async (req, res, next) => {
 
             // Handle full_name splitting if surname wasn't provided separately
             if (!surname && fullName) {
-                const parts = fullName.split(/\s+/);
-                surname = parts[0] || '';
-                firstName = parts.slice(1).join(' ') || '';
+                const cleanFull = String(fullName).trim();
+                if (cleanFull.includes(',')) {
+                    const commaParts = cleanFull.split(',');
+                    surname = (commaParts[0] || '').trim();
+                    firstName = (commaParts.slice(1).join(' ') || '').trim();
+                } else {
+                    const parts = cleanFull.split(/\s+/);
+                    surname = parts[0] || '';
+                    firstName = parts.slice(1).join(' ') || '';
+                }
             }
 
             if (!surname) continue; // Skip blank candidate rows
 
-            surname = surname.toUpperCase();
+            surname = surname.trim().toUpperCase();
             if (otherNames) {
-                firstName = firstName ? `${firstName} ${otherNames}` : otherNames;
+                firstName = firstName ? `${firstName.trim()} ${otherNames.trim()}` : otherNames.trim();
             }
 
             // Auto-assign sequential registration number if omitted
@@ -989,7 +996,21 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
 // --------------------------------------------------------------------------
 router.get('/results', async (req, res, next) => {
     try {
-        const { class: targetClass, subject: targetSubject } = req.query;
+        const targetClass = req.query.class || req.query.classTier || null;
+        const targetSubject = req.query.subject || null;
+        const targetSlot = req.query.slot || req.query.slotName || req.query.assessment_slot || null;
+        const academicSession = req.query.session || '2026/2027';
+        const academicTerm = req.query.term || '1st Term';
+
+        let normSlot = null;
+        if (targetSlot && targetSlot !== 'ALL' && targetSlot !== 'All' && targetSlot !== 'All Slots') {
+            const s = String(targetSlot).trim().toLowerCase();
+            if (s.includes('welcome') || s.includes('mock') || s === '1' || s.startsWith('1.')) normSlot = 'welcome_test';
+            else if (s.includes('mid-term') || s.includes('midterm') || s.includes('ca') || s === '2' || s.startsWith('2.')) normSlot = 'midterm_ca';
+            else if (s.includes('terminal') || s.includes('examination') || s.includes('exam') || s === '3' || s.startsWith('3.')) normSlot = 'examination';
+            else if (s.includes('custom') || s === '4' || s.startsWith('4.')) normSlot = 'custom_assessment';
+            else normSlot = s;
+        }
 
         let sql = `
             SELECT 
@@ -1001,6 +1022,7 @@ router.get('/results', async (req, res, next) => {
                 s.class,
                 COALESCE(es.subject, s.assigned_subject) AS subject,
                 s.assigned_subject,
+                es.assessment_slot,
                 es.workstation_ip,
                 es.login_time,
                 es.status,
@@ -1019,6 +1041,10 @@ router.get('/results', async (req, res, next) => {
         if (targetSubject && targetSubject !== 'ALL') {
             sql += ` AND (LOWER(COALESCE(es.subject, s.assigned_subject)) = LOWER(?) OR LOWER(s.assigned_subject) LIKE LOWER(?))`;
             params.push(targetSubject.trim(), `%${targetSubject.trim()}%`);
+        }
+        if (normSlot) {
+            sql += ` AND (LOWER(es.assessment_slot) = LOWER(?) OR (LOWER(es.assessment_slot) = 'examination' AND ? = 'terminal_exam') OR (LOWER(es.assessment_slot) = 'custom_assessment' AND ? = 'custom_exam'))`;
+            params.push(normSlot, normSlot, normSlot);
         }
         sql += ` ORDER BY es.id DESC`;
 
@@ -1046,7 +1072,7 @@ router.get('/results', async (req, res, next) => {
         studentRosterSql += ` ORDER BY surname ASC, first_name ASC`;
         const allStudents = await dbAll(studentRosterSql, rosterParams);
         
-        // Map student ID to latest session
+        // Map student ID to latest session matching subject and slot
         const latestSessionMap = new Map();
         results.forEach(resRow => {
             if (!latestSessionMap.has(resRow.student_id)) {
@@ -1057,31 +1083,43 @@ router.get('/results', async (req, res, next) => {
         const studentRosterWithScores = await Promise.all(allStudents.map(async s => {
             const sess = latestSessionMap.get(s.id);
             const rawSub = sess ? sess.subject : s.assigned_subject;
-            const normSub = rawSub ? normalizeSubjectName(String(rawSub).split(/[,;]/)[0]) : 'Mathematics';
+            const normSub = rawSub ? normalizeSubjectName(String(rawSub).split(/[,;]/)[0]) : (targetSubject || 'Mathematics');
             const obtainable = await getObtainableScore(s.class, normSub, sess ? sess.question_order : null);
+            const isSubm = sess ? (sess.status === 'submitted' || sess.is_locked === 1) : false;
             return {
                 id: s.id,
+                student_id: s.id,
                 reg_number: s.reg_number,
                 regNo: s.reg_number,
                 surname: String(s.surname).toUpperCase(),
                 first_name: s.first_name || '',
                 firstName: s.first_name || '',
+                candidate_name: s.first_name ? `${String(s.surname).toUpperCase()}, ${s.first_name}` : String(s.surname).toUpperCase(),
                 name: s.first_name ? `${String(s.surname).toUpperCase()}, ${s.first_name}` : String(s.surname).toUpperCase(),
                 class: s.class,
+                class_tier: s.class,
                 assigned_subject: s.assigned_subject,
                 subject: normSub,
-                status: sess ? sess.status : 'not_taken',
+                assessment_slot: sess ? (sess.assessment_slot || 'midterm_ca') : (normSlot || 'midterm_ca'),
+                status: isSubm ? 'submitted' : (sess ? sess.status : 'not_taken'),
                 score: sess ? sess.score : null,
                 obtainable_score: obtainable,
                 session_id: sess ? sess.session_id : null,
                 duration_minutes: sess ? sess.duration_minutes : 45,
-                login_time: sess ? sess.login_time : null
+                login_time: sess ? sess.login_time : null,
+                submitted_at: isSubm ? sess.login_time : null
             };
         }));
+
+        const hasScores = studentRosterWithScores.some(r => r.status === 'submitted' || r.score !== null);
 
         return res.status(200).json({
             success: true,
             count: results.length,
+            totalCandidates: studentRosterWithScores.length,
+            submittedCount: studentRosterWithScores.filter(r => r.status === 'submitted').length,
+            hasScores: hasScores,
+            data: studentRosterWithScores,
             results: results,
             classes: allClasses,
             subjects: allSubjects,
@@ -1091,6 +1129,12 @@ router.get('/results', async (req, res, next) => {
         console.error('❌ [Admin Results Error]:', error);
         next(error);
     }
+});
+
+router.get('/live-results', (req, res, next) => {
+    // Alias /live-results to /results
+    req.url = '/results' + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
+    return router.handle(req, res, next);
 });
 
 // --------------------------------------------------------------------------
@@ -1872,10 +1916,10 @@ router.get('/questions/counts', async (req, res, next) => {
             const countSql = `
                 SELECT LOWER(TRIM(assessment_slot)) as slot, COUNT(*) as cnt
                 FROM questions
-                WHERE LOWER(TRIM(class)) = LOWER(?)
-                  AND LOWER(TRIM(subject)) = LOWER(?)
-                  AND session = ?
-                  AND term = ?
+                WHERE LOWER(TRIM(class)) = LOWER(TRIM(?))
+                  AND LOWER(TRIM(subject)) = LOWER(TRIM(?))
+                  AND LOWER(TRIM(session)) = LOWER(TRIM(?))
+                  AND LOWER(TRIM(term)) = LOWER(TRIM(?))
                 GROUP BY LOWER(TRIM(assessment_slot))
             `;
             const countRows = await dbAll(countSql, [className, subject, session, term]);
@@ -1944,11 +1988,11 @@ router.get('/questions', async (req, res, next) => {
                    question_text, option_a, option_b, option_c, option_d,
                    correct_answer, marks, diagram_image_url
             FROM questions
-            WHERE LOWER(TRIM(class)) = LOWER(?)
-              AND LOWER(TRIM(subject)) = LOWER(?)
-              AND LOWER(TRIM(assessment_slot)) = LOWER(?)
-              AND session = ?
-              AND term = ?
+            WHERE LOWER(TRIM(class)) = LOWER(TRIM(?))
+              AND LOWER(TRIM(subject)) = LOWER(TRIM(?))
+              AND LOWER(TRIM(assessment_slot)) = LOWER(TRIM(?))
+              AND LOWER(TRIM(session)) = LOWER(TRIM(?))
+              AND LOWER(TRIM(term)) = LOWER(TRIM(?))
             ORDER BY id ASC
         `;
         const params = [targetClass, targetSubject, targetSlot, targetSession, targetTerm];
@@ -1967,10 +2011,10 @@ router.get('/questions', async (req, res, next) => {
         const countSql = `
             SELECT LOWER(TRIM(assessment_slot)) as slot, COUNT(*) as cnt
             FROM questions
-            WHERE LOWER(TRIM(class)) = LOWER(?)
-              AND LOWER(TRIM(subject)) = LOWER(?)
-              AND session = ?
-              AND term = ?
+            WHERE LOWER(TRIM(class)) = LOWER(TRIM(?))
+              AND LOWER(TRIM(subject)) = LOWER(TRIM(?))
+              AND LOWER(TRIM(session)) = LOWER(TRIM(?))
+              AND LOWER(TRIM(term)) = LOWER(TRIM(?))
             GROUP BY LOWER(TRIM(assessment_slot))
         `;
         const countRows = await dbAll(countSql, [targetClass, targetSubject, targetSession, targetTerm]);
@@ -2134,11 +2178,14 @@ router.delete('/questions/:id', async (req, res, next) => {
 // --------------------------------------------------------------------------
 const handleClearSubjectQuestions = async (req, res, next) => {
     try {
-        const reqClass = req.body.class || req.query.class || req.body.class_id || req.query.class_id;
+        const reqClass = req.body.class || req.query.class || req.body.class_id || req.query.class_id || req.body.classTier || req.query.classTier || req.body.class_tier || req.query.class_tier;
         const reqSubject = req.body.subject || req.query.subject || req.body.subject_id || req.query.subject_id;
-        const reqSession = req.body.session || req.query.session || '2026/2027';
+        const reqSession = req.body.session || req.query.session || req.body.academic_session || req.query.academic_session || '2026/2027';
         const reqTerm = req.body.term || req.query.term || '1st Term';
-        const reqSlot = req.body.assessment_slot || req.body.assessmentSlot || req.query.assessment_slot || req.query.assessmentSlot || 'midterm_ca';
+        const rawSlot = req.body.assessment_slot || req.body.assessmentSlot || req.query.assessment_slot || req.query.assessmentSlot || req.body.slotName || req.query.slotName || req.body.slot_name || req.query.slot_name || req.body.slot || req.query.slot || 'midterm_ca';
+        let reqSlot = String(rawSlot).trim().toLowerCase();
+        if (reqSlot === 'terminal_exam' || reqSlot === 'exam') reqSlot = 'examination';
+        if (reqSlot === 'custom_exam' || reqSlot === 'custom') reqSlot = 'custom_assessment';
 
         if (!reqClass || !reqSubject) {
             return res.status(400).json({
@@ -2194,11 +2241,14 @@ const handleClearSubjectQuestions = async (req, res, next) => {
         await dbRun(`DELETE FROM question_options WHERE question_id NOT IN (SELECT id FROM questions)`);
 
         // 3. Log audit action
-        await logAuditAction(
-            'ADMIN',
-            'CLEAR_SUBJECT_QUESTIONS',
-            `Cleared ${qIds.length} questions for ${trimmedClass} - ${normalizedSubject} (${reqSession}, ${reqTerm}, ${reqSlot})`
-        );
+        await logAuditAction({
+            action: 'CLEAR_SUBJECT_QUESTIONS',
+            entity_type: 'questions',
+            entity_id: `${trimmedClass}_${normalizedSubject}_${reqSlot}`,
+            details: `Cleared ${qIds.length} questions for ${trimmedClass} - ${normalizedSubject} (${reqSession}, ${reqTerm}, ${reqSlot})`,
+            ip_address: req.ip || '127.0.0.1',
+            performed_by: 'ADMIN'
+        });
 
         return res.status(200).json({
             success: true,
@@ -2214,6 +2264,8 @@ const handleClearSubjectQuestions = async (req, res, next) => {
 
 router.post('/questions/clear-subject', handleClearSubjectQuestions);
 router.delete('/questions/clear-subject', handleClearSubjectQuestions);
+router.post('/clear-subject-questions', handleClearSubjectQuestions);
+router.delete('/clear-subject-questions', handleClearSubjectQuestions);
 
 // --------------------------------------------------------------------------
 // 11b. GET & POST /api/admin/assessment-config
@@ -2799,19 +2851,16 @@ router.post('/exam-config', async (req, res, next) => {
 
 // --------------------------------------------------------------------------
 // 16. POST /api/admin/system/purge-production-data
-// Triggers full production database wipe (mock students, sessions, questions)
+// Safe stub endpoint (destructive wipes disabled to protect production questions & rosters)
 // --------------------------------------------------------------------------
-const { purgeDatabase } = require('./scripts/purge_production_db');
-
 router.post('/system/purge-production-data', async (req, res, next) => {
     try {
-        await purgeDatabase();
         return res.status(200).json({
             success: true,
-            message: "Production database successfully purged. 0 mock records remain."
+            message: "Production database wipe disabled. Uploaded questions and rosters are permanently preserved."
         });
     } catch (err) {
-        console.error('❌ [Purge Production Data Error]:', err);
+        console.error('❌ [Purge Production Data Notice]:', err);
         next(err);
     }
 });

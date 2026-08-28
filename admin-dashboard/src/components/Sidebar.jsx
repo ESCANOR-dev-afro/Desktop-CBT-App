@@ -40,10 +40,10 @@ export default function Sidebar({
   };
 
   return (
-    <aside className="w-72 bg-slate-950 border-r border-darkBorder flex flex-col h-screen select-none shrink-0 z-30">
+    <aside className="w-72 bg-white dark:bg-slate-950 border-r border-slate-200 dark:border-darkBorder flex flex-col h-screen select-none shrink-0 z-30 transition-colors">
       {/* Brand Header with Official School Logo */}
-      <div className="p-4 border-b border-darkBorder flex items-center space-x-3 bg-slate-950/90">
-        <div className="w-12 h-12 rounded-xl bg-slate-900 border border-brand/40 p-1 flex items-center justify-center shrink-0 shadow-md shadow-brand/10 group overflow-hidden">
+      <div className="p-4 border-b border-slate-200 dark:border-darkBorder flex items-center space-x-3 bg-white/90 dark:bg-slate-950/90">
+        <div className="w-12 h-12 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-brand/40 p-1 flex items-center justify-center shrink-0 shadow-md shadow-brand/10 group overflow-hidden">
           <img
             src="school_logo.jpg"
             alt="Anthony Whitebridge Academy Logo"
@@ -51,7 +51,7 @@ export default function Sidebar({
           />
         </div>
         <div className="flex-1 min-w-0">
-          <h1 className="font-black text-xs tracking-tight text-white truncate leading-tight uppercase">
+          <h1 className="font-black text-xs tracking-tight text-slate-900 dark:text-white truncate leading-tight uppercase">
             ANTHONY WHITEBRIDGE
           </h1>
           <p className="text-[11px] font-bold text-brand tracking-wider uppercase truncate">
@@ -76,10 +76,10 @@ export default function Sidebar({
                 setActiveView('dashboard');
                 safeSetSelectedClass(null);
               }}
-              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
+              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 cursor-pointer ${
                 activeView === 'dashboard'
                   ? 'bg-brand text-white shadow-md shadow-brand/25 font-bold'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/80'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900/80'
               }`}
             >
               <LayoutDashboard className="w-4 h-4 shrink-0" />
@@ -91,10 +91,10 @@ export default function Sidebar({
                 setActiveView('live-results');
                 safeSetSelectedClass(null);
               }}
-              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
+              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 cursor-pointer ${
                 activeView === 'live-results'
                   ? 'bg-brand text-white shadow-md shadow-brand/25 font-bold'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/80'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900/80'
               }`}
             >
               <BarChart3 className="w-4 h-4 shrink-0" />
@@ -106,10 +106,10 @@ export default function Sidebar({
                 setActiveView('question-bank');
                 safeSetSelectedClass(null);
               }}
-              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
+              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 cursor-pointer ${
                 activeView === 'question-bank'
                   ? 'bg-brand text-white shadow-md shadow-brand/25 font-bold'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/80'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900/80'
               }`}
             >
               <FileText className="w-4 h-4 shrink-0" />
@@ -122,7 +122,7 @@ export default function Sidebar({
         <div>
           <button
             onClick={() => setClassesOpen(!classesOpen)}
-            className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold text-slate-500 tracking-wider uppercase hover:text-slate-300 transition-colors"
+            className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold text-slate-500 tracking-wider uppercase hover:text-slate-700 dark:hover:text-slate-300 transition-colors cursor-pointer"
           >
             <span className="flex items-center space-x-1.5">
               <Layers className="w-3.5 h-3.5 text-brand" />
@@ -157,14 +157,14 @@ export default function Sidebar({
                       onClick={() => handleSelectClass(mainTier)}
                       className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 cursor-pointer group ${
                         isTierActive
-                          ? 'bg-slate-900 text-brand border border-brand/40 shadow-sm font-semibold'
-                          : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/50'
+                          ? 'bg-orange-50 dark:bg-slate-900 text-brand border border-brand/40 shadow-sm font-semibold'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-900/50'
                       }`}
                     >
                       <div className="flex items-center space-x-2 truncate">
                         <div
                           className={`w-2 h-2 rounded-full transition-colors ${
-                            isTierActive ? 'bg-brand brand-glow-sm' : 'bg-slate-700 group-hover:bg-slate-500'
+                            isTierActive ? 'bg-brand brand-glow-sm' : 'bg-slate-400 dark:bg-slate-700 group-hover:bg-slate-600 dark:group-hover:bg-slate-500'
                           }`}
                         />
                         <span className="truncate">{mainTier} Tier</span>
@@ -175,7 +175,7 @@ export default function Sidebar({
                           className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold transition-colors ${
                             isTierActive
                               ? 'bg-brand/20 text-brand border border-brand/30'
-                              : 'bg-slate-900 text-slate-500 group-hover:text-slate-400'
+                              : 'bg-slate-100 dark:bg-slate-900 text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-400'
                           }`}
                         >
                           {arms.length} Arms
@@ -186,7 +186,7 @@ export default function Sidebar({
                             e.stopPropagation();
                             setExpandedTiers((prev) => ({ ...prev, [mainTier]: !prev[mainTier] }));
                           }}
-                          className="p-1 text-slate-500 hover:text-slate-200 rounded-md transition-colors"
+                          className="p-1 text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200 rounded-md transition-colors"
                         >
                           {isTierExpanded ? (
                             <ChevronDown className="w-3.5 h-3.5" />
@@ -199,7 +199,7 @@ export default function Sidebar({
 
                     {/* Sub-menu Arm Streams List */}
                     {isTierExpanded && (
-                      <div className="pl-4 space-y-1 border-l-2 border-slate-800 ml-3.5 my-1">
+                      <div className="pl-4 space-y-1 border-l-2 border-slate-200 dark:border-slate-800 ml-3.5 my-1">
                         {arms.map((arm) => {
                           const isArmSelected = activeView === 'class-workspace' && selectedClass === arm;
                           const armSubjectsCount = subjectsByClass[arm]?.length || mainSubjectCount;
@@ -210,26 +210,26 @@ export default function Sidebar({
                           const isArt = arm.includes('Art');
                           const isComm = arm.includes('Commercial');
 
-                          let badgeStyle = 'bg-slate-900 text-slate-400 border-darkBorder';
-                          if (isGold) badgeStyle = 'bg-amber-500/10 text-amber-400 border-amber-500/30';
-                          if (isSilver) badgeStyle = 'bg-slate-400/15 text-slate-200 border-slate-400/40 shadow-sm';
-                          if (isDiamond) badgeStyle = 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30';
-                          if (isScience) badgeStyle = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
-                          if (isArt) badgeStyle = 'bg-purple-500/10 text-purple-400 border-purple-500/30';
-                          if (isComm) badgeStyle = 'bg-blue-500/10 text-blue-400 border-blue-500/30';
+                          let badgeStyle = 'bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-darkBorder';
+                          if (isGold) badgeStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30';
+                          if (isSilver) badgeStyle = 'bg-slate-200 dark:bg-slate-400/15 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-400/40 shadow-sm';
+                          if (isDiamond) badgeStyle = 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30';
+                          if (isScience) badgeStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30';
+                          if (isArt) badgeStyle = 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30';
+                          if (isComm) badgeStyle = 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30';
 
                           return (
                             <button
                               key={arm}
                               onClick={() => handleSelectClass(arm)}
-                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] transition-all group ${
+                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] transition-all group cursor-pointer ${
                                 isArmSelected
-                                  ? 'bg-brand/20 text-white font-bold border border-brand/40 shadow-sm'
-                                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                                  ? 'bg-brand/15 dark:bg-brand/20 text-brand dark:text-white font-bold border border-brand/40 shadow-sm'
+                                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900/60'
                               }`}
                             >
                               <span className="truncate flex items-center space-x-1.5">
-                                <span className={`w-1.5 h-1.5 rounded-full ${isArmSelected ? 'bg-brand' : 'bg-slate-600'}`} />
+                                <span className={`w-1.5 h-1.5 rounded-full ${isArmSelected ? 'bg-brand' : 'bg-slate-400 dark:bg-slate-600'}`} />
                                 <span>{arm}</span>
                               </span>
                               <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold border ${badgeStyle}`}>
@@ -248,41 +248,41 @@ export default function Sidebar({
         </div>
 
         {/* CBT System Health Badge */}
-        <div className="p-3.5 rounded-xl bg-slate-900/60 border border-darkBorder space-y-2">
-          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-300">
+        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-darkBorder space-y-2">
+          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-300">
             <span className="flex items-center space-x-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" />
               <span>AWBA CBT Engine</span>
             </span>
-            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
               OPERATIONAL
             </span>
           </div>
-          <p className="text-[10px] text-slate-400 leading-normal">
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-normal">
             Local server running on port {port || 3000}. Multi-class subject isolation enabled.
           </p>
         </div>
       </div>
 
       {/* Admin Profile Section */}
-      <div className="p-4 border-t border-darkBorder bg-slate-950">
-        <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/80 border border-darkBorder">
+      <div className="p-4 border-t border-slate-200 dark:border-darkBorder bg-slate-50/50 dark:bg-slate-950">
+        <div className="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-darkBorder shadow-xs">
           <div className="flex items-center space-x-2.5 min-w-0">
             <img
               src="school_logo.jpg"
               alt="School Crest"
-              className="w-8 h-8 rounded-lg border border-brand/30 p-0.5 bg-slate-950 object-contain shrink-0"
+              className="w-8 h-8 rounded-lg border border-brand/30 p-0.5 bg-slate-100 dark:bg-slate-950 object-contain shrink-0"
             />
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-slate-200 truncate">Principal Admin</p>
-              <p className="text-[10px] text-slate-400 truncate">control@awba-cbt.edu.ng</p>
+              <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">Principal Admin</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">control@awba-cbt.edu.ng</p>
             </div>
           </div>
           {onSignOut && (
             <button
               onClick={onSignOut}
               title="Lock Console / Sign Out"
-              className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all flex items-center justify-center shrink-0 ml-1 group"
+              className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-500 dark:text-red-400 border border-red-500/20 transition-all flex items-center justify-center shrink-0 ml-1 group cursor-pointer"
             >
               <LogOut className="w-4 h-4 transform group-hover:-translate-x-0.5 transition-transform" />
             </button>

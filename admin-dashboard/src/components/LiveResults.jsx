@@ -34,6 +34,7 @@ export default function LiveResults({
     propSelectedClass && propSelectedClass !== 'ALL' && propSelectedClass !== 'All Classes' ? propSelectedClass : ''
   );
   const [selectedSubject, setSelectedSubject] = useState('');
+  const [selectedSlot, setSelectedSlot] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [backendResults, setBackendResults] = useState([]);
   const [backendClasses, setBackendClasses] = useState([]);
@@ -114,7 +115,7 @@ export default function LiveResults({
   };
 
   // Fetch live results and roster from backend ONLY when both class and subject are selected
-  const fetchResults = async (clsParam = selectedClass, subParam = selectedSubject) => {
+  const fetchResults = async (clsParam = selectedClass, subParam = selectedSubject, slotParam = selectedSlot) => {
     if (!clsParam || clsParam === 'ALL' || clsParam === 'All Classes' || !subParam || subParam === 'Select Subject') {
       setBackendResults([]);
       setBackendRoster([]);
@@ -122,7 +123,7 @@ export default function LiveResults({
     }
     try {
       setLoading(true);
-      const url = `/api/admin/results?class=${encodeURIComponent(clsParam)}&subject=${encodeURIComponent(subParam)}&session=${encodeURIComponent(academicSession)}&term=${encodeURIComponent(activeTerm)}`;
+      const url = `/api/admin/results?class=${encodeURIComponent(clsParam)}&subject=${encodeURIComponent(subParam)}&slot=${encodeURIComponent(slotParam)}&session=${encodeURIComponent(academicSession)}&term=${encodeURIComponent(activeTerm)}`;
       const res = await fetch(url);
       const data = await res.json();
       if (data && data.success) {
@@ -140,7 +141,7 @@ export default function LiveResults({
 
   useEffect(() => {
     fetchResults();
-  }, [selectedClass, selectedSubject, academicSession, activeTerm]);
+  }, [selectedClass, selectedSubject, selectedSlot, academicSession, activeTerm]);
 
   // Merge students from props with backend roster for universal coverage
   const combinedRoster = useMemo(() => {
@@ -530,24 +531,24 @@ export default function LiveResults({
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* Top Banner (Hidden on Print) */}
-      <div className="print:hidden w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-6">
+      <div className="print:hidden w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 mb-6 shadow-xs dark:shadow-xl transition-colors">
         <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-6">
           {/* Left: Logo & School Title */}
           <div className="flex items-center gap-4 min-w-0 max-w-full">
             <img
               src="school_logo.jpg"
               alt="School Crest"
-              className="w-14 h-14 rounded-xl object-contain border border-slate-700 shrink-0"
+              className="w-14 h-14 rounded-xl object-contain border border-slate-200 dark:border-slate-700 shrink-0"
               onError={(e) => { e.target.style.display = 'none'; }}
             />
             <div className="min-w-0">
-              <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-orange-500/10 text-orange-400 border border-orange-500/20 mb-1">
+              <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-orange-500/10 text-orange-500 dark:text-orange-400 border border-orange-500/20 mb-1">
                 Official Class-Based Analytics & Reports
               </span>
-              <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight break-words">
+              <h2 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight break-words">
                 Anthony Whitebridge Academy Examination Score Sheets
               </h2>
-              <p className="text-xs md:text-sm text-slate-400 mt-0.5">
+              <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
                 Class &amp; Subject score filtering, clean CSV report downloads, and printable score sheets
               </p>
             </div>
@@ -557,7 +558,7 @@ export default function LiveResults({
           <div className="flex flex-wrap items-center gap-2.5 shrink-0 w-full xl:w-auto">
             <button
               onClick={() => setIsPurgeModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-rose-950/40 text-rose-400 border border-rose-500/30 hover:bg-rose-900/40 transition cursor-pointer shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition cursor-pointer shadow-xs"
               title="Purge active and trial exam submissions to reset candidate statuses back to Not Taken"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -573,10 +574,10 @@ export default function LiveResults({
                 handleDownloadClassCsv();
               }}
               disabled={!isFilterComplete}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition shadow-sm ${
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition shadow-xs ${
                 isFilterComplete
                   ? 'bg-orange-500 hover:bg-orange-600 text-white cursor-pointer'
-                  : 'opacity-50 cursor-not-allowed bg-slate-800 text-slate-400 border border-slate-700'
+                  : 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700'
               }`}
               title={
                 isFilterComplete
@@ -597,10 +598,10 @@ export default function LiveResults({
                 handleInitiatePrint(selectedClass);
               }}
               disabled={!isFilterComplete}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition shadow-sm ${
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition shadow-xs ${
                 isFilterComplete
                   ? 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
-                  : 'opacity-50 cursor-not-allowed bg-slate-800 text-slate-400 border border-slate-700'
+                  : 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700'
               }`}
               title={
                 isFilterComplete
@@ -621,10 +622,10 @@ export default function LiveResults({
                 handleDownloadVectorPdf();
               }}
               disabled={!isFilterComplete}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition shadow-sm ${
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition shadow-xs ${
                 isFilterComplete
                   ? 'bg-orange-500 hover:bg-orange-600 text-white cursor-pointer'
-                  : 'opacity-50 cursor-not-allowed bg-slate-800 text-slate-400 border border-slate-700'
+                  : 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700'
               }`}
               title={
                 isFilterComplete
@@ -645,10 +646,10 @@ export default function LiveResults({
                 handleExportExcel();
               }}
               disabled={!isFilterComplete}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border border-slate-700 transition ${
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition shadow-xs ${
                 isFilterComplete
-                  ? 'bg-slate-800 hover:bg-slate-700 text-emerald-400 cursor-pointer'
-                  : 'opacity-50 cursor-not-allowed bg-slate-800 text-slate-400'
+                  ? 'bg-emerald-50 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-slate-700 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-slate-700 cursor-pointer'
+                  : 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700'
               }`}
               title={
                 isFilterComplete
@@ -656,7 +657,7 @@ export default function LiveResults({
                   : 'Please select a specific Class and Subject to generate score sheets and exports.'
               }
             >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
               <span>Excel (.xlsx)</span>
             </button>
           </div>
@@ -664,32 +665,32 @@ export default function LiveResults({
       </div>
 
       {/* Search & Dropdowns Filter Control Bar (Hidden on Print) */}
-      <div className="print:hidden w-full bg-slate-900 border border-slate-800 rounded-xl p-3 mb-6 flex flex-col md:flex-row items-center gap-3">
+      <div className="print:hidden w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 mb-6 flex flex-col md:flex-row items-center gap-3 shadow-xs transition-colors">
         <div className="relative flex-1 w-full min-w-0">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-slate-400 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             placeholder="Search candidate name or reg number..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:border-orange-500"
+            className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-orange-500 transition-colors"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           {/* Class Dropdown */}
-          <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2">
-            <Filter className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-            <span className="text-xs text-slate-400">Class:</span>
+          <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-800 dark:text-white">
+            <Filter className="w-3.5 h-3.5 text-orange-500 dark:text-orange-400 shrink-0" />
+            <span className="text-xs text-slate-500 dark:text-slate-400">Class:</span>
             <select
               value={selectedClass}
               onChange={(e) => handleClassChange(e.target.value)}
-              className="bg-transparent text-sm text-white font-medium focus:outline-none cursor-pointer"
+              className="bg-transparent text-sm text-slate-900 dark:text-white font-medium focus:outline-none cursor-pointer"
             >
-              <option value="" className="bg-slate-900 text-slate-400">Select Class...</option>
-              <option value="ALL" className="bg-slate-900 text-white">All Classes ({dynamicClasses.length} Arms)</option>
+              <option value="" className="bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400">Select Class...</option>
+              <option value="ALL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">All Classes ({dynamicClasses.length} Arms)</option>
               {dynamicClasses.map((cls) => (
-                <option key={cls} value={cls} className="bg-slate-900 text-white">
+                <option key={cls} value={cls} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
                   {cls}
                 </option>
               ))}
@@ -697,23 +698,40 @@ export default function LiveResults({
           </div>
 
           {/* Subject Dropdown */}
-          <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2">
-            <BookOpen className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-            <span className="text-xs text-slate-400">Subject:</span>
+          <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-800 dark:text-white">
+            <BookOpen className="w-3.5 h-3.5 text-orange-500 dark:text-orange-400 shrink-0" />
+            <span className="text-xs text-slate-500 dark:text-slate-400">Subject:</span>
             <select
               value={selectedSubject}
               onChange={(e) => setSelectedSubject(e.target.value)}
               disabled={!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes'}
-              className="bg-transparent text-sm text-white font-medium focus:outline-none cursor-pointer disabled:opacity-50"
+              className="bg-transparent text-sm text-slate-900 dark:text-white font-medium focus:outline-none cursor-pointer disabled:opacity-50"
             >
-              <option value="" className="bg-slate-900 text-slate-400">
+              <option value="" className="bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400">
                 {!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes' ? 'Select Class First' : `Select Subject (${currentClassSubjects.length} Available)`}
               </option>
               {currentClassSubjects.map((sub) => (
-                <option key={sub} value={sub} className="bg-slate-900 text-white">
+                <option key={sub} value={sub} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
                   {sub}
                 </option>
               ))}
+            </select>
+          </div>
+
+          {/* Assessment Slot Dropdown */}
+          <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-800 dark:text-white">
+            <Clock className="w-3.5 h-3.5 text-orange-500 dark:text-orange-400 shrink-0" />
+            <span className="text-xs text-slate-500 dark:text-slate-400">Slot:</span>
+            <select
+              value={selectedSlot}
+              onChange={(e) => setSelectedSlot(e.target.value)}
+              className="bg-transparent text-sm text-slate-900 dark:text-white font-medium focus:outline-none cursor-pointer"
+            >
+              <option value="ALL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">All Assessment Slots</option>
+              <option value="welcome_test" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">1. Welcome / Mock Test</option>
+              <option value="midterm_ca" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">2. Mid-Term CA Test</option>
+              <option value="examination" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">3. Examination</option>
+              <option value="custom_assessment" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">4. Custom Assessment</option>
             </select>
           </div>
         </div>
@@ -722,9 +740,9 @@ export default function LiveResults({
       {/* Class Sections Display Area (Screen View Only) */}
       <div className="print:hidden space-y-6">
         {!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes' ? (
-          <div className="bg-slate-900 border border-darkBorder rounded-2xl p-12 text-center text-slate-400 shadow-xl space-y-3">
-            <Users className="w-12 h-12 mx-auto text-slate-600 mb-3" />
-            <p className="text-base font-bold text-slate-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl p-12 text-center text-slate-500 dark:text-slate-400 shadow-xs dark:shadow-xl space-y-3">
+            <Users className="w-12 h-12 mx-auto text-slate-400 dark:text-slate-600 mb-3" />
+            <p className="text-base font-bold text-slate-800 dark:text-slate-200">
               Please select a Class and Subject above to view candidate examination scores and export score sheets.
             </p>
             <p className="text-xs text-slate-500">
@@ -732,27 +750,27 @@ export default function LiveResults({
             </p>
           </div>
         ) : !selectedSubject || selectedSubject === '' || selectedSubject === 'Select Subject' ? (
-          <div className="bg-slate-900 border border-darkBorder rounded-2xl p-12 text-center text-slate-400 shadow-xl space-y-3">
-            <Users className="w-12 h-12 mx-auto text-slate-600 mb-3" />
-            <p className="text-base font-bold text-slate-200">
-              Class selected: <span className="text-orange-400 font-extrabold">{selectedClass}</span>. Please select a Subject above to generate the official score sheet.
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl p-12 text-center text-slate-500 dark:text-slate-400 shadow-xs dark:shadow-xl space-y-3">
+            <Users className="w-12 h-12 mx-auto text-slate-400 dark:text-slate-600 mb-3" />
+            <p className="text-base font-bold text-slate-800 dark:text-slate-200">
+              Class selected: <span className="text-orange-600 dark:text-orange-400 font-extrabold">{selectedClass}</span>. Please select a Subject above to generate the official score sheet.
             </p>
             <p className="text-xs text-slate-500">
               Choose one of the {currentClassSubjects.length} registered subjects for {selectedClass}.
             </p>
           </div>
         ) : loading ? (
-          <div className="bg-slate-900 border border-darkBorder rounded-2xl p-12 text-center text-slate-400 shadow-xl space-y-3">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl p-12 text-center text-slate-500 dark:text-slate-400 shadow-xs dark:shadow-xl space-y-3">
             <RefreshCw className="w-10 h-10 mx-auto text-brand animate-spin mb-3" />
-            <p className="text-base font-bold text-slate-200">Loading examination scores for {selectedClass} - {selectedSubject}...</p>
+            <p className="text-base font-bold text-slate-800 dark:text-slate-200">Loading examination scores for {selectedClass} - {selectedSubject}...</p>
           </div>
-        ) : Object.keys(groupedByClass).length === 0 ? (
-          <div className="bg-slate-900 border border-darkBorder rounded-2xl p-12 text-center text-slate-400 shadow-xl space-y-3">
-            <Users className="w-12 h-12 mx-auto text-slate-600 mb-3" />
-            <p className="text-base font-bold text-slate-200">
-              No exam submissions or live candidate sessions found for <span className="text-orange-400 font-extrabold">{selectedClass}</span> - <span className="text-orange-400 font-extrabold">{selectedSubject}</span>.
+        ) : Object.keys(groupedByClass).length === 0 || !Object.values(groupedByClass).some(r => r.some(s => s.status === 'submitted' || s.score !== null)) ? (
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl p-12 text-center text-slate-500 dark:text-slate-400 shadow-xs dark:shadow-xl space-y-3">
+            <Users className="w-12 h-12 mx-auto text-slate-400 dark:text-slate-600 mb-3" />
+            <p className="text-base font-bold text-slate-800 dark:text-slate-200">
+              No scores available for the selected Class, Subject, and Assessment Slot.
             </p>
-            <p className="text-xs text-slate-500">No candidate has submitted or started an exam for this subject under {activeTerm}.</p>
+            <p className="text-xs text-slate-500">No candidate has submitted scores for {selectedClass} - {selectedSubject} under {selectedSlot === 'ALL' ? 'any slot' : selectedSlot}.</p>
           </div>
         ) : (
           Object.entries(groupedByClass).map(([className, roster]) => {
@@ -763,25 +781,25 @@ export default function LiveResults({
             return (
               <div
                 key={className}
-                className="bg-slate-900 border border-darkBorder rounded-2xl p-6 space-y-4 shadow-xl"
+                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl p-6 space-y-4 shadow-xs dark:shadow-xl transition-colors"
               >
                 {/* Class Header Bar */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-darkBorder">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-darkBorder">
                   <div>
                     <div className="flex items-center space-x-3">
                       <span className="px-3 py-1 bg-brand/15 text-brand font-black text-sm rounded-lg border border-brand/30">
                         {className}
                       </span>
-                      <h3 className="text-lg font-bold text-slate-100">Official Class Roster & Examination Scores</h3>
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">Official Class Roster & Examination Scores</h3>
                     </div>
-                    <p className="text-xs text-slate-400 mt-1">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                       {totalInClass} Total Candidates | {submittedCount} Submitted | {activeCount} Active Session(s)
                     </p>
                   </div>
 
                   <button
                     onClick={() => handleInitiatePrint(className)}
-                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-darkBorder flex items-center space-x-2 transition-all cursor-pointer shadow-sm"
+                    className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold border border-slate-200 dark:border-darkBorder flex items-center space-x-2 transition-all cursor-pointer shadow-xs"
                   >
                     <Printer className="w-4 h-4 text-brand" />
                     <span>Print {className} Sheet</span>
@@ -790,8 +808,8 @@ export default function LiveResults({
 
                 {/* Candidates Table */}
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-950 text-slate-400 font-bold border-b border-darkBorder uppercase text-[10px] tracking-wider">
+                  <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-darkBorder uppercase text-[10px] tracking-wider">
                       <tr>
                         <th className="px-4 py-3 text-center w-12">#</th>
                         <th className="px-4 py-3">Registration No</th>
@@ -801,7 +819,7 @@ export default function LiveResults({
                         <th className="px-4 py-3 text-right">Score</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-darkBorder/60 text-slate-200">
+                    <tbody className="divide-y divide-slate-100 dark:divide-darkBorder/60 text-slate-800 dark:text-slate-200">
                       {roster.map((student, idx) => {
                         const isSubmitted = student.status === 'submitted' || student.score !== null;
                         const isActive = student.status === 'active';
@@ -809,41 +827,41 @@ export default function LiveResults({
                         const obtainableMark = student.obtainable_score || student.total_marks || 50;
 
                         return (
-                          <tr key={student.id || idx} className="hover:bg-slate-800/40 transition-colors">
+                          <tr key={student.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                             <td className="px-4 py-3 text-center font-mono font-bold text-slate-400">
                               {idx + 1}
                             </td>
-                            <td className="px-4 py-3 font-mono font-bold text-slate-300">
+                            <td className="px-4 py-3 font-mono font-bold text-slate-700 dark:text-slate-300">
                               {student.reg_number || student.regNo}
                             </td>
-                            <td className="px-4 py-3 font-extrabold text-slate-100">
+                            <td className="px-4 py-3 font-extrabold text-slate-900 dark:text-slate-100">
                               {student.surname ? `${student.surname}, ${student.first_name || ''}` : student.name}
                             </td>
-                            <td className="px-4 py-3 font-semibold text-slate-400">
+                            <td className="px-4 py-3 font-semibold text-slate-600 dark:text-slate-400">
                               {student.assigned_subject || student.subject || 'Mathematics'}
                             </td>
                             <td className="px-4 py-3 text-center">
                               {isSubmitted ? (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
                                   <CheckCircle2 className="w-3 h-3 mr-1" /> Submitted
                                 </span>
                               ) : isActive ? (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 dark:bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30">
                                   <Clock className="w-3 h-3 mr-1" /> Active
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
                                   Not Taken
                                 </span>
                               )}
                             </td>
                             <td className="px-4 py-3 text-right font-black text-sm">
                               {scoreVal !== null ? (
-                                <span className="text-emerald-400">
+                                <span className="text-emerald-600 dark:text-emerald-400">
                                   {scoreVal} / {obtainableMark} <span className="text-xs text-slate-400 font-normal">({Math.round((scoreVal / obtainableMark) * 100)}%)</span>
                                 </span>
                               ) : (
-                                <span className="text-slate-500 italic">N/A</span>
+                                <span className="text-slate-400 italic">N/A</span>
                               )}
                             </td>
                           </tr>
@@ -861,40 +879,40 @@ export default function LiveResults({
       {/* Subject Selection Print Modal */}
       {isPrintModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150 print:hidden">
-          <div className="bg-slate-900 border border-darkBorder rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-darkBorder pb-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl transition-colors">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-darkBorder pb-4">
               <div className="flex items-center space-x-3">
                 <div className="p-2 bg-brand/15 text-brand rounded-xl border border-brand/30">
                   <Printer className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-extrabold text-slate-100">Select Subject for Score Sheet</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">Target Class: <strong className="text-brand">{printTargetClass}</strong></p>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">Select Subject for Score Sheet</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Target Class: <strong className="text-brand">{printTargetClass}</strong></p>
                 </div>
               </div>
               <button
                 onClick={() => setIsPrintModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="space-y-3">
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Choose the target subject score sheet for <strong className="text-slate-100">{printTargetClass}</strong> to generate the official examination document.
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                Choose the target subject score sheet for <strong className="text-slate-900 dark:text-slate-100">{printTargetClass}</strong> to generate the official examination document.
               </p>
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                   Select Subject Paper *
                 </label>
                 <select
                   value={printTargetSubject}
                   onChange={(e) => setPrintTargetSubject(e.target.value)}
-                  className="w-full bg-[#0f172a] border border-darkBorder text-white text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none font-bold"
+                  className="w-full bg-slate-50 dark:bg-[#0f172a] border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-white text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none font-bold"
                 >
                   {getSubjectsForClass(printTargetClass).map((sub) => (
-                    <option key={sub} value={sub} className="bg-[#0f172a] text-white py-1 font-medium">
+                    <option key={sub} value={sub} className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-white py-1 font-medium">
                       {sub}
                     </option>
                   ))}
@@ -902,18 +920,18 @@ export default function LiveResults({
               </div>
             </div>
 
-            <div className="flex items-center justify-end space-x-3 pt-4 border-t border-darkBorder">
+            <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-200 dark:border-darkBorder">
               <button
                 type="button"
                 onClick={() => setIsPrintModalOpen(false)}
-                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+                className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleConfirmModalPrint}
-                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all flex items-center space-x-2 shadow-md"
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all flex items-center space-x-2 shadow-md cursor-pointer"
               >
                 <Printer className="w-4 h-4" />
                 <span>Generate & Print Score Sheet</span>
@@ -1020,24 +1038,24 @@ export default function LiveResults({
       {/* Purge Active & Trial Submissions Modal */}
       {isPurgeModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-darkBorder rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative transition-colors">
             <button
               onClick={() => setIsPurgeModalOpen(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white cursor-pointer"
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-500/15 border border-rose-200 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 flex items-center justify-center">
               <Trash2 className="w-6 h-6" />
             </div>
 
             <div>
-              <h3 className="text-lg font-bold text-slate-100">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
                 Purge Active & Trial Submissions?
               </h3>
-              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                Select a purge scope below. Candidate statuses will reset back to <strong className="text-slate-200 font-bold font-mono">Not Taken / Exam Ready</strong> without removing student profiles or question banks.
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1.5 leading-relaxed">
+                Select a purge scope below. Candidate statuses will reset back to <strong className="text-slate-800 dark:text-slate-200 font-bold font-mono">Not Taken / Exam Ready</strong> without removing student profiles or question banks.
               </p>
             </div>
 
@@ -1047,8 +1065,8 @@ export default function LiveResults({
                 onClick={() => setPurgeScope('CLASS')}
                 className={`p-3.5 rounded-xl border flex items-start space-x-3 cursor-pointer transition-all ${
                   purgeScope === 'CLASS'
-                    ? 'bg-rose-500/10 border-rose-500/50 text-slate-100 shadow-sm'
-                    : 'bg-slate-950/60 border-darkBorder text-slate-400 hover:border-slate-700'
+                    ? 'bg-rose-50 dark:bg-rose-500/10 border-rose-300 dark:border-rose-500/50 text-slate-900 dark:text-slate-100 shadow-xs'
+                    : 'bg-slate-50 dark:bg-slate-950/60 border-slate-200 dark:border-darkBorder text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'
                 }`}
               >
                 <input
@@ -1059,10 +1077,10 @@ export default function LiveResults({
                   className="mt-0.5 accent-rose-500 cursor-pointer"
                 />
                 <div className="text-xs">
-                  <p className="font-extrabold text-slate-200">
+                  <p className="font-extrabold text-slate-900 dark:text-slate-200">
                     Option A: Clear submissions for {selectedClass === 'ALL' ? 'selected class' : selectedClass} only
                   </p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                     Resets active & completed exam sessions strictly for candidates in {selectedClass === 'ALL' ? 'the selected class scope' : selectedClass}.
                   </p>
                 </div>
@@ -1072,8 +1090,8 @@ export default function LiveResults({
                 onClick={() => setPurgeScope('ALL')}
                 className={`p-3.5 rounded-xl border flex items-start space-x-3 cursor-pointer transition-all ${
                   purgeScope === 'ALL'
-                    ? 'bg-rose-500/10 border-rose-500/50 text-slate-100 shadow-sm'
-                    : 'bg-slate-950/60 border-darkBorder text-slate-400 hover:border-slate-700'
+                    ? 'bg-rose-50 dark:bg-rose-500/10 border-rose-300 dark:border-rose-500/50 text-slate-900 dark:text-slate-100 shadow-xs'
+                    : 'bg-slate-50 dark:bg-slate-950/60 border-slate-200 dark:border-darkBorder text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'
                 }`}
               >
                 <input
@@ -1084,21 +1102,21 @@ export default function LiveResults({
                   className="mt-0.5 accent-rose-500 cursor-pointer"
                 />
                 <div className="text-xs">
-                  <p className="font-extrabold text-slate-200">
+                  <p className="font-extrabold text-slate-900 dark:text-slate-200">
                     Option B: Clear all trial exam submissions across ALL classes
                   </p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                     Resets all active & submitted exam sessions across all JSS 1 - SS 3 classes for a fresh test run.
                   </p>
                 </div>
               </label>
             </div>
 
-            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-darkBorder">
+            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-200 dark:border-darkBorder">
               <button
                 type="button"
                 onClick={() => setIsPurgeModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-slate-200 transition-all cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-all cursor-pointer"
               >
                 Cancel
               </button>

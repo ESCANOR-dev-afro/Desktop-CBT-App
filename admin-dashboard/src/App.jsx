@@ -314,7 +314,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-darkBg text-slate-100 font-sans antialiased overflow-hidden selection:bg-brand selection:text-white">
+    <div className="flex h-screen bg-slate-50 dark:bg-darkBg text-slate-900 dark:text-slate-100 font-sans antialiased overflow-hidden selection:bg-brand selection:text-white transition-colors">
       {/* Fixed Left Sidebar */}
       <Sidebar
         activeView={activeView}

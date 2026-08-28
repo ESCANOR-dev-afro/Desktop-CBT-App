@@ -69,9 +69,9 @@ export default function AddStudentModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-darkBorder w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-150">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-150 transition-colors">
         {/* Header with Official School Logo Badge */}
-        <div className="p-5 border-b border-darkBorder flex items-center justify-between bg-slate-950/50">
+        <div className="p-5 border-b border-slate-200 dark:border-darkBorder flex items-center justify-between bg-slate-50 dark:bg-slate-950/50">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-slate-950 border border-brand/40 p-0.5 shadow-md shadow-brand/10 shrink-0 flex items-center justify-center">
               <img
@@ -81,13 +81,13 @@ export default function AddStudentModal({
               />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-100">Enroll New Candidate</h3>
-              <p className="text-xs text-slate-400">Anthony Whitebridge Academy • Class Enrollment</p>
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Enroll New Candidate</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Anthony Whitebridge Academy • Class Enrollment</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+            className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -98,41 +98,41 @@ export default function AddStudentModal({
           {/* Class Assignment & Dynamic Isolation Info */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                 Class Allocation *
               </label>
               <select
                 value={studentClass}
                 onChange={(e) => setStudentClass(e.target.value)}
-                className="w-full bg-slate-950 border border-darkBorder text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-bold shadow-sm"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-bold shadow-xs cursor-pointer"
               >
-                <optgroup label="Junior Secondary Arms" className="bg-slate-900 text-slate-400 font-bold">
-                  <option value="JSS 1 Gold" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 1 Gold</option>
-                  <option value="JSS 1 Silver" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 1 Silver</option>
-                  <option value="JSS 1 Diamond" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 1 Diamond</option>
-                  <option value="JSS 2 Gold" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 2 Gold</option>
-                  <option value="JSS 2 Silver" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 2 Silver</option>
-                  <option value="JSS 2 Diamond" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 2 Diamond</option>
-                  <option value="JSS 3 Gold" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 3 Gold</option>
-                  <option value="JSS 3 Silver" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 3 Silver</option>
-                  <option value="JSS 3 Diamond" className="bg-slate-900 text-slate-100 py-1 font-medium">JSS 3 Diamond</option>
+                <optgroup label="Junior Secondary Arms" className="bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 font-bold">
+                  <option value="JSS 1 Gold" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">JSS 1 Gold</option>
+                  <option value="JSS 1 Silver" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">JSS 1 Silver</option>
+                  <option value="JSS 1 Diamond" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">JSS 1 Diamond</option>
+                  <option value="JSS 2 Gold" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">JSS 2 Gold</option>
+                  <option value="JSS 2 Silver" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">JSS 2 Silver</option>
+                  <option value="JSS 2 Diamond" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">JSS 2 Diamond</option>
+                  <option value="JSS 3 Gold" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">JSS 3 Gold</option>
+                  <option value="JSS 3 Silver" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">JSS 3 Silver</option>
+                  <option value="JSS 3 Diamond" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">JSS 3 Diamond</option>
                 </optgroup>
-                <optgroup label="Senior Secondary Streams" className="bg-slate-900 text-slate-400 font-bold">
-                  <option value="SS 1 Science" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 1 Science</option>
-                  <option value="SS 1 Art" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 1 Art</option>
-                  <option value="SS 1 Commercial" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 1 Commercial</option>
-                  <option value="SS 2 Science" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 2 Science</option>
-                  <option value="SS 2 Art" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 2 Art</option>
-                  <option value="SS 2 Commercial" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 2 Commercial</option>
-                  <option value="SS 3 Science" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 3 Science</option>
-                  <option value="SS 3 Art" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 3 Art</option>
-                  <option value="SS 3 Commercial" className="bg-slate-900 text-slate-100 py-1 font-medium">SS 3 Commercial</option>
+                <optgroup label="Senior Secondary Streams" className="bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 font-bold">
+                  <option value="SS 1 Science" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">SS 1 Science</option>
+                  <option value="SS 1 Art" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">SS 1 Art</option>
+                  <option value="SS 1 Commercial" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">SS 1 Commercial</option>
+                  <option value="SS 2 Science" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">SS 2 Science</option>
+                  <option value="SS 2 Art" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">SS 2 Art</option>
+                  <option value="SS 2 Commercial" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">SS 2 Commercial</option>
+                  <option value="SS 3 Science" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">SS 3 Science</option>
+                  <option value="SS 3 Art" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">SS 3 Art</option>
+                  <option value="SS 3 Commercial" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">SS 3 Commercial</option>
                 </optgroup>
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                 Registration Number (Optional)
               </label>
               <input
@@ -140,7 +140,7 @@ export default function AddStudentModal({
                 placeholder="Auto-assigned (e.g. AWA26270051) or enter custom ID"
                 value={regNo}
                 onChange={(e) => setRegNo(e.target.value)}
-                className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-mono font-bold text-brand"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-mono font-bold text-brand"
               />
             </div>
           </div>
@@ -148,7 +148,7 @@ export default function AddStudentModal({
           {/* Strict Two-Field Name Schema: Surname & First Name Only */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                 Surname *
               </label>
               <input
@@ -157,12 +157,12 @@ export default function AddStudentModal({
                 placeholder="e.g. Samuel"
                 value={surname}
                 onChange={(e) => setSurname(e.target.value)}
-                className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-semibold"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-semibold"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                 First Name *
               </label>
               <input
@@ -171,29 +171,29 @@ export default function AddStudentModal({
                 placeholder="e.g. Patrick"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
-                className="w-full bg-slate-950 border border-darkBorder text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-semibold"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-semibold"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
               Gender *
             </label>
             <select
               value={gender}
               onChange={(e) => setGender(e.target.value)}
-              className="w-full bg-slate-950 border border-darkBorder text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-bold shadow-sm"
+              className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-darkBorder text-slate-900 dark:text-slate-100 text-xs rounded-xl px-3.5 py-2.5 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand font-bold shadow-xs cursor-pointer"
             >
-              <option value="Male" className="bg-slate-900 text-slate-100 py-1 font-medium">Male</option>
-              <option value="Female" className="bg-slate-900 text-slate-100 py-1 font-medium">Female</option>
+              <option value="Male" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">Male</option>
+              <option value="Female" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 py-1 font-medium">Female</option>
             </select>
           </div>
 
           {/* DYNAMIC SUBJECT ISOLATION SECTION */}
-          <div className="space-y-2 pt-2 border-t border-darkBorder">
+          <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-darkBorder">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-200 flex items-center space-x-1.5">
+              <label className="text-xs font-bold text-slate-900 dark:text-slate-200 flex items-center space-x-1.5">
                 <ShieldCheck className="w-4 h-4 text-brand" />
                 <span>Isolated Subjects for {studentClass}</span>
               </label>
@@ -202,12 +202,12 @@ export default function AddStudentModal({
               </span>
             </div>
 
-            <p className="text-[11px] text-slate-400">
-              Select which subjects configured specifically for <span className="text-slate-200 font-semibold">{studentClass}</span> this candidate will write in the CBT exam:
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Select which subjects configured specifically for <span className="text-slate-800 dark:text-slate-200 font-semibold">{studentClass}</span> this candidate will write in the CBT exam:
             </p>
 
             {currentAvailableSubjects.length === 0 ? (
-              <div className="p-4 bg-slate-950 rounded-xl border border-darkBorder text-center text-xs text-slate-500">
+              <div className="p-4 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-darkBorder text-center text-xs text-slate-500">
                 No subjects configured yet for {studentClass}. Please add subjects to this class first.
               </div>
             ) : (
@@ -219,18 +219,18 @@ export default function AddStudentModal({
                       type="button"
                       key={sub.id}
                       onClick={() => handleToggleSubject(sub.name)}
-                      className={`flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold transition-all border text-left ${
+                      className={`flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold transition-all border text-left cursor-pointer ${
                         isChecked
-                          ? 'bg-brand/15 border-brand text-slate-100 shadow-sm'
-                          : 'bg-slate-950 border-darkBorder text-slate-400 hover:border-slate-700'
+                          ? 'bg-orange-50 dark:bg-brand/15 border-brand text-slate-900 dark:text-slate-100 shadow-xs'
+                          : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-darkBorder text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'
                       }`}
                     >
                       <div className="truncate">
-                        <span className="block font-bold text-slate-200 truncate">{sub.name}</span>
+                        <span className="block font-bold text-slate-800 dark:text-slate-200 truncate">{sub.name}</span>
                       </div>
                       <div
                         className={`w-4 h-4 rounded-md flex items-center justify-center border transition-colors shrink-0 ml-2 ${
-                          isChecked ? 'bg-brand border-brand text-white' : 'border-slate-700 bg-slate-900'
+                          isChecked ? 'bg-brand border-brand text-white' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
                         }`}
                       >
                         {isChecked && <Check className="w-3 h-3" />}
@@ -243,17 +243,17 @@ export default function AddStudentModal({
           </div>
 
           {/* Action Buttons */}
-          <div className="pt-4 border-t border-darkBorder flex items-center justify-end space-x-3">
+          <div className="pt-4 border-t border-slate-200 dark:border-darkBorder flex items-center justify-end space-x-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl border border-darkBorder text-xs font-semibold text-slate-300 hover:bg-slate-800 transition-colors"
+              className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-darkBorder text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-lg shadow-brand/25"
+              className="px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-lg shadow-brand/25 cursor-pointer"
             >
               Save & Enroll Candidate
             </button>

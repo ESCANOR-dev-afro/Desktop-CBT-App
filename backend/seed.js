@@ -10,7 +10,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const crypto = require('crypto');
 
-const DB_PATH = path.join(__dirname, 'cbt_database.db');
+const DB_PATH = path.resolve(__dirname, 'cbt_database.db');
 const db = new sqlite3.Database(DB_PATH);
 
 function runAsync(sql, params = []) {
