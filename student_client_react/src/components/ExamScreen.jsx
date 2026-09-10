@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Clock, Bookmark, ChevronLeft, ChevronRight, Calculator, Send, CheckCircle2, AlertTriangle, X, Image as ImageIcon, ZoomIn, LogOut } from 'lucide-react';
+import { Clock, Bookmark, ChevronLeft, ChevronRight, Calculator, Send, CheckCircle2, AlertTriangle, X, Image as ImageIcon, ZoomIn, LogOut, BookOpen } from 'lucide-react';
 import QuestionPalette from './QuestionPalette';
 import CalculatorModal from './CalculatorModal';
 import SubmitModal from './SubmitModal';
+import MathRenderer from './MathRenderer';
+import PassageDrawer from './PassageDrawer';
 import { autosaveAnswer, submitExam } from '../api';
 import storageService from '../services/storageService';
 import heartbeatService from '../services/heartbeatService';
@@ -11,6 +13,10 @@ export default function ExamScreen({
   student,
   subject,
   sessionId,
+  assessmentSlot = 'welcome_test',
+  academicSession = '2026/2027',
+  academicTerm = '1st Term',
+  configId = null,
   questions,
   durationSeconds: initialDurationSeconds,
   initialAnswers = {},
@@ -35,10 +41,11 @@ export default function ExamScreen({
       const parsed = Number(saved);
       if (parsed > 0) return parsed;
     }
-    return 600;
+    return 15 * 60;
   });
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
+  const [isPassageOpen, setIsPassageOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
 
@@ -82,6 +89,9 @@ export default function ExamScreen({
         subjectId: subject,
         subjectName: subject,
         classId: student?.class,
+        assessment_slot: assessmentSlot,
+        assessmentSlot: assessmentSlot,
+        slot: assessmentSlot,
         currentQuestionIndex: currentIndex,
         answeredCount: Object.keys(answers).length,
         totalQuestions: totalQuestions,
@@ -94,7 +104,7 @@ export default function ExamScreen({
     return () => {
       heartbeatService.stopHeartbeat();
     };
-  }, [student?.id, regNo, subject, currentIndex, answers, totalQuestions, timeRemaining]);
+  }, [student?.id, regNo, subject, assessmentSlot, currentIndex, answers, totalQuestions, timeRemaining]);
 
   // 3. LocalStorage Real-Time Persistence for 100% Session & Crash Resilience
   useEffect(() => {
@@ -167,7 +177,14 @@ export default function ExamScreen({
         regNumber: regNo,
         reg_number: regNo,
         class: student?.class,
-        subject: subjectName
+        subject: subjectName,
+        assessment_slot: assessmentSlot || 'welcome_test',
+        assessmentSlot: assessmentSlot || 'welcome_test',
+        slot: assessmentSlot || 'welcome_test',
+        session: academicSession || '2026/2027',
+        term: academicTerm || '1st Term',
+        config_id: configId || undefined,
+        configId: configId || undefined
       });
     } catch (err) {
       console.warn('Auto-submit API warning:', err.message);
@@ -196,7 +213,14 @@ export default function ExamScreen({
         regNumber: regNo,
         reg_number: regNo,
         class: student?.class,
-        subject: subjectName
+        subject: subjectName,
+        assessment_slot: assessmentSlot || 'welcome_test',
+        assessmentSlot: assessmentSlot || 'welcome_test',
+        slot: assessmentSlot || 'welcome_test',
+        session: academicSession || '2026/2027',
+        term: academicTerm || '1st Term',
+        config_id: configId || undefined,
+        configId: configId || undefined
       });
     } catch (err) {
       console.warn('Submit API warning:', err.message);
@@ -232,6 +256,21 @@ export default function ExamScreen({
   };
 
   const diagramUrl = getDiagramUrl(activeQuestion);
+
+  // Dynamic Comprehension Passage & Instruction Extraction
+  const rawQuestionText = activeQuestion?.question_text || '';
+  const passageMatch = rawQuestionText.match(/\[PASSAGE:\s*([\s\S]*?)\]/);
+  const hasPassage = Boolean(passageMatch);
+  const passageText = passageMatch ? passageMatch[1].trim() : null;
+
+  const instructionMatch = rawQuestionText.match(/\[INSTRUCTION:\s*([\s\S]*?)\]/);
+  const hasInstruction = Boolean(instructionMatch);
+  const instructionText = instructionMatch ? instructionMatch[1].trim() : null;
+
+  const cleanStem = rawQuestionText
+    .replace(/\[PASSAGE:\s*([\s\S]*?)\]/g, '')
+    .replace(/\[INSTRUCTION:\s*([\s\S]*?)\]/g, '')
+    .trim();
 
   return (
     <div className="min-h-screen bg-[#F4F6F9] dark:bg-slate-950 text-[#1E242B] dark:text-slate-100 flex flex-col font-sans select-none transition-colors">
@@ -345,11 +384,32 @@ export default function ExamScreen({
           {/* Question Body Card */}
           <div className="bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-2xl p-6 sm:p-8 flex-1 flex flex-col justify-between shadow-md transition-colors">
             <div>
-              {/* Question Text */}
+              {/* Question Text & Options */}
               {activeQuestion ? (
                 <div className="space-y-4">
+                  {/* Conditional Read Comprehension Passage Action Button */}
+                  {hasPassage && (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setIsPassageOpen(true)}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-50 dark:bg-orange-950/40 text-[#F96302] dark:text-orange-400 border border-[#F96302]/30 hover:bg-[#F96302] hover:text-white font-bold text-xs sm:text-sm shadow-sm transition-all cursor-pointer group"
+                      >
+                        <BookOpen className="w-4 h-4 transition-transform group-hover:scale-110" />
+                        <span>Read Comprehension Passage</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Conditional Dynamic Instruction Banner */}
+                  {hasInstruction && (
+                    <div className="mb-3 p-3 bg-blue-500/10 border-l-4 border-blue-500 rounded-r text-blue-900 dark:text-blue-200 text-sm font-medium">
+                      <span className="font-bold mr-1">📌 INSTRUCTION:</span> <MathRenderer content={instructionText} />
+                    </div>
+                  )}
+
                   <h2 className="text-lg sm:text-xl font-bold text-[#1E242B] dark:text-slate-100 leading-relaxed tracking-tight">
-                    {activeQuestion.question_text}
+                    <MathRenderer content={cleanStem} />
                   </h2>
 
                   {/* Question Diagram Asset */}
@@ -406,7 +466,7 @@ export default function ExamScreen({
 
                           {/* Option Content Text */}
                           <div className="flex-1 font-semibold text-sm sm:text-base leading-relaxed">
-                            {opt.text}
+                            <MathRenderer content={opt.text} />
                           </div>
 
                           {selected && (
@@ -494,6 +554,13 @@ export default function ExamScreen({
           </div>
         </div>
       )}
+
+      {/* Slide-Over Comprehension Passage Drawer */}
+      <PassageDrawer
+        isOpen={isPassageOpen}
+        onClose={() => setIsPassageOpen(false)}
+        passage={passageText}
+      />
 
       {/* Popover Calculator Modal */}
       <CalculatorModal isOpen={isCalculatorOpen} onClose={() => setIsCalculatorOpen(false)} />

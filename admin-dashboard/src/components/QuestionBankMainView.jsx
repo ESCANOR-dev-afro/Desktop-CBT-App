@@ -21,6 +21,7 @@ import {
   Sliders,
   Shuffle
 } from 'lucide-react';
+import MathRenderer from './MathRenderer';
 
 const questionBankClasses = [
   'JSS 1',
@@ -1039,7 +1040,7 @@ export default function QuestionBankMainView({
                       <td className="p-3.5">
                         <div className="flex items-start justify-between space-x-2">
                           <span className="text-slate-900 dark:text-slate-200 font-medium leading-relaxed">
-                            {truncatedStem}
+                            <MathRenderer content={truncatedStem} />
                           </span>
                           <button
                             onClick={() => setPreviewQuestion(q)}
@@ -1055,10 +1056,10 @@ export default function QuestionBankMainView({
                       <td className="p-3.5">
                         <div className="space-y-1">
                           <div className="truncate text-[11px] text-slate-700 dark:text-slate-300">
-                            <span className="font-bold text-slate-400 dark:text-slate-500 mr-1">A:</span> {optA}
+                            <span className="font-bold text-slate-400 dark:text-slate-500 mr-1">A:</span> <MathRenderer content={optA} />
                           </div>
                           <div className="truncate text-[11px] text-slate-700 dark:text-slate-300">
-                            <span className="font-bold text-slate-400 dark:text-slate-500 mr-1">B:</span> {optB}
+                            <span className="font-bold text-slate-400 dark:text-slate-500 mr-1">B:</span> <MathRenderer content={optB} />
                           </div>
                         </div>
                       </td>
@@ -1178,7 +1179,7 @@ export default function QuestionBankMainView({
                 Question Statement / Stem:
               </label>
               <p className="text-xs text-slate-900 dark:text-slate-100 bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-200 dark:border-darkBorder leading-relaxed font-medium">
-                {previewQuestion.question_text || previewQuestion.stem}
+                <MathRenderer content={previewQuestion.question_text || previewQuestion.stem} />
               </p>
             </div>
 
@@ -1228,7 +1229,7 @@ export default function QuestionBankMainView({
                         }`}>
                           {opt.key}
                         </span>
-                        <span className="truncate">{opt.text}</span>
+                        <span className="truncate"><MathRenderer content={opt.text} /></span>
                       </div>
                       {isCorrect && (
                         <span className="flex items-center space-x-1 text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-500/20 px-2 py-0.5 rounded-full shrink-0">

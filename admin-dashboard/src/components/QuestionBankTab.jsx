@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
+import MathRenderer from './MathRenderer';
 
 export default function QuestionBankTab({
   currentClass,
@@ -331,7 +332,7 @@ export default function QuestionBankTab({
                       </span>
                       <div>
                         <h5 className="text-xs font-semibold text-slate-900 dark:text-slate-200 leading-relaxed">
-                          {stemText}
+                          <MathRenderer content={stemText} />
                         </h5>
 
                         {q.diagram_image_url && (
@@ -384,7 +385,7 @@ export default function QuestionBankTab({
                                   : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-darkBorder text-slate-700 dark:text-slate-400 shadow-2xs'
                               }`}
                             >
-                              <span>{formattedText}</span>
+                              <span><MathRenderer content={formattedText} /></span>
                               {isCorrect && (
                                 <span className="flex items-center space-x-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-500/20 px-2 py-0.5 rounded">
                                   <Check className="w-3 h-3" />

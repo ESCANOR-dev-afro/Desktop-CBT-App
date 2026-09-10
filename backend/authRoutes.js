@@ -333,7 +333,8 @@ const handleStudentLogin = async (req, res, next) => {
             try { deliveredQuestions = JSON.parse(activeSesRow.delivered_questions_json || '[]'); } catch (_) {}
 
             const now = new Date();
-            const expiresAt = activeSesRow.expires_at ? new Date(activeSesRow.expires_at) : new Date(now.getTime() + 45 * 60 * 1000);
+            const sessionDurationMinutes = Number(activeSesRow.duration_minutes) > 0 ? Number(activeSesRow.duration_minutes) : 15;
+            const expiresAt = activeSesRow.expires_at ? new Date(activeSesRow.expires_at) : new Date(now.getTime() + sessionDurationMinutes * 60 * 1000);
 
             if (expiresAt.getTime() > now.getTime() && deliveredQuestions.length > 0) {
                 const remainingSeconds = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
@@ -347,7 +348,7 @@ const handleStudentLogin = async (req, res, next) => {
                     class: activeSesRow.class_name || student.class,
                     started_at: activeSesRow.started_at,
                     expires_at: activeSesRow.expires_at,
-                    duration_minutes: activeSesRow.duration_minutes || 45,
+                    duration_minutes: sessionDurationMinutes,
                     duration_seconds: remainingSeconds,
                     delivered_questions: deliveredQuestions,
                     selected_answers: selectedAnswers
@@ -367,8 +368,8 @@ const handleStudentLogin = async (req, res, next) => {
             console.log(`🔑 [Session Resumed] Student ID ${student.id} (${student.registration_no || student.reg_number}) resumed Session #${sessionId} from IP ${clientIp}`);
         } else {
             const insertSessionSql = `
-                INSERT INTO exam_sessions (student_id, workstation_ip, login_time, status, is_locked, term_id)
-                VALUES (?, ?, CURRENT_TIMESTAMP, 'active', 0, ?)
+                INSERT INTO exam_sessions (student_id, workstation_ip, login_time, status, is_locked, term_id, assessment_slot)
+                VALUES (?, ?, CURRENT_TIMESTAMP, 'active', 0, ?, NULL)
             `;
             const result = await dbRun(insertSessionSql, [student.id, clientIp, student.academic_term_id || null]);
             sessionId = result.lastID;
@@ -615,11 +616,11 @@ async function fetchActiveExamsForStudent({ studentId, studentClass, session, te
             subject: row.subject,
             name: row.subject,
             slot_name: row.assessment_slot || 'Standard Assessment',
-            assessment_slot: row.assessment_slot || 'midterm_ca',
-            slot: row.assessment_slot || 'midterm_ca',
+            assessment_slot: row.assessment_slot || 'welcome_test',
+            slot: row.assessment_slot || 'welcome_test',
             assessment_title: row.assessment_title || `${row.subject} - ${row.assessment_slot || 'Standard Assessment'}`,
-            duration_minutes: row.duration_minutes || 45,
-            duration: row.duration_minutes || 45,
+            duration_minutes: Number(row.duration_minutes) > 0 ? Number(row.duration_minutes) : 15,
+            duration: Number(row.duration_minutes) > 0 ? Number(row.duration_minutes) : 15,
             preset_mode: row.preset_mode || 'ca_test',
             questions_count: (row.custom_count && parseInt(row.custom_count, 10) > 0) ? parseInt(row.custom_count, 10) : (row.question_count || 30),
             question_count: (row.custom_count && parseInt(row.custom_count, 10) > 0) ? parseInt(row.custom_count, 10) : (row.question_count || 30),

@@ -78,13 +78,40 @@ export default function App() {
       .catch((err) => console.log('Notice: Academic terms API load fallback active', err));
   }, []);
 
-  // Fetch dynamic class subjects mapping from database on load
+  // Fetch dynamic class subjects mapping from database on load with state reconciliation
   useEffect(() => {
+    // Cache-busting check for legacy curriculum cache
+    try {
+      const CURRICULUM_VERSION = 3;
+      const storedVer = Number(localStorage.getItem('awba_curriculum_version')) || 0;
+      if (storedVer < CURRICULUM_VERSION) {
+        localStorage.removeItem('awba_curriculum');
+        localStorage.removeItem('awba_class_subjects');
+        localStorage.removeItem('cbt_curriculum');
+        localStorage.setItem('awba_curriculum_version', String(CURRICULUM_VERSION));
+      }
+    } catch (_) {}
+
     fetch('/api/admin/class-subjects')
       .then((res) => res.json())
       .then((data) => {
         if (data.success && data.classSubjects && Object.keys(data.classSubjects).length > 0) {
-          setSubjectsByClass(data.classSubjects);
+          // Authoritative state reconciliation:
+          // Merge fetched mappings with initial default lists so counts never downgrade below the standard
+          setSubjectsByClass((prev) => {
+            const merged = { ...initialSubjectsByClass, ...prev };
+            Object.entries(data.classSubjects).forEach(([cls, fetchedList]) => {
+              const defaultList = initialSubjectsByClass[cls] || [];
+              if (Array.isArray(fetchedList)) {
+                const fetchedNames = new Set(fetchedList.map((s) => (s?.name || s).toLowerCase()));
+                const missingDefaults = defaultList.filter(
+                  (d) => !fetchedNames.has((d?.name || d).toLowerCase())
+                );
+                merged[cls] = [...fetchedList, ...missingDefaults];
+              }
+            });
+            return merged;
+          });
         }
       })
       .catch((err) => console.log('Notice: Class subjects API load fallback active', err));
@@ -120,8 +147,8 @@ export default function App() {
     }
   };
 
-  // Dynamic Class-Specific Subject Isolation Handler
-  const handleAddSubject = (targetClass, newSubject) => {
+  // Dynamic Class-Specific Subject Isolation Handler with Database Persistence
+  const handleAddSubject = async (targetClass, newSubject) => {
     setSubjectsByClass((prev) => {
       const existingList = prev[targetClass] || [];
       return {
@@ -138,6 +165,20 @@ export default function App() {
       category: 'IsolationEngine',
     };
     setActivityLogs((prev) => [newLog, ...prev]);
+
+    // Persist new subject mapping to backend SQLite database
+    try {
+      await fetch('/api/admin/class-subjects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          class: targetClass,
+          subject: newSubject.name,
+        }),
+      });
+    } catch (e) {
+      console.log('Notice: Subject backend sync notice', e);
+    }
 
     showToast(
       `Subject "${newSubject.name}" successfully added and isolated strictly to ${targetClass}!`,

@@ -51,6 +51,61 @@ function cleanKey(key) {
 }
 
 /**
+ * Helper to detect and sanitize corrupt Excel date serial numbers in options/questions.
+ * When teachers enter fractions like 1/2, 1/3, 2/3, 1/6, 3/5, 4/5, Excel converts them to dates.
+ */
+function sanitizeOptionText(val) {
+    if (val === undefined || val === null) return '';
+    let str = String(val).trim();
+    if (!str) return '';
+
+    // Known Excel date serials to fraction mapping (Jan-Feb 2001 serials e.g. 36897 = 1/6/2001 or 1/2)
+    const serialMap = {
+        '36897': '1/2',
+        '36894': '1/3',
+        '36893': '2/3',
+        '36925': '1/6',
+        '36955': '3/5',
+        '36986': '4/5',
+        '37014': '2/5',
+        '36984': '1/5',
+        '37023': '5/12',
+        '37084': '7/12',
+        '37018': '5/7',
+        '37136': '9/2',
+        '36952': '3/2',
+        '37138': '9/4'
+    };
+
+    // Check if integer part of serial float matches known pattern
+    const intPart = str.split('.')[0];
+    if (serialMap[intPart]) {
+        return serialMap[intPart];
+    }
+
+    // Check for general date serial format e.g. 36897.00040509259
+    if (/^\d{5}(\.\d+)?$/.test(str)) {
+        const num = parseFloat(str);
+        if (num >= 35000 && num <= 45000) {
+            // Excel date serial detected
+            if (serialMap[String(Math.floor(num))]) {
+                return serialMap[String(Math.floor(num))];
+            }
+        }
+    }
+
+    // Check if string is an Excel date string representation e.g. "1/2/01", "2-Jan", "02-Jan"
+    if (/^0?1\/0?2(\/\d{2,4})?$/.test(str) || /^0?2[-/]Jan/i.test(str)) return '1/2';
+    if (/^0?1\/0?3(\/\d{2,4})?$/.test(str) || /^0?3[-/]Jan/i.test(str)) return '1/3';
+    if (/^0?2\/0?3(\/\d{2,4})?$/.test(str)) return '2/3';
+    if (/^0?1\/0?6(\/\d{2,4})?$/.test(str) || /^0?6[-/]Jan/i.test(str)) return '1/6';
+    if (/^0?3\/0?5(\/\d{2,4})?$/.test(str)) return '3/5';
+    if (/^0?4\/0?5(\/\d{2,4})?$/.test(str)) return '4/5';
+
+    return str;
+}
+
+/**
  * Helper to extract value from row object matching candidate header variations.
  */
 function getRowValue(row, possibleKeys) {
@@ -200,9 +255,17 @@ async function handleQuestionBankUpload(req, res, next) {
         }
 
         // Parse buffer into XLSX workbook
+        // CRITICAL: Use raw:true + cellDates:false + cellText:true to prevent
+        // Excel auto-converting fractions (1/2, 2/3) into date serial numbers.
         let workbook;
         try {
-            workbook = XLSX.read(spreadsheetBuffer, { type: 'buffer' });
+            workbook = XLSX.read(spreadsheetBuffer, {
+                type: 'buffer',
+                raw: true,          // Preserve raw cell values without interpretation
+                cellDates: false,   // Do NOT parse date serial numbers into JS Date objects
+                cellText: true,     // Generate .w (formatted text) properties on cells
+                cellNF: true,       // Preserve number format strings for diagnostics
+            });
         } catch (parseError) {
             return res.status(400).json({
                 success: false,
@@ -220,7 +283,15 @@ async function handleQuestionBankUpload(req, res, next) {
         }
 
         const worksheet = workbook.Sheets[sheetName];
-        const rawRows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+        // CRITICAL: raw:false makes sheet_to_json emit the formatted text (.w)
+        // representation of each cell, NOT the internal numeric value (.v).
+        // This ensures "1/2" stays as "1/2" instead of becoming "0.5" or a date serial.
+        const rawRows = XLSX.utils.sheet_to_json(worksheet, {
+            defval: '',
+            raw: false,          // Use formatted string (.w) instead of raw value (.v)
+            dateNF: 'yyyy-mm-dd', // Fallback date format to prevent serial leakage
+        });
 
         if (!Array.isArray(rawRows) || rawRows.length === 0) {
             return res.status(400).json({
@@ -233,7 +304,7 @@ async function handleQuestionBankUpload(req, res, next) {
         const fallbackClass = req.body.classId || req.body.class || req.body.exam_id || req.query.classId || req.query.class || null;
         const fallbackSession = req.body.session || req.query.session || '2026/2027';
         const fallbackTerm = req.body.term || req.query.term || '1st Term';
-        let rawFallbackSlot = req.body.slot || req.body.assessment_slot || req.body.assessmentSlot || req.query.slot || req.query.assessment_slot || req.query.assessmentSlot || 'midterm_ca';
+        let rawFallbackSlot = req.body.slot || req.body.assessment_slot || req.body.assessmentSlot || req.query.slot || req.query.assessment_slot || req.query.assessmentSlot || 'welcome_test';
         rawFallbackSlot = String(rawFallbackSlot).trim().toLowerCase();
         if (rawFallbackSlot === 'terminal_exam' || rawFallbackSlot === 'terminal' || rawFallbackSlot === 'exam') rawFallbackSlot = 'examination';
         if (rawFallbackSlot === 'custom_exam' || rawFallbackSlot === 'custom') rawFallbackSlot = 'custom_assessment';
@@ -247,10 +318,10 @@ async function handleQuestionBankUpload(req, res, next) {
             const rowIndex = index + 2; // 1-indexed row in sheet (header is row 1)
 
             const questionText = getRowValue(row, ['question', 'question_text', 'questiontext', 'qtext', 'q_text', 'question_name']);
-            const optionA = getRowValue(row, ['option_a', 'option a', 'a', 'opta', 'opt_a', 'option1']);
-            const optionB = getRowValue(row, ['option_b', 'option b', 'b', 'optb', 'opt_b', 'option2']);
-            const optionC = getRowValue(row, ['option_c', 'option c', 'c', 'optc', 'opt_c', 'option3']);
-            const optionD = getRowValue(row, ['option_d', 'option d', 'd', 'optd', 'opt_d', 'option4']);
+            const optionA = sanitizeOptionText(getRowValue(row, ['option_a', 'option a', 'a', 'opta', 'opt_a', 'option1']));
+            const optionB = sanitizeOptionText(getRowValue(row, ['option_b', 'option b', 'b', 'optb', 'opt_b', 'option2']));
+            const optionC = sanitizeOptionText(getRowValue(row, ['option_c', 'option c', 'c', 'optc', 'opt_c', 'option3']));
+            const optionD = sanitizeOptionText(getRowValue(row, ['option_d', 'option d', 'd', 'optd', 'opt_d', 'option4']));
             let diagramRef = getRowValue(row, ['diagram_filename', 'diagramfilename', 'diagram_image_url', 'diagram_image', 'diagram', 'image_url', 'image', 'figure', 'img', 'diagram_file', 'diagram_path']);
 
             let rawAnswer = getRowValue(row, ['correct_answer', 'correct answer', 'answer', 'correct', 'ans', 'correctanswer']);

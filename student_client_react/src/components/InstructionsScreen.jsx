@@ -5,6 +5,7 @@ export default function InstructionsScreen({ student, subject, questionCount, du
   const surname = (student?.surname || '').toUpperCase();
   const firstName = student?.first_name || '';
   const fullName = firstName ? `${surname}, ${firstName}` : (surname || 'Candidate');
+  const displayDuration = Number(durationMinutes) > 0 ? Number(durationMinutes) : 15;
 
   return (
     <div className="min-h-screen w-full bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4 sm:p-6 lg:p-8 transition-colors">
@@ -48,7 +49,7 @@ export default function InstructionsScreen({ student, subject, questionCount, du
             <div className="p-4 bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-xl text-center shadow-sm">
               <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400 mx-auto mb-1.5" />
               <p className="text-xs text-[#64748B] dark:text-slate-400 font-bold uppercase tracking-wider">Allocated Time</p>
-              <p className="text-2xl font-extrabold text-[#1E242B] dark:text-white mt-0.5">{durationMinutes} <span className="text-xs text-[#64748B] dark:text-slate-400 font-normal">mins</span></p>
+              <p className="text-2xl font-extrabold text-[#1E242B] dark:text-white mt-0.5">{displayDuration} <span className="text-xs text-[#64748B] dark:text-slate-400 font-normal">mins</span></p>
             </div>
 
             <div className="col-span-2 sm:col-span-1 p-4 bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 rounded-xl text-center shadow-sm">

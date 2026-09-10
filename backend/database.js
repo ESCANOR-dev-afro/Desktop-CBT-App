@@ -155,7 +155,8 @@ function initDatabase() {
         db.run(`ALTER TABLE questions ADD COLUMN subject_id INTEGER;`, () => {});
         db.run(`UPDATE questions SET session = '2026/2027' WHERE session IS NULL OR TRIM(session) = '';`, () => {});
         db.run(`UPDATE questions SET term = '1st Term' WHERE term IS NULL OR TRIM(term) = '';`, () => {});
-        db.run(`UPDATE questions SET assessment_slot = 'midterm_ca' WHERE assessment_slot IS NULL OR TRIM(assessment_slot) = '' OR LOWER(assessment_slot) = 'general';`, () => {});
+        // Only default truly NULL/empty slots — do NOT override 'general' or any other legitimate slot value
+        db.run(`UPDATE questions SET assessment_slot = 'midterm_ca' WHERE assessment_slot IS NULL OR TRIM(assessment_slot) = '';`, () => {});
         db.run(`UPDATE questions SET assessment_slot = 'examination' WHERE LOWER(assessment_slot) = 'terminal_exam';`, () => {});
         db.run(`UPDATE questions SET assessment_slot = 'custom_assessment' WHERE LOWER(assessment_slot) = 'custom_exam';`, () => {});
         db.run(`UPDATE assessment_configs SET assessment_slot = 'examination' WHERE LOWER(assessment_slot) = 'terminal_exam';`, () => {});
@@ -502,19 +503,24 @@ function seedDefaultCatalog() {
 
     // 2. Seed Default Master Subjects Catalog (INSERT OR IGNORE — never overwrites)
     const defaultSubjects = [
-        'English Language', 'Mathematics', 'Basic Science', 'Basic Technology',
-        'Social Studies', 'Civic Education', 'Agricultural Science', 'Business Studies',
-        'PHE', 'Home Economics', 'Music', 'Fine Art', 'French', 'Yoruba', 'CRS',
-        'Digital Technology', 'Biology', 'Chemistry', 'Physics', 'Further Mathematics',
-        'Economics', 'Financial Accounting', 'Commerce', 'Business Methods', 'Government',
-        'Literature in English', 'CRS/IRS', 'Geography', 'Computer Studies', 'History', 'Account'
+        'English Language', 'Mathematics', 'Civic Education', 'Social Studies',
+        'Yoruba', 'Music', 'French', 'Digital Technology',
+        'Computer Hardware and GSM repair', 'Horticulture', 'Home Economics',
+        'Agriculture', 'Oral English', 'Intermediate Science', 'Basic Science',
+        'Basic Tech', 'CRS', 'Business Studies', 'PHE', 'Nigeria History',
+        'Physics', 'Chemistry', 'Biology', 'Economics', 'Further Mathematics',
+        'ICT', 'Geography', 'Agric', 'Horticulture and crop production',
+        'Computer hardware and GSM repair', 'Catering craft',
+        'Account', 'Commerce', 'Government', 'Marketing',
+        'Literature', 'Literature in English', 'CRS/IRS', 'Computer Studies',
+        'Financial Accounting', 'Fine Art', 'History', 'Basic Technology'
     ];
 
     const subjectInsertSql = `INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1);`;
     const subjectStmt = db.prepare(subjectInsertSql);
     defaultSubjects.forEach(sub => subjectStmt.run([sub]));
     subjectStmt.finalize(() => {
-        // Only run heavy normalization if explicitly requested or first-time setup
+        // Only run heavy normalization if explicitly requested or first-time setup or version upgrade
         checkAndRunNormalization();
     });
 }
@@ -522,14 +528,17 @@ function seedDefaultCatalog() {
 /**
  * Checks whether full normalization has already been performed.
  * Uses a lightweight `_normalization_meta` table to track completion.
- * Normalization only runs:
+ * Normalization runs when:
  *   1. On first-ever server boot (meta table doesn't exist or no entry)
- *   2. When RUN_NORMALIZE=true environment variable is set
- * This prevents expensive re-sync operations and any potential CASCADE
- * side-effects during normal production server restarts.
+ *   2. When schema version < CURRICULUM_VERSION (version 3: full 20/16/13/12 curriculum)
+ *   3. When RUN_NORMALIZE=true environment variable is set
+ * This prevents unnecessary re-sync operations during normal restarts while
+ * automatically applying required curriculum upgrades.
  */
 async function checkAndRunNormalization() {
     try {
+        const CURRICULUM_VERSION = 3;
+
         // Create tracking table if it doesn't exist
         await runAsync(`CREATE TABLE IF NOT EXISTS _normalization_meta (
             id INTEGER PRIMARY KEY CHECK(id = 1),
@@ -540,22 +549,23 @@ async function checkAndRunNormalization() {
         const forceNormalize = process.env.RUN_NORMALIZE === 'true';
         const meta = await getAsync(`SELECT * FROM _normalization_meta WHERE id = 1`);
 
-        if (meta && !forceNormalize) {
-            // Already normalized — skip heavy operations on restart
-            console.log('🔒 [Normalization] Schema already normalized (last run: ' + meta.last_run_at + '). Skipping re-sync. Set RUN_NORMALIZE=true to force.');
+        if (meta && (meta.version || 0) >= CURRICULUM_VERSION && !forceNormalize) {
+            // Already normalized at current version — skip heavy operations on restart
+            console.log(`🔒 [Normalization] Schema already normalized (v${meta.version}, last run: ${meta.last_run_at}). Skipping re-sync. Set RUN_NORMALIZE=true to force.`);
             return;
         }
 
         console.log(forceNormalize 
             ? '🔄 [Normalization] Forced re-normalization via RUN_NORMALIZE=true...'
-            : '🆕 [Normalization] First-time setup detected. Running full normalization...');
+            : `🆕 [Normalization] Upgrading curriculum schema to v${CURRICULUM_VERSION}...`);
 
         await runAutoNormalization();
 
-        // Record completion
+        // Record completion with updated version
         await runAsync(
-            `INSERT INTO _normalization_meta (id, last_run_at, version) VALUES (1, datetime('now'), 1)
-             ON CONFLICT(id) DO UPDATE SET last_run_at = datetime('now'), version = version + 1`
+            `INSERT INTO _normalization_meta (id, last_run_at, version) VALUES (1, datetime('now'), ?)
+             ON CONFLICT(id) DO UPDATE SET last_run_at = datetime('now'), version = excluded.version`,
+            [CURRICULUM_VERSION]
         );
     } catch (err) {
         console.error('⚠️ [Normalization Check Error]:', err.message);
@@ -567,10 +577,9 @@ async function checkAndRunNormalization() {
  * - Syncs distinct class names to `classes` table.
  * - Syncs question options from flat `questions` table to `question_options` table.
  * - Purges concatenated subject strings from subjects table.
- * - Populates `class_subjects` mapping table with strict Junior and Senior stream allocations.
+ * - Populates `class_subjects` mapping table with strict Junior (20), Science (16), Commercial (13), Art (12) stream allocations.
  *
- * WARNING: This function is intentionally NOT run on every server restart.
- * It is only triggered on first-time setup or when RUN_NORMALIZE=true.
+ * Preserves 100% of student roster, test results, and question banks.
  */
 async function runAutoNormalization() {
     try {
@@ -634,24 +643,31 @@ async function runAutoNormalization() {
         }
 
         // 4. Populate Stream & Tier Subject Mappings into `class_subjects` Table
+        // Authoritative Lists: JSS=20, Science=16, Commercial=13, Art=12
         await runAsync('DELETE FROM class_subjects');
         const juniorSubjects = [
-            "English Language", "Mathematics", "Yoruba", "French", "Fine Art", "Music",
-            "Basic Science", "Basic Technology", "PHE", "Digital Technology", "Social Studies",
-            "Civic Education", "Home Economics", "Agricultural Science", "Business Studies", "History"
+            "English Language", "Mathematics", "Civic Education", "Social Studies",
+            "Yoruba", "Music", "French", "Digital Technology",
+            "Computer Hardware and GSM repair", "Horticulture", "Home Economics",
+            "Agriculture", "Oral English", "Intermediate Science", "Basic Science",
+            "Basic Tech", "CRS", "Business Studies", "PHE", "Nigeria History"
         ];
         const scienceSubjects = [
-            "Mathematics", "English Language", "Biology", "Chemistry", "Physics",
-            "Civic Education", "Further Mathematics", "Economics", "Digital Technology",
-            "Agricultural Science", "Geography"
-        ];
-        const artsSubjects = [
-            "Mathematics", "English Language", "Civic Education", "Economics",
-            "Digital Technology", "Government", "CRS", "Literature in English"
+            "English Language", "Mathematics", "Physics", "Chemistry", "Biology",
+            "Economics", "Further Mathematics", "Digital Technology", "ICT",
+            "Oral English", "Geography", "Civic Education", "Agric",
+            "Horticulture and crop production", "Computer hardware and GSM repair",
+            "Catering craft"
         ];
         const commercialSubjects = [
-            "Mathematics", "English Language", "Civic Education", "Further Mathematics",
-            "Economics", "Digital Technology", "Account", "Commerce", "Government"
+            "English Language", "Mathematics", "Account", "Commerce", "Government",
+            "Economics", "Further Mathematics", "Digital Technology", "ICT",
+            "Oral English", "Civic Education", "Marketing", "Catering craft"
+        ];
+        const artsSubjects = [
+            "English Language", "Mathematics", "Literature", "CRS", "Government",
+            "Economics", "Digital Technology", "ICT", "Oral English", "Yoruba",
+            "Civic Education", "Catering craft"
         ];
 
         const allStreamSubjects = Array.from(new Set([
@@ -670,13 +686,12 @@ async function runAutoNormalization() {
 
             if (nameUpper.startsWith('JSS')) {
                 allocated = juniorSubjects;
-            } else if (nameUpper.includes('SCIENCE')) {
-                allocated = scienceSubjects;
             } else if (nameUpper.includes('COMMERCIAL')) {
                 allocated = commercialSubjects;
             } else if (nameUpper.includes('ART')) {
                 allocated = artsSubjects;
             } else {
+                // Science arms and generic SS base tiers
                 allocated = scienceSubjects;
             }
 
@@ -693,7 +708,7 @@ async function runAutoNormalization() {
             }
         }
 
-        console.log('🎉 [Database Normalization Complete] SQLite WAL ready, class_subjects mappings & normalized schema synchronized successfully.');
+        console.log('🎉 [Database Normalization Complete] SQLite WAL ready, class_subjects mappings (JSS: 20, Science: 16, Commercial: 13, Art: 12) synchronized successfully.');
     } catch (err) {
         console.error('⚠️ [Normalization Sync Notice]:', err.message);
     }

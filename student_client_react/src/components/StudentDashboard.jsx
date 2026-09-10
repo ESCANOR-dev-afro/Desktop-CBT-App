@@ -48,7 +48,7 @@ export default function StudentDashboard({ student, sessionId, onSelectSubject, 
     const isSubmitted = exam.status === 'SUBMITTED' || exam.status === 'COMPLETED' || exam.isSubmitted === true;
     if (isSubmitted) return;
 
-    const slot = exam.assessment_slot || exam.slot_name || exam.slot || 'midterm_ca';
+    const slot = exam.assessment_slot || exam.slot_name || exam.slot || 'welcome_test';
     const paperSession = exam.session || exam.academic_session || '2026/2027';
     const paperTerm = exam.term || '1st Term';
 
@@ -72,15 +72,38 @@ export default function StudentDashboard({ student, sessionId, onSelectSubject, 
         return;
       }
 
+      const durationInMinutes = Number(
+        res?.duration_minutes ??
+        res?.duration ??
+        res?.durationMinutes ??
+        res?.exam_duration ??
+        res?.time_limit ??
+        res?.allocated_time ??
+        exam?.duration_minutes ??
+        exam?.duration ??
+        exam?.durationMinutes ??
+        exam?.exam_duration ??
+        exam?.time_limit ??
+        exam?.allocated_time ??
+        15
+      );
+
+      const durationInSeconds = Number(
+        res?.duration_seconds ??
+        res?.durationSeconds ??
+        (durationInMinutes * 60)
+      );
+
       onSelectSubject({
         subject: subjectName,
         sessionId: res.session_id || sessionId,
         assessmentSlot: slot,
         session: paperSession,
         term: paperTerm,
+        configId: exam.config_id || exam.id || res.config_id || null,
         questions: res.questions,
-        durationMinutes: res.duration_minutes || res.duration || exam.duration || exam.duration_minutes || 45,
-        durationSeconds: res.duration_seconds || res.durationSeconds || ((res.duration_minutes || res.duration || exam.duration || exam.duration_minutes || 45) * 60),
+        durationMinutes: durationInMinutes,
+        durationSeconds: durationInSeconds,
       });
 
     } catch (err) {
@@ -236,7 +259,7 @@ export default function StudentDashboard({ student, sessionId, onSelectSubject, 
                     </div>
 
                     <div className="flex items-center gap-4 text-xs text-slate-500 mb-6">
-                      <span>⏱ {exam.duration || exam.duration_minutes || 45} mins</span>
+                      <span>⏱ {Number(exam.duration_minutes ?? exam.duration ?? exam.durationMinutes ?? exam.exam_duration ?? exam.time_limit ?? exam.allocated_time ?? 15)} mins</span>
                       <span>📝 {exam.total_questions || exam.questions_count || exam.question_count || exam.custom_count || 30} Questions</span>
                     </div>
 

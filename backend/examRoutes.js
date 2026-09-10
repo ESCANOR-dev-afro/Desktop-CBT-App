@@ -91,31 +91,31 @@ async function getExamDurationMinutes(studentClass, subject) {
                 `SELECT duration_minutes FROM exam_configs WHERE LOWER(class) = LOWER(?) AND LOWER(subject) = LOWER(?)`,
                 [studentClass.trim(), normSub]
             );
-            if (classCfg && classCfg.duration_minutes) return classCfg.duration_minutes;
+            if (classCfg && classCfg.duration_minutes) return Number(classCfg.duration_minutes);
 
             const baseTier = studentClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
             const tierCfg = await dbGet(
                 `SELECT duration_minutes FROM exam_configs WHERE LOWER(class) = LOWER(?) AND LOWER(subject) = LOWER(?)`,
                 [baseTier, normSub]
             );
-            if (tierCfg && tierCfg.duration_minutes) return tierCfg.duration_minutes;
+            if (tierCfg && tierCfg.duration_minutes) return Number(tierCfg.duration_minutes);
         }
 
         const generalCfg = await dbGet(
             `SELECT duration_minutes FROM exam_configs WHERE (class IS NULL OR TRIM(class) = '') AND LOWER(subject) = LOWER(?)`,
             [normSub]
         );
-        if (generalCfg && generalCfg.duration_minutes) return generalCfg.duration_minutes;
+        if (generalCfg && generalCfg.duration_minutes) return Number(generalCfg.duration_minutes);
 
         const subRec = await dbGet(
             `SELECT duration_minutes FROM subjects WHERE LOWER(name) = LOWER(?)`,
             [normSub]
         );
-        if (subRec && subRec.duration_minutes) return subRec.duration_minutes;
+        if (subRec && subRec.duration_minutes) return Number(subRec.duration_minutes);
 
-        return 45;
+        return 15;
     } catch (e) {
-        return 45;
+        return 15;
     }
 }
 
@@ -216,8 +216,9 @@ async function resolveExamConfig(studentClass, subject, session = '2026/2027', t
             if (isNaN(count) || count <= 0) {
                 count = (preset === 'terminal_exam' || preset === 'examination') ? 50 : 30;
             }
+            const dur = Number(row.duration_minutes);
             return {
-                duration_minutes: row.duration_minutes || 45,
+                duration_minutes: !isNaN(dur) && dur > 0 ? dur : 15,
                 is_active: row.is_active === 1,
                 assessment_mode: (preset === 'terminal_exam' || preset === 'examination') ? 'EXAM' : (preset === 'custom' ? 'CUSTOM' : 'TEST'),
                 preset_mode: preset,
@@ -257,8 +258,9 @@ async function resolveExamConfig(studentClass, subject, session = '2026/2027', t
                 count = mode === 'EXAM' ? 50 : 30;
             }
 
+            const legacyDur = Number(legacyRow.duration_minutes);
             return {
-                duration_minutes: legacyRow.duration_minutes || 45,
+                duration_minutes: !isNaN(legacyDur) && legacyDur > 0 ? legacyDur : 15,
                 is_active: legacyRow.is_active !== undefined ? legacyRow.is_active === 1 : true,
                 assessment_mode: mode,
                 preset_mode: mode === 'EXAM' ? 'terminal_exam' : 'ca_test',
@@ -270,7 +272,7 @@ async function resolveExamConfig(studentClass, subject, session = '2026/2027', t
     } catch (legacyErr) {}
 
     return {
-        duration_minutes: 45,
+        duration_minutes: 15,
         is_active: true,
         assessment_mode: 'TEST',
         preset_mode: 'ca_test',
@@ -431,7 +433,11 @@ router.get('/questions/:subject', async (req, res, next) => {
             }
         }
 
-        const durationMinutes = activeSession?.duration_minutes || examConfig.duration_minutes;
+        const durationMinutes = Number(
+            examConfig?.duration_minutes ||
+            (activeSession && activeSession.subject && activeSession.duration_minutes) ||
+            15
+        );
 
         // 2. If active session has a persisted question_order, fetch and preserve that exact order
         if (activeSession && activeSession.question_order) {
@@ -568,8 +574,8 @@ router.get('/questions/:subject', async (req, res, next) => {
         // 6. Securely persist sampled question order & option mapping to active student session
         if (activeSession) {
             await dbRun(
-                `UPDATE exam_sessions SET question_order = ?, option_mapping = ?, duration_minutes = ?, subject = COALESCE(subject, ?), assessment_slot = COALESCE(assessment_slot, ?) WHERE id = ?`,
-                [JSON.stringify(shuffledIds), JSON.stringify(optionMappingObj), durationMinutes, normalizedSubject, assessmentSlot, activeSession.id]
+                `UPDATE exam_sessions SET question_order = ?, option_mapping = ?, duration_minutes = ?, subject = ?, assessment_slot = ?, session = ?, term = ? WHERE id = ?`,
+                [JSON.stringify(shuffledIds), JSON.stringify(optionMappingObj), durationMinutes, normalizedSubject, assessmentSlot, academicSession, academicTerm, activeSession.id]
             );
         } else if (targetStudentId) {
             const insertResult = await dbRun(
@@ -582,16 +588,16 @@ router.get('/questions/:subject', async (req, res, next) => {
 
         if (targetStudentId) {
             const existingSES = await dbGet(
-                `SELECT session_id FROM student_exam_sessions WHERE student_id = ? AND LOWER(TRIM(subject_name)) = LOWER(TRIM(?)) AND status = 'IN_PROGRESS'`,
-                [targetStudentId, normalizedSubject]
+                `SELECT session_id FROM student_exam_sessions WHERE student_id = ? AND LOWER(TRIM(subject_name)) = LOWER(TRIM(?)) AND (assessment_slot IS NULL OR assessment_slot = ?) AND status = 'IN_PROGRESS'`,
+                [targetStudentId, normalizedSubject, assessmentSlot]
             );
             if (!existingSES) {
                 const now = new Date();
                 const expiresAt = new Date(now.getTime() + durationMinutes * 60 * 1000);
                 await dbRun(
-                    `INSERT INTO student_exam_sessions (student_id, subject_name, class_name, status, started_at, expires_at, duration_minutes, delivered_questions_json, selected_answers_json, workstation_ip)
-                     VALUES (?, ?, ?, 'IN_PROGRESS', ?, ?, ?, ?, '{}', ?)`,
-                    [targetStudentId, normalizedSubject, targetClass || '', now.toISOString(), expiresAt.toISOString(), durationMinutes, JSON.stringify(sanitizeQuestionsForClient(sampledQuestions)), req.ip || '127.0.0.1']
+                    `INSERT INTO student_exam_sessions (student_id, subject_name, class_name, assessment_slot, status, started_at, expires_at, duration_minutes, delivered_questions_json, selected_answers_json, workstation_ip)
+                     VALUES (?, ?, ?, ?, 'IN_PROGRESS', ?, ?, ?, ?, '{}', ?)`,
+                    [targetStudentId, normalizedSubject, targetClass || '', assessmentSlot, now.toISOString(), expiresAt.toISOString(), durationMinutes, JSON.stringify(sanitizeQuestionsForClient(sampledQuestions)), req.ip || '127.0.0.1']
                 );
             }
         }
@@ -600,6 +606,11 @@ router.get('/questions/:subject', async (req, res, next) => {
             success: true,
             subject: normalizedSubject.toLowerCase(),
             session_id: activeSession ? activeSession.id : null,
+            assessment_slot: assessmentSlot,
+            slot: assessmentSlot,
+            session: academicSession,
+            term: academicTerm,
+            config_id: examConfig.config_id || null,
             is_persisted: Boolean(activeSession),
             assessment_mode: examConfig.assessment_mode,
             delivery_count: targetN,
@@ -740,9 +751,9 @@ router.post('/heartbeat', async (req, res, next) => {
 
 // --------------------------------------------------------------------------
 // 3. POST /api/exam/submit & POST /api/student/exam/submit
-// Final submission with flexible payload handling and universal persistence
+// Final submission with SERVER-SIDE AUTO-GRADING and universal persistence
 // --------------------------------------------------------------------------
-const handleExamSubmit = (req, res) => {
+const handleExamSubmit = async (req, res) => {
   console.log('>>> [EXAM SUBMIT] Payload received:', req.body);
   
   const body = req.body || {};
@@ -750,8 +761,10 @@ const handleExamSubmit = (req, res) => {
   let studentId = body.studentId || body.student_id || null;
   const configId = body.configId || body.config_id || null;
   let subject = (body.subject || body.subject_name || '').toString().trim();
-  const score = typeof body.score === 'number' ? body.score : (Number(body.score) || 0);
-  const answers = typeof body.answers === 'string' ? body.answers : JSON.stringify(body.answers || body.answers_json || body.user_answers || {});
+  const rawSlot = (body.assessment_slot || body.assessmentSlot || body.slot || body.slot_name || '').toString().trim();
+  let targetSlot = rawSlot || null;
+  const answersStr = typeof body.answers === 'string' ? body.answers : JSON.stringify(body.answers || body.answers_json || body.user_answers || {});
+  const submittedSessionId = body.sessionId || body.session_id || null;
 
   // If candidate details are inside a nested student object
   if (!regNo && !studentId && body.student) {
@@ -777,6 +790,139 @@ const handleExamSubmit = (req, res) => {
     subject = 'Mathematics';
   }
 
+  // =========================================================================
+  // SERVER-SIDE AUTO-GRADING ENGINE
+  // Computes score from option_mapping (shuffle-safe) or direct DB comparison.
+  // Respects per-question marks weighting (question.marks || 1).
+  // =========================================================================
+  let serverScore = 0;
+  try {
+    // Parse the student's submitted answers into an object: { questionId: "A", ... }
+    let answersObj = {};
+    try {
+      answersObj = typeof body.answers === 'object' && body.answers !== null
+        ? body.answers
+        : (typeof body.user_answers === 'object' && body.user_answers !== null
+          ? body.user_answers
+          : JSON.parse(answersStr || '{}'));
+    } catch (_) { answersObj = {}; }
+
+    const answerEntries = Object.entries(answersObj);
+
+    if (answerEntries.length > 0) {
+      // Resolve the student ID if we only have regNo
+      let resolvedStudentId = studentId ? parseInt(studentId, 10) : null;
+      if (!resolvedStudentId && regNo) {
+        const studentRow = await dbGet(
+          `SELECT id FROM students WHERE UPPER(TRIM(reg_number)) = ? OR UPPER(TRIM(registration_no)) = ?`,
+          [regNo, regNo]
+        );
+        if (studentRow) resolvedStudentId = studentRow.id;
+      }
+      if (!studentId && resolvedStudentId) studentId = resolvedStudentId;
+
+      // Try to retrieve the persisted option_mapping from exam_sessions (shuffle-safe grading)
+      let optionMap = null;
+      let sessionRow = null;
+
+      if (submittedSessionId) {
+        sessionRow = await dbGet(
+          `SELECT option_mapping, assessment_slot FROM exam_sessions WHERE id = ?`,
+          [submittedSessionId]
+        );
+      }
+      if (!sessionRow && resolvedStudentId && subject) {
+        sessionRow = await dbGet(
+          `SELECT option_mapping, assessment_slot FROM exam_sessions WHERE student_id = ? AND LOWER(TRIM(subject)) = LOWER(TRIM(?)) ORDER BY id DESC LIMIT 1`,
+          [resolvedStudentId, subject]
+        );
+      }
+
+      if (sessionRow && sessionRow.option_mapping) {
+        try { optionMap = JSON.parse(sessionRow.option_mapping); } catch (_) {}
+      }
+
+      // Issue C3: Enforce strict active slot resolution
+      if (!targetSlot) {
+        if (sessionRow && sessionRow.assessment_slot) {
+          targetSlot = sessionRow.assessment_slot;
+        } else if (configId) {
+          const cfg = await dbGet(`SELECT assessment_slot FROM assessment_configs WHERE id = ?`, [configId]);
+          if (cfg && cfg.assessment_slot) targetSlot = cfg.assessment_slot;
+        }
+        if (!targetSlot && subject) {
+          const qSlot = await dbGet(`SELECT assessment_slot FROM questions WHERE LOWER(TRIM(subject)) = LOWER(TRIM(?)) AND assessment_slot IS NOT NULL LIMIT 1`, [subject]);
+          if (qSlot && qSlot.assessment_slot) targetSlot = qSlot.assessment_slot;
+        }
+        if (!targetSlot) {
+          targetSlot = 'welcome_test';
+        }
+      }
+
+      // GRADING PATH 1: Use option_mapping (shuffle-safe — handles shuffled option order)
+      if (optionMap && typeof optionMap === 'object' && Object.keys(optionMap).length > 0) {
+        // Batch-fetch marks for all answered questions in one query
+        const questionIds = answerEntries.map(([qId]) => parseInt(qId, 10)).filter(id => !isNaN(id));
+        let marksMap = {};
+        if (questionIds.length > 0) {
+          const placeholders = questionIds.map(() => '?').join(',');
+          const marksRows = await dbAll(
+            `SELECT id, marks FROM questions WHERE id IN (${placeholders})`,
+            questionIds
+          );
+          marksRows.forEach(r => { marksMap[String(r.id)] = r.marks; });
+        }
+
+        for (const [qId, selectedKey] of answerEntries) {
+          if (!selectedKey) continue;
+          const normalizedKey = String(selectedKey).trim().toUpperCase();
+          const mapping = optionMap[String(qId)];
+          if (mapping && mapping.correctKey) {
+            if (normalizedKey === String(mapping.correctKey).trim().toUpperCase()) {
+              const questionMarks = marksMap[String(qId)] || 1;
+              serverScore += questionMarks;
+            }
+          }
+        }
+        console.log(`>>> [SERVER GRADING] Shuffle-safe grading via option_mapping: ${serverScore} marks (${answerEntries.length} answers evaluated)`);
+
+      } else {
+        // GRADING PATH 2: Fallback — direct comparison against questions.correct_answer
+        // Only valid when shuffle_options was disabled or option_mapping wasn't persisted
+        const questionIds = answerEntries.map(([qId]) => parseInt(qId, 10)).filter(id => !isNaN(id));
+        if (questionIds.length > 0) {
+          const placeholders = questionIds.map(() => '?').join(',');
+          const questionRows = await dbAll(
+            `SELECT id, correct_answer, marks FROM questions WHERE id IN (${placeholders})`,
+            questionIds
+          );
+          const correctMap = {};
+          questionRows.forEach(q => {
+            correctMap[String(q.id)] = { answer: q.correct_answer, marks: q.marks || 1 };
+          });
+
+          for (const [qId, selectedKey] of answerEntries) {
+            if (!selectedKey) continue;
+            const normalizedKey = String(selectedKey).trim().toUpperCase();
+            const correctEntry = correctMap[String(qId)];
+            if (correctEntry && normalizedKey === String(correctEntry.answer).trim().toUpperCase()) {
+              serverScore += correctEntry.marks;
+            }
+          }
+          console.log(`>>> [SERVER GRADING] Direct DB fallback grading: ${serverScore} marks (${answerEntries.length} answers evaluated)`);
+        }
+      }
+    } else {
+      console.log('>>> [SERVER GRADING] No answers submitted — score is 0');
+    }
+  } catch (gradingErr) {
+    console.error('>>> [SERVER GRADING ERROR] Grading failed, defaulting to 0:', gradingErr.message);
+    serverScore = 0;
+  }
+
+  const score = serverScore;
+  console.log(`>>> [EXAM SUBMIT] Server-computed score: ${score}`);
+
   // Attempt standard upsert into student_sessions
   const sql = `
     INSERT INTO student_sessions (student_id, reg_number, config_id, subject, answers_json, score, status, submitted_at)
@@ -788,36 +934,68 @@ const handleExamSubmit = (req, res) => {
       submitted_at = CURRENT_TIMESTAMP;
   `;
 
-  const syncOtherSessions = (resolvedStudentId, targetRegNo, targetSub, targetScore, answersStr) => {
+  const syncOtherSessions = (resolvedStudentId, targetRegNo, targetSub, targetScore, answersData, slotVal, sessId) => {
     try {
+      if (sessId) {
+        if (slotVal) {
+          db.run(`UPDATE exam_sessions SET status = 'submitted', is_locked = 1, score = ?, assessment_slot = ?, last_heartbeat = CURRENT_TIMESTAMP WHERE id = ?`, [targetScore, slotVal, sessId]);
+          db.run(`UPDATE student_exam_sessions SET status = 'SUBMITTED', score = ?, assessment_slot = ?, selected_answers_json = ? WHERE session_id = ?`, [targetScore, slotVal, answersData, sessId]);
+        } else {
+          db.run(`UPDATE exam_sessions SET status = 'submitted', is_locked = 1, score = ?, last_heartbeat = CURRENT_TIMESTAMP WHERE id = ?`, [targetScore, sessId]);
+          db.run(`UPDATE student_exam_sessions SET status = 'SUBMITTED', score = ?, selected_answers_json = ? WHERE session_id = ?`, [targetScore, answersData, sessId]);
+        }
+      }
+
       if (resolvedStudentId) {
-        db.run(
-          `UPDATE exam_sessions SET status = 'submitted', is_locked = 1, score = ?, last_heartbeat = CURRENT_TIMESTAMP WHERE student_id = ? AND LOWER(TRIM(subject)) = LOWER(TRIM(?))`,
-          [targetScore, resolvedStudentId, targetSub]
-        );
-        db.run(
-          `UPDATE student_exam_sessions SET status = 'SUBMITTED', score = ?, selected_answers_json = ? WHERE student_id = ? AND LOWER(TRIM(subject_name)) = LOWER(TRIM(?))`,
-          [targetScore, answersStr, resolvedStudentId, targetSub]
-        );
+        if (slotVal) {
+          db.run(
+            `UPDATE exam_sessions SET status = 'submitted', is_locked = 1, score = ?, assessment_slot = ?, last_heartbeat = CURRENT_TIMESTAMP WHERE student_id = ? AND LOWER(TRIM(subject)) = LOWER(TRIM(?))`,
+            [targetScore, slotVal, resolvedStudentId, targetSub]
+          );
+          db.run(
+            `UPDATE student_exam_sessions SET status = 'SUBMITTED', score = ?, assessment_slot = ?, selected_answers_json = ? WHERE student_id = ? AND LOWER(TRIM(subject_name)) = LOWER(TRIM(?))`,
+            [targetScore, slotVal, answersData, resolvedStudentId, targetSub]
+          );
+        } else {
+          db.run(
+            `UPDATE exam_sessions SET status = 'submitted', is_locked = 1, score = ?, last_heartbeat = CURRENT_TIMESTAMP WHERE student_id = ? AND LOWER(TRIM(subject)) = LOWER(TRIM(?))`,
+            [targetScore, resolvedStudentId, targetSub]
+          );
+          db.run(
+            `UPDATE student_exam_sessions SET status = 'SUBMITTED', score = ?, selected_answers_json = ? WHERE student_id = ? AND LOWER(TRIM(subject_name)) = LOWER(TRIM(?))`,
+            [targetScore, answersData, resolvedStudentId, targetSub]
+          );
+        }
       }
       if (targetRegNo) {
         db.get(`SELECT id FROM students WHERE UPPER(TRIM(reg_number)) = ? OR UPPER(TRIM(registration_no)) = ?`, [targetRegNo, targetRegNo], (err, row) => {
           if (row && row.id) {
-            db.run(
-              `UPDATE exam_sessions SET status = 'submitted', is_locked = 1, score = ?, last_heartbeat = CURRENT_TIMESTAMP WHERE student_id = ? AND LOWER(TRIM(subject)) = LOWER(TRIM(?))`,
-              [targetScore, row.id, targetSub]
-            );
-            db.run(
-              `UPDATE student_exam_sessions SET status = 'SUBMITTED', score = ?, selected_answers_json = ? WHERE student_id = ? AND LOWER(TRIM(subject_name)) = LOWER(TRIM(?))`,
-              [targetScore, answersStr, row.id, targetSub]
-            );
+            if (slotVal) {
+              db.run(
+                `UPDATE exam_sessions SET status = 'submitted', is_locked = 1, score = ?, assessment_slot = ?, last_heartbeat = CURRENT_TIMESTAMP WHERE student_id = ? AND LOWER(TRIM(subject)) = LOWER(TRIM(?))`,
+                [targetScore, slotVal, row.id, targetSub]
+              );
+              db.run(
+                `UPDATE student_exam_sessions SET status = 'SUBMITTED', score = ?, assessment_slot = ?, selected_answers_json = ? WHERE student_id = ? AND LOWER(TRIM(subject_name)) = LOWER(TRIM(?))`,
+                [targetScore, slotVal, answersData, row.id, targetSub]
+              );
+            } else {
+              db.run(
+                `UPDATE exam_sessions SET status = 'submitted', is_locked = 1, score = ?, last_heartbeat = CURRENT_TIMESTAMP WHERE student_id = ? AND LOWER(TRIM(subject)) = LOWER(TRIM(?))`,
+                [targetScore, row.id, targetSub]
+              );
+              db.run(
+                `UPDATE student_exam_sessions SET status = 'SUBMITTED', score = ?, selected_answers_json = ? WHERE student_id = ? AND LOWER(TRIM(subject_name)) = LOWER(TRIM(?))`,
+                [targetScore, answersData, row.id, targetSub]
+              );
+            }
           }
         });
       }
     } catch (_) {}
   };
 
-  db.run(sql, [studentId, regNo, configId, subject, answers, score], function(err) {
+  db.run(sql, [studentId, regNo, configId, subject, answersStr, score], function(err) {
     if (err) {
       console.warn('>>> [EXAM SUBMIT WARNING] Primary upsert failed, executing dynamic fallback:', err.message);
       
@@ -830,20 +1008,20 @@ const handleExamSubmit = (req, res) => {
         );
       `;
 
-      db.run(fallbackSql, [regNo, configId, subject, studentId, regNo, configId, subject, answers, score], (fbErr) => {
+      db.run(fallbackSql, [regNo, configId, subject, studentId, regNo, configId, subject, answersStr, score], (fbErr) => {
         if (fbErr) {
           console.error('>>> [EXAM SUBMIT DATABASE ERROR]:', fbErr);
           return res.status(500).json({ success: false, error: fbErr.message });
         }
-        syncOtherSessions(studentId, regNo, subject, score, answers);
-        console.log(`>>> [EXAM SUBMIT SUCCESS] Fallback committed for ${regNo} - ${subject}`);
+        syncOtherSessions(studentId, regNo, subject, score, answersStr, targetSlot, submittedSessionId);
+        console.log(`>>> [EXAM SUBMIT SUCCESS] Fallback committed for ${regNo} - ${subject} | Score: ${score}`);
         return res.status(200).json({ success: true, message: 'Exam submitted and recorded successfully.', score: score });
       });
       return;
     }
 
-    syncOtherSessions(studentId, regNo, subject, score, answers);
-    console.log(`>>> [EXAM SUBMIT SUCCESS] Recorded submission for ${regNo} - ${subject}`);
+    syncOtherSessions(studentId, regNo, subject, score, answersStr, targetSlot, submittedSessionId);
+    console.log(`>>> [EXAM SUBMIT SUCCESS] Recorded submission for ${regNo} - ${subject} | Score: ${score}`);
     return res.status(200).json({ success: true, message: 'Exam submitted and recorded successfully.', score: score });
   });
 };
@@ -891,7 +1069,8 @@ router.get('/student/active-session', async (req, res, next) => {
         }
 
         const now = new Date();
-        const expiresAt = new Date(activeSes.expires_at || (new Date(activeSes.started_at).getTime() + (activeSes.duration_minutes || 45) * 60 * 1000));
+        const sessionDurationMinutes = Number(activeSes.duration_minutes) > 0 ? Number(activeSes.duration_minutes) : 15;
+        const expiresAt = new Date(activeSes.expires_at || (new Date(activeSes.started_at).getTime() + sessionDurationMinutes * 60 * 1000));
 
         if (expiresAt.getTime() <= now.getTime()) {
             await dbRun(`UPDATE student_exam_sessions SET status = 'EXPIRED' WHERE session_id = ?`, [activeSes.session_id]);
@@ -925,7 +1104,7 @@ router.get('/student/active-session', async (req, res, next) => {
             current_question_index: activeSes.current_question_index || 0,
             started_at: activeSes.started_at,
             expires_at: activeSes.expires_at,
-            duration_minutes: activeSes.duration_minutes || 45,
+            duration_minutes: sessionDurationMinutes,
             duration_seconds: remainingSeconds,
             delivered_questions: deliveredQuestions,
             selected_answers: selectedAnswers
@@ -1033,7 +1212,7 @@ const handleStartExamSession = async (req, res, next) => {
         const studentRec = await dbGet(`SELECT id, class FROM students WHERE id = ?`, [student_id]);
         const studentClass = reqClass || (studentRec ? studentRec.class : null);
 
-        const examConfig = await resolveExamConfig(studentClass, normalizedSubject);
+        const examConfig = await resolveExamConfig(studentClass, normalizedSubject, req.body.session, req.body.term, req.body.assessment_slot || req.body.slot);
 
         // Check if subject is active for this class scope
         if (!examConfig.is_active) {
@@ -1066,7 +1245,7 @@ const handleStartExamSession = async (req, res, next) => {
         const activeSes = await dbGet(checkActiveSesSql, [student_id, normalizedSubject]);
 
         const now = new Date();
-        const durationMinutes = examConfig.duration_minutes || 45;
+        const durationMinutes = Number(examConfig.duration_minutes || 15);
 
         if (activeSes) {
             const expiresAt = new Date(activeSes.expires_at || (new Date(activeSes.started_at).getTime() + durationMinutes * 60 * 1000));
@@ -1161,16 +1340,20 @@ const handleStartExamSession = async (req, res, next) => {
         const expiresAt = new Date(now.getTime() + durationMinutes * 60 * 1000);
         const expiresAtStr = expiresAt.toISOString();
 
+        const insertSlot = req.body.assessment_slot || req.body.slot || 'welcome_test';
+        const insertSession = req.body.session || '2026/2027';
+        const insertTerm = req.body.term || '1st Term';
+
         const insertSes = await dbRun(
-            `INSERT INTO student_exam_sessions (student_id, subject_name, class_name, status, started_at, expires_at, duration_minutes, delivered_questions_json, selected_answers_json, workstation_ip) VALUES (?, ?, ?, 'IN_PROGRESS', ?, ?, ?, ?, '{}', ?)`,
-            [student_id, normalizedSubject, studentClass, startedAtStr, expiresAtStr, durationMinutes, JSON.stringify(deliveredQuestions), clientIp]
+            `INSERT INTO student_exam_sessions (student_id, subject_name, class_name, assessment_slot, status, started_at, expires_at, duration_minutes, delivered_questions_json, selected_answers_json, workstation_ip) VALUES (?, ?, ?, ?, 'IN_PROGRESS', ?, ?, ?, ?, '{}', ?)`,
+            [student_id, normalizedSubject, studentClass, insertSlot, startedAtStr, expiresAtStr, durationMinutes, JSON.stringify(deliveredQuestions), clientIp]
         );
         const newSessionId = insertSes.lastID;
 
         // Also insert into legacy exam_sessions for backward compatibility
         await dbRun(
-            `INSERT INTO exam_sessions (student_id, workstation_ip, login_time, status, is_locked, subject, duration_minutes, question_order, option_mapping) VALUES (?, ?, ?, 'active', 0, ?, ?, ?, ?)`,
-            [student_id, clientIp, startedAtStr, normalizedSubject, durationMinutes, JSON.stringify(deliveredQuestions.map(q => q.id)), JSON.stringify(optionMappingObj)]
+            `INSERT INTO exam_sessions (student_id, workstation_ip, login_time, status, is_locked, subject, assessment_slot, duration_minutes, question_order, option_mapping, session, term) VALUES (?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?)`,
+            [student_id, clientIp, startedAtStr, normalizedSubject, insertSlot, durationMinutes, JSON.stringify(deliveredQuestions.map(q => q.id)), JSON.stringify(optionMappingObj), insertSession, insertTerm]
         );
 
         return res.status(200).json({
@@ -1179,6 +1362,10 @@ const handleStartExamSession = async (req, res, next) => {
             session_id: newSessionId,
             subject: normalizedSubject,
             class: studentClass,
+            assessment_slot: insertSlot,
+            slot: insertSlot,
+            session: insertSession,
+            term: insertTerm,
             assessment_mode: examConfig.assessment_mode,
             delivery_count: deliveredQuestions.length,
             duration_minutes: durationMinutes,

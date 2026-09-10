@@ -23,7 +23,7 @@ export default function AddStudentModal({
     setRegNo('');
     const baseTier = studentClass.replace(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '').trim();
     const available = subjectsByClass[studentClass] || subjectsByClass[baseTier] || [];
-    setSelectedSubjects(available.map((s) => s.name));
+    setSelectedSubjects(available.map((s) => (typeof s === 'string' ? s : s?.name || String(s || ''))));
   }, [studentClass, subjectsByClass]);
 
   const handleToggleSubject = (subjName) => {
@@ -213,12 +213,14 @@ export default function AddStudentModal({
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto p-1">
                 {currentAvailableSubjects.map((sub) => {
-                  const isChecked = selectedSubjects.includes(sub.name);
+                  const subName = typeof sub === 'string' ? sub : (sub?.name || String(sub || ''));
+                  const subKey = typeof sub === 'string' ? sub : (sub?.id || subName);
+                  const isChecked = selectedSubjects.includes(subName);
                   return (
                     <button
                       type="button"
-                      key={sub.id}
-                      onClick={() => handleToggleSubject(sub.name)}
+                      key={subKey}
+                      onClick={() => handleToggleSubject(subName)}
                       className={`flex items-center justify-between p-2.5 rounded-xl text-xs font-semibold transition-all border text-left cursor-pointer ${
                         isChecked
                           ? 'bg-orange-50 dark:bg-brand/15 border-brand text-slate-900 dark:text-slate-100 shadow-xs'
@@ -226,7 +228,7 @@ export default function AddStudentModal({
                       }`}
                     >
                       <div className="truncate">
-                        <span className="block font-bold text-slate-800 dark:text-slate-200 truncate">{sub.name}</span>
+                        <span className="block font-bold text-slate-800 dark:text-slate-200 truncate">{subName}</span>
                       </div>
                       <div
                         className={`w-4 h-4 rounded-md flex items-center justify-center border transition-colors shrink-0 ml-2 ${

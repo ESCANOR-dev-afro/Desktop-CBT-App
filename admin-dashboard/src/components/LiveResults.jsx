@@ -1,11 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import {
   Printer,
-  FileSpreadsheet,
-  FileText,
-  Download,
   RefreshCw,
   Search,
   Filter,
@@ -34,7 +29,8 @@ export default function LiveResults({
     propSelectedClass && propSelectedClass !== 'ALL' && propSelectedClass !== 'All Classes' ? propSelectedClass : ''
   );
   const [selectedSubject, setSelectedSubject] = useState('');
-  const [selectedSlot, setSelectedSlot] = useState('ALL');
+  const [selectedSlot, setSelectedSlot] = useState('');
+  const [backendQuestionCount, setBackendQuestionCount] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [backendResults, setBackendResults] = useState([]);
   const [backendClasses, setBackendClasses] = useState([]);
@@ -42,13 +38,27 @@ export default function LiveResults({
   const [backendRoster, setBackendRoster] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  const getSlotDisplayName = (slot) => {
+    switch (slot) {
+      case 'welcome_test': return '1. Welcome / Mock Test';
+      case 'midterm_ca': return '2. Mid-Term CA Test';
+      case 'examination': return '3. Examination';
+      case 'custom_assessment': return '4. Custom Assessment';
+      case 'ALL': return 'All Assessment Slots';
+      default: return slot || 'Assessment Slot';
+    }
+  };
+
   const isFilterComplete = Boolean(
     selectedClass &&
     selectedClass !== 'ALL' &&
     selectedClass !== 'All Classes' &&
     selectedSubject &&
     selectedSubject !== '' &&
-    selectedSubject !== 'Select Subject'
+    selectedSubject !== 'Select Subject' &&
+    selectedSlot &&
+    selectedSlot !== '' &&
+    (selectedSlot === 'ALL' || (backendQuestionCount !== null && backendQuestionCount > 0))
   );
 
   // Sync propSelectedClass if passed from parent
@@ -56,14 +66,18 @@ export default function LiveResults({
     if (propSelectedClass && propSelectedClass !== 'ALL' && propSelectedClass !== 'All Classes') {
       setSelectedClass(propSelectedClass);
       setSelectedSubject('');
+      setSelectedSlot('');
+      setBackendQuestionCount(null);
     }
   }, [propSelectedClass]);
 
   const handleClassChange = (newClass) => {
     setSelectedClass(newClass);
     setSelectedSubject('');
+    setSelectedSlot('');
     setBackendResults([]);
     setBackendRoster([]);
+    setBackendQuestionCount(null);
     if (typeof onSelectClass === 'function') {
       onSelectClass(newClass);
     }
@@ -116,9 +130,10 @@ export default function LiveResults({
 
   // Fetch live results and roster from backend ONLY when both class and subject are selected
   const fetchResults = async (clsParam = selectedClass, subParam = selectedSubject, slotParam = selectedSlot) => {
-    if (!clsParam || clsParam === 'ALL' || clsParam === 'All Classes' || !subParam || subParam === 'Select Subject') {
+    if (!clsParam || clsParam === 'ALL' || clsParam === 'All Classes' || !subParam || subParam === 'Select Subject' || !slotParam || slotParam === '') {
       setBackendResults([]);
       setBackendRoster([]);
+      setBackendQuestionCount(null);
       return;
     }
     try {
@@ -131,6 +146,7 @@ export default function LiveResults({
         if (Array.isArray(data.classes)) setBackendClasses(data.classes);
         if (Array.isArray(data.subjects)) setBackendSubjects(data.subjects);
         if (Array.isArray(data.studentRoster)) setBackendRoster(data.studentRoster);
+        setBackendQuestionCount(typeof data.question_count === 'number' ? data.question_count : (data.has_questions ? 1 : 0));
       }
     } catch (err) {
       console.warn('Backend results fetch notice:', err);
@@ -186,27 +202,34 @@ export default function LiveResults({
     const upper = String(className).toUpperCase();
     if (upper.startsWith('JSS')) {
       return [
-        'English Language', 'Mathematics', 'Basic Science', 'Basic Technology',
-        'Social Studies', 'Civic Education', 'Agricultural Science', 'Business Studies',
-        'PHE', 'Home Economics', 'Music', 'Fine Art', 'French', 'Yoruba', 'CRS', 'Digital Technology'
+        'English Language', 'Mathematics', 'Civic Education', 'Social Studies',
+        'Yoruba', 'Music', 'French', 'Digital Technology',
+        'Computer Hardware and GSM repair', 'Horticulture', 'Home Economics',
+        'Agriculture', 'Oral English', 'Intermediate Science', 'Basic Science',
+        'Basic Tech', 'CRS', 'Business Studies', 'PHE', 'Nigeria History'
       ];
     }
     if (upper.includes('SCIENCE')) {
       return [
-        'English Language', 'Mathematics', 'Biology', 'Chemistry', 'Physics',
-        'Civic Education', 'Further Mathematics', 'Economics', 'Digital Technology', 'Geography', 'Agricultural Science'
+        'English Language', 'Mathematics', 'Physics', 'Chemistry', 'Biology',
+        'Economics', 'Further Mathematics', 'Digital Technology', 'ICT',
+        'Oral English', 'Geography', 'Civic Education', 'Agric',
+        'Horticulture and crop production', 'Computer hardware and GSM repair',
+        'Catering craft'
       ];
     }
     if (upper.includes('COMMERCIAL')) {
       return [
-        'English Language', 'Mathematics', 'Civic Education', 'Further Mathematics',
-        'Economics', 'Digital Technology', 'Account', 'Commerce', 'Government'
+        'English Language', 'Mathematics', 'Account', 'Commerce', 'Government',
+        'Economics', 'Further Mathematics', 'Digital Technology', 'ICT',
+        'Oral English', 'Civic Education', 'Marketing', 'Catering craft'
       ];
     }
     if (upper.includes('ART')) {
       return [
-        'English Language', 'Mathematics', 'Civic Education', 'Economics',
-        'Digital Technology', 'Government', 'CRS', 'Literature in English'
+        'English Language', 'Mathematics', 'Literature', 'CRS', 'Government',
+        'Economics', 'Digital Technology', 'ICT', 'Oral English', 'Yoruba',
+        'Civic Education', 'Catering craft'
       ];
     }
     return [];
@@ -234,142 +257,21 @@ export default function LiveResults({
     return Array.from(subSet).sort((a, b) => String(a).localeCompare(String(b)));
   }, [backendSubjects, combinedRoster]);
 
-  // Filter roster by selected class, selected subject, and search term
+  // Filter roster by selected class and search term
   const filteredRoster = (Array.isArray(combinedRoster) ? combinedRoster : []).filter((s) => {
     if (!s) return false;
     const matchesClass = selectedClass === 'ALL' || (s.class || '').toLowerCase() === selectedClass.toLowerCase();
-    const assignedStr = String(s.assigned_subject || s.subject || '').toLowerCase();
-    const matchesSubject = !selectedSubject || selectedSubject === 'ALL' || selectedSubject === 'Select Subject' || assignedStr.includes(selectedSubject.toLowerCase());
     const matchesSearch =
       (s.name || `${s.surname || ''} ${s.first_name || ''}`).toLowerCase().includes(searchTerm.toLowerCase()) ||
       (s.reg_number || s.regNo || '').toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesClass && matchesSubject && matchesSearch;
+    return matchesClass && matchesSearch;
   });
 
-  const validateExportOrPrint = async () => {
-    if (!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes') {
-      if (onShowToast) onShowToast('Please select a specific Class before exporting results.', 'warning');
-      return false;
-    }
-
-    if (!selectedSubject || selectedSubject === 'ALL' || selectedSubject === 'All Subjects') {
-      if (onShowToast) onShowToast('Please select a specific Subject to generate a score sheet.', 'warning');
-      return false;
-    }
-
-    try {
-      const res = await fetch(`/api/admin/reports/check-availability?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(selectedSubject)}`);
-      const data = await res.json();
-      if (!data.success || !data.has_results || data.submissions_count === 0) {
-        if (onShowToast) {
-          onShowToast(`Cannot print: No submitted results found for ${selectedSubject} in ${selectedClass}.`, 'warning');
-        }
-        return false;
-      }
-    } catch (e) {
-      console.warn('Availability check notice:', e);
-      const submittedLocal = combinedRoster.filter(r => {
-        const matchesCls = (r.class || '').toLowerCase() === selectedClass.toLowerCase();
-        const matchesSubj = String(r.subject || r.assigned_subject || '').toLowerCase().includes(selectedSubject.toLowerCase());
-        const hasScore = r.raw_score !== null || r.score !== null || r.status === 'Submitted' || r.status === 'submitted';
-        return matchesCls && matchesSubj && hasScore;
-      });
-      if (submittedLocal.length === 0) {
-        if (onShowToast) {
-          onShowToast(`Cannot print: No submitted results found for ${selectedSubject} in ${selectedClass}.`, 'warning');
-        }
-        return false;
-      }
-    }
-
-    return true;
-  };
-
-  const handleDownloadClassCsv = async () => {
-    const isValid = await validateExportOrPrint();
-    if (!isValid) return;
-
-    try {
-      const exportUrl = `/api/admin/reports/export?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(selectedSubject)}&format=csv`;
-      window.location.href = exportUrl;
-      if (onShowToast) {
-        onShowToast(`Downloading clean CSV report for ${selectedClass} - ${selectedSubject}...`, 'success');
-      }
-    } catch (e) {
-      if (onShowToast) onShowToast('Failed to download CSV report.', 'error');
-    }
-  };
-
-  const handleExportExcel = async () => {
-    const isValid = await validateExportOrPrint();
-    if (!isValid) return;
-
-    try {
-      const exportUrl = `/api/admin/reports/export?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(selectedSubject)}&format=excel`;
-      window.location.href = exportUrl;
-      if (onShowToast) onShowToast('Exporting official examination results spreadsheet (.xlsx)...', 'success');
-    } catch (e) {
-      if (onShowToast) onShowToast('Export failed. Please try again.', 'error');
-    }
-  };
-
-  const handleDownloadVectorPdf = async () => {
-    const isValid = await validateExportOrPrint();
-    if (!isValid) return;
-
-    try {
-      const serverReport = await fetchSummaryReport(selectedClass, selectedSubject);
-      const rosterData = (serverReport && serverReport.candidates) ? serverReport.candidates : filteredResults;
-
-      const doc = new jsPDF();
-      doc.setFontSize(16);
-      doc.setFont('helvetica', 'bold');
-      doc.text('ANTHONY WHITEBRIDGE ACADEMY', 105, 15, { align: 'center' });
-
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Official CBT Score Sheet — ${academicSession} (${activeTerm})`, 105, 22, { align: 'center' });
-
-      doc.setFontSize(10);
-      doc.text(`Class: ${selectedClass} | Subject: ${selectedSubject} | Date: ${new Date().toLocaleDateString()}`, 105, 28, { align: 'center' });
-
-      const tableData = rosterData.map((s, idx) => [
-        idx + 1,
-        s.registration_number || s.reg_number || s.regNumber || 'N/A',
-        `${s.first_name || s.name || ''} ${s.last_name || s.surname || ''}`.trim() || s.student_name || 'Candidate',
-        s.score !== null && s.score !== undefined ? `${s.score} / ${s.total_questions || 100}` : 'N/A',
-        s.percentage !== undefined && s.percentage !== null ? `${s.percentage}%` : '0%',
-        s.status || (s.score !== null ? 'Submitted' : 'Pending')
-      ]);
-
-      autoTable(doc, {
-        startY: 34,
-        head: [['#', 'Reg Number', 'Student Name', 'Score', 'Percentage', 'Status']],
-        body: tableData,
-        theme: 'grid',
-        headStyles: { fillColor: [249, 99, 2], textColor: [255, 255, 255], fontStyle: 'bold' },
-        styles: { fontSize: 9, cellPadding: 3 },
-        alternateRowStyles: { fillColor: [245, 247, 250] }
-      });
-
-      const cleanClass = String(selectedClass).replace(/\s+/g, '_');
-      const cleanSub = String(selectedSubject).replace(/\s+/g, '_');
-      doc.save(`${cleanClass}_${cleanSub}_ScoreSheet.pdf`);
-      
-      if (onShowToast) {
-        onShowToast(`Downloaded ${cleanClass}_${cleanSub}_ScoreSheet.pdf directly in browser memory.`, 'success');
-      }
-    } catch (e) {
-      console.error('PDF generation error:', e);
-      if (onShowToast) onShowToast('Failed to generate vector PDF score sheet.', 'error');
-    }
-  };
-
-
   // Fetch official class subject summary report from backend API
-  const fetchSummaryReport = async (cls, subj) => {
+  const fetchSummaryReport = async (cls, subj, slot = selectedSlot) => {
     try {
-      const res = await fetch(`/api/admin/reports/class-subject-summary?class=${encodeURIComponent(cls)}&subject=${encodeURIComponent(subj)}`);
+      const slotParam = slot ? `&assessment_slot=${encodeURIComponent(slot)}` : '';
+      const res = await fetch(`/api/admin/reports/class-subject-summary?class=${encodeURIComponent(cls)}&subject=${encodeURIComponent(subj)}${slotParam}`);
       const data = await res.json();
       if (data.success && data.candidates) {
         return {
@@ -549,7 +451,7 @@ export default function LiveResults({
                 Anthony Whitebridge Academy Examination Score Sheets
               </h2>
               <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                Class &amp; Subject score filtering, clean CSV report downloads, and printable score sheets
+                Class &amp; Subject score filtering and printable score sheets
               </p>
             </div>
           </div>
@@ -571,30 +473,6 @@ export default function LiveResults({
                   if (onShowToast) onShowToast('Please select both a Class and Subject before generating reports.', 'warning');
                   return;
                 }
-                handleDownloadClassCsv();
-              }}
-              disabled={!isFilterComplete}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition shadow-xs ${
-                isFilterComplete
-                  ? 'bg-orange-500 hover:bg-orange-600 text-white cursor-pointer'
-                  : 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700'
-              }`}
-              title={
-                isFilterComplete
-                  ? 'Download clean CSV report for selected class and subject'
-                  : 'Please select a specific Class and Subject to generate score sheets and exports.'
-              }
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Download Class Report (CSV)</span>
-            </button>
-
-            <button
-              onClick={() => {
-                if (!isFilterComplete) {
-                  if (onShowToast) onShowToast('Please select both a Class and Subject before generating reports.', 'warning');
-                  return;
-                }
                 handleInitiatePrint(selectedClass);
               }}
               disabled={!isFilterComplete}
@@ -606,59 +484,11 @@ export default function LiveResults({
               title={
                 isFilterComplete
                   ? 'Print official score sheet for selected class and subject'
-                  : 'Please select a specific Class and Subject to generate score sheets and exports.'
+                  : 'Please select a specific Class and Subject to generate score sheets.'
               }
             >
               <Printer className="w-3.5 h-3.5" />
               <span>Print Score Sheet</span>
-            </button>
-
-            <button
-              onClick={() => {
-                if (!isFilterComplete) {
-                  if (onShowToast) onShowToast('Please select both a Class and Subject before generating reports.', 'warning');
-                  return;
-                }
-                handleDownloadVectorPdf();
-              }}
-              disabled={!isFilterComplete}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition shadow-xs ${
-                isFilterComplete
-                  ? 'bg-orange-500 hover:bg-orange-600 text-white cursor-pointer'
-                  : 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700'
-              }`}
-              title={
-                isFilterComplete
-                  ? 'Download vector PDF score sheet directly to memory'
-                  : 'Please select a specific Class and Subject to generate score sheets and exports.'
-              }
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>Vector PDF</span>
-            </button>
-
-            <button
-              onClick={() => {
-                if (!isFilterComplete) {
-                  if (onShowToast) onShowToast('Please select both a Class and Subject before generating reports.', 'warning');
-                  return;
-                }
-                handleExportExcel();
-              }}
-              disabled={!isFilterComplete}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition shadow-xs ${
-                isFilterComplete
-                  ? 'bg-emerald-50 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-slate-700 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-slate-700 cursor-pointer'
-                  : 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700'
-              }`}
-              title={
-                isFilterComplete
-                  ? 'Export official examination results spreadsheet (.xlsx)'
-                  : 'Please select a specific Class and Subject to generate score sheets and exports.'
-              }
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Excel (.xlsx)</span>
             </button>
           </div>
         </div>
@@ -724,14 +554,19 @@ export default function LiveResults({
             <span className="text-xs text-slate-500 dark:text-slate-400">Slot:</span>
             <select
               value={selectedSlot}
-              onChange={(e) => setSelectedSlot(e.target.value)}
-              className="bg-transparent text-sm text-slate-900 dark:text-white font-medium focus:outline-none cursor-pointer"
+              onChange={(e) => {
+                setSelectedSlot(e.target.value);
+                setBackendQuestionCount(null);
+              }}
+              disabled={!selectedClass || selectedClass === 'ALL' || selectedClass === 'All Classes' || !selectedSubject || selectedSubject === ''}
+              className="bg-transparent text-sm text-slate-900 dark:text-white font-medium focus:outline-none cursor-pointer disabled:opacity-50"
             >
-              <option value="ALL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">All Assessment Slots</option>
+              <option value="" className="bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400">Select Assessment Slot...</option>
               <option value="welcome_test" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">1. Welcome / Mock Test</option>
               <option value="midterm_ca" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">2. Mid-Term CA Test</option>
               <option value="examination" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">3. Examination</option>
               <option value="custom_assessment" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">4. Custom Assessment</option>
+              <option value="ALL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">All Assessment Slots (Overview)</option>
             </select>
           </div>
         </div>
@@ -759,20 +594,43 @@ export default function LiveResults({
               Choose one of the {currentClassSubjects.length} registered subjects for {selectedClass}.
             </p>
           </div>
+        ) : !selectedSlot || selectedSlot === '' ? (
+          /* State A: Assessment Slot Selection Guidance Prompt */
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl p-12 text-center text-slate-500 dark:text-slate-400 shadow-xs dark:shadow-xl space-y-3">
+            <Clock className="w-12 h-12 mx-auto text-orange-500/80 dark:text-orange-400 mb-3" />
+            <p className="text-base font-bold text-slate-800 dark:text-slate-200">
+              Please select an Assessment Slot to view or print official score records.
+            </p>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Choose <span className="font-semibold text-slate-700 dark:text-slate-300">1. Welcome / Mock Test</span>, <span className="font-semibold text-slate-700 dark:text-slate-300">2. Mid-Term CA Test</span>, or <span className="font-semibold text-slate-700 dark:text-slate-300">3. Examination</span> from the Slot filter above.
+            </p>
+          </div>
         ) : loading ? (
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl p-12 text-center text-slate-500 dark:text-slate-400 shadow-xs dark:shadow-xl space-y-3">
             <RefreshCw className="w-10 h-10 mx-auto text-brand animate-spin mb-3" />
-            <p className="text-base font-bold text-slate-800 dark:text-slate-200">Loading examination scores for {selectedClass} - {selectedSubject}...</p>
+            <p className="text-base font-bold text-slate-800 dark:text-slate-200">Loading examination scores for {selectedClass} - {selectedSubject} ({getSlotDisplayName(selectedSlot)})...</p>
           </div>
-        ) : Object.keys(groupedByClass).length === 0 || !Object.values(groupedByClass).some(r => r.some(s => s.status === 'submitted' || s.score !== null)) ? (
+        ) : selectedSlot !== 'ALL' && backendQuestionCount === 0 ? (
+          /* State B: Empty Question Bank Guard */
+          <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-500/30 rounded-2xl p-12 text-center shadow-xs dark:shadow-xl space-y-3">
+            <AlertCircle className="w-12 h-12 mx-auto text-amber-500 dark:text-amber-400 mb-3" />
+            <p className="text-base font-bold text-slate-800 dark:text-slate-200">
+              No Assessment Questions Uploaded
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+              No assessment questions uploaded for <span className="font-bold text-slate-800 dark:text-slate-200">{selectedSubject}</span> under <span className="font-bold text-orange-600 dark:text-orange-400">{getSlotDisplayName(selectedSlot)}</span>. Please upload questions in Question Bank Hub to activate this assessment.
+            </p>
+          </div>
+        ) : Object.keys(groupedByClass).length === 0 ? (
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl p-12 text-center text-slate-500 dark:text-slate-400 shadow-xs dark:shadow-xl space-y-3">
             <Users className="w-12 h-12 mx-auto text-slate-400 dark:text-slate-600 mb-3" />
             <p className="text-base font-bold text-slate-800 dark:text-slate-200">
-              No scores available for the selected Class, Subject, and Assessment Slot.
+              No enrolled candidates found for {selectedClass}.
             </p>
-            <p className="text-xs text-slate-500">No candidate has submitted scores for {selectedClass} - {selectedSubject} under {selectedSlot === 'ALL' ? 'any slot' : selectedSlot}.</p>
+            <p className="text-xs text-slate-500">No students are currently registered in this class roster.</p>
           </div>
         ) : (
+          /* State C: Active Exam Interactive Roster */
           Object.entries(groupedByClass).map(([className, roster]) => {
             const totalInClass = roster.length;
             const submittedCount = roster.filter((r) => r.status === 'submitted' || r.score !== null).length;
@@ -838,7 +696,7 @@ export default function LiveResults({
                               {student.surname ? `${student.surname}, ${student.first_name || ''}` : student.name}
                             </td>
                             <td className="px-4 py-3 font-semibold text-slate-600 dark:text-slate-400">
-                              {student.assigned_subject || student.subject || 'Mathematics'}
+                              {selectedSubject || student.subject || student.assigned_subject || 'Mathematics'}
                             </td>
                             <td className="px-4 py-3 text-center">
                               {isSubmitted ? (

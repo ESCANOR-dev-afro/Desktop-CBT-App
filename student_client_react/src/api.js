@@ -117,7 +117,7 @@ export const getAssignedExams = getAssignedPapers;
 /**
  * Fetch question paper for selected subject, session, term, and assessment slot
  */
-export const getExamQuestions = async (subject, studentId, sessionId, className, academicSession = '2026/2027', academicTerm = '1st Term', assessmentSlot = 'midterm_ca') => {
+export const getExamQuestions = async (subject, studentId, sessionId, className, academicSession = '2026/2027', academicTerm = '1st Term', assessmentSlot = 'welcome_test') => {
   const params = new URLSearchParams();
   if (studentId) params.append('student_id', studentId);
   if (sessionId) params.append('session_id', sessionId);

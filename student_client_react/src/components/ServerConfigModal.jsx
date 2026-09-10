@@ -41,7 +41,7 @@ export default function ServerConfigModal({ isOpen, onClose }) {
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 sm:p-7 shadow-2xl space-y-6 transition-colors">
-        
+
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
           <div className="flex items-center gap-3">
@@ -81,11 +81,10 @@ export default function ServerConfigModal({ isOpen, onClose }) {
             <button
               type="button"
               onClick={() => setTheme('light')}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition-all border ${
-                theme === 'light'
+              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition-all border ${theme === 'light'
                   ? 'bg-white text-[#F96302] border-[#F96302] shadow-sm ring-2 ring-[#F96302]/20 font-black'
                   : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
+                }`}
             >
               <Sun className={`w-4 h-4 ${theme === 'light' ? 'text-[#F96302]' : 'text-slate-500'}`} />
               <span>Light Theme</span>
@@ -94,11 +93,10 @@ export default function ServerConfigModal({ isOpen, onClose }) {
             <button
               type="button"
               onClick={() => setTheme('dark')}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition-all border ${
-                theme === 'dark'
+              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition-all border ${theme === 'dark'
                   ? 'bg-slate-900 text-[#F96302] border-[#F96302] shadow-sm ring-2 ring-[#F96302]/20 font-black'
                   : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
+                }`}
             >
               <Moon className={`w-4 h-4 ${theme === 'dark' ? 'text-[#F96302]' : 'text-slate-500'}`} />
               <span>Dark Theme</span>
@@ -126,7 +124,7 @@ export default function ServerConfigModal({ isOpen, onClose }) {
           <div className="relative">
             <input
               type="text"
-              placeholder="e.g. http://192.168.1.100:3000"
+              placeholder="e.g. http://192.168.10.91:3000"
               value={hostInput}
               onChange={(e) => {
                 setHostInput(e.target.value);
@@ -142,11 +140,10 @@ export default function ServerConfigModal({ isOpen, onClose }) {
 
         {/* Test Result Indicator */}
         {testResult && (
-          <div className={`p-3.5 rounded-xl border text-xs font-semibold flex items-center gap-2.5 ${
-            testResult.success
+          <div className={`p-3.5 rounded-xl border text-xs font-semibold flex items-center gap-2.5 ${testResult.success
               ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/50 text-emerald-800 dark:text-emerald-300'
               : 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-300'
-          }`}>
+            }`}>
             {testResult.success ? (
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
             ) : (

@@ -229,10 +229,44 @@ router.get('/audit-logs', async (req, res, next) => {
 // --------------------------------------------------------------------------
 // 0. GET /api/admin/subjects
 // --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
 // 0. GET /api/admin/class-subjects
 // Returns dynamic class-isolated subject lists grouped by class name
 // --------------------------------------------------------------------------
+const authoritativeCurriculumByStream = {
+    junior: [
+        "English Language", "Mathematics", "Civic Education", "Social Studies",
+        "Yoruba", "Music", "French", "Digital Technology",
+        "Computer Hardware and GSM repair", "Horticulture", "Home Economics",
+        "Agriculture", "Oral English", "Intermediate Science", "Basic Science",
+        "Basic Tech", "CRS", "Business Studies", "PHE", "Nigeria History"
+    ],
+    science: [
+        "English Language", "Mathematics", "Physics", "Chemistry", "Biology",
+        "Economics", "Further Mathematics", "Digital Technology", "ICT",
+        "Oral English", "Geography", "Civic Education", "Agric",
+        "Horticulture and crop production", "Computer hardware and GSM repair",
+        "Catering craft"
+    ],
+    commercial: [
+        "English Language", "Mathematics", "Account", "Commerce", "Government",
+        "Economics", "Further Mathematics", "Digital Technology", "ICT",
+        "Oral English", "Civic Education", "Marketing", "Catering craft"
+    ],
+    art: [
+        "English Language", "Mathematics", "Literature", "CRS", "Government",
+        "Economics", "Digital Technology", "ICT", "Oral English", "Yoruba",
+        "Civic Education", "Catering craft"
+    ]
+};
+
+function getAuthoritativeSubjectsForClass(className) {
+    const upper = String(className || '').toUpperCase();
+    if (upper.startsWith('JSS')) return authoritativeCurriculumByStream.junior;
+    if (upper.includes('COMMERCIAL')) return authoritativeCurriculumByStream.commercial;
+    if (upper.includes('ART')) return authoritativeCurriculumByStream.art;
+    return authoritativeCurriculumByStream.science;
+}
+
 router.get('/class-subjects', async (req, res, next) => {
     try {
         const { class: classParam, class_id } = req.query;
@@ -263,12 +297,91 @@ router.get('/class-subjects', async (req, res, next) => {
                 category: 'Curriculum'
             });
         }
+
+        // Standard Class Arms
+        const standardClasses = [
+            'JSS 1', 'JSS 1 Gold', 'JSS 1 Silver', 'JSS 1 Diamond',
+            'JSS 2', 'JSS 2 Gold', 'JSS 2 Silver', 'JSS 2 Diamond',
+            'JSS 3', 'JSS 3 Gold', 'JSS 3 Silver', 'JSS 3 Diamond',
+            'SS 1', 'SS 1 Science', 'SS 1 Commercial', 'SS 1 Art', 'SS 1 Arts',
+            'SS 2', 'SS 2 Science', 'SS 2 Commercial', 'SS 2 Art', 'SS 2 Arts',
+            'SS 3', 'SS 3 Science', 'SS 3 Commercial', 'SS 3 Art', 'SS 3 Arts'
+        ];
+
+        // Backfill any missing or truncated classes with authoritative curriculum
+        const targetClasses = (classParam && classParam !== 'ALL') ? [classParam.trim()] : standardClasses;
+        for (const cls of targetClasses) {
+            const authList = getAuthoritativeSubjectsForClass(cls);
+            if (!map[cls] || map[cls].length < authList.length) {
+                const existingNames = new Set((map[cls] || []).map(s => s.name.toLowerCase()));
+                const existing = map[cls] || [];
+                const toAdd = authList
+                    .filter(name => !existingNames.has(name.toLowerCase()))
+                    .map((name, idx) => ({
+                        id: `${cls.toLowerCase().replace(/\s+/g, '')}-auth-${idx + 1}`,
+                        name,
+                        category: 'Curriculum'
+                    }));
+                map[cls] = [...existing, ...toAdd];
+            }
+        }
+
         return res.status(200).json({
             success: true,
             classSubjects: map
         });
     } catch (error) {
         console.error('❌ [Admin Class-Subjects Error]:', error);
+        next(error);
+    }
+});
+
+/**
+ * POST /api/admin/class-subjects
+ * Adds a new isolated subject to a class arm in the database
+ */
+router.post('/class-subjects', async (req, res, next) => {
+    try {
+        const { class: className, subject: subjectName } = req.body;
+        if (!className || !subjectName) {
+            return res.status(400).json({ success: false, message: 'Class name and Subject name are required.' });
+        }
+
+        const normSubject = normalizeSubjectName(subjectName) || subjectName.trim();
+        const targetClass = className.trim();
+
+        // 1. Insert into subjects
+        await dbRun(`INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1)`, [normSubject]);
+        const subRow = await dbGet(`SELECT id FROM subjects WHERE LOWER(name) = LOWER(?) LIMIT 1`, [normSubject]);
+        const subId = subRow ? subRow.id : null;
+
+        // 2. Find or create class
+        let classRow = await dbGet(`SELECT id FROM classes WHERE LOWER(name) = LOWER(?) LIMIT 1`, [targetClass]);
+        if (!classRow) {
+            const level = targetClass.startsWith('JSS') ? 'JSS' : (targetClass.startsWith('SS') ? 'SS' : 'GENERAL');
+            await dbRun(`INSERT OR IGNORE INTO classes (name, level) VALUES (?, ?)`, [targetClass, level]);
+            classRow = await dbGet(`SELECT id FROM classes WHERE LOWER(name) = LOWER(?) LIMIT 1`, [targetClass]);
+        }
+        const classId = classRow ? classRow.id : null;
+
+        // 3. Insert into class_subjects
+        await dbRun(
+            `INSERT INTO class_subjects (class_id, subject_id, class_name, subject_name)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(class_name, subject_name) DO UPDATE SET
+                class_id = excluded.class_id,
+                subject_id = excluded.subject_id`,
+            [classId, subId, targetClass, normSubject]
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: `Subject "${normSubject}" successfully mapped to "${targetClass}" in database.`,
+            class: targetClass,
+            subject: normSubject
+        });
+    } catch (error) {
+        console.error('❌ [Admin Add Class Subject Error]:', error);
         next(error);
     }
 });
@@ -865,9 +978,20 @@ async function getObtainableScore(className, subjectName, questionOrderStr = nul
     return 50;
 }
 
+function normalizeSlotName(slot) {
+    if (!slot || slot === 'ALL' || slot === 'All' || slot === 'All Slots') return null;
+    const s = String(slot).trim().toLowerCase();
+    if (s.includes('welcome') || s.includes('mock') || s === '1' || s.startsWith('1.') || s.startsWith('1 -') || s.startsWith('1:')) return 'welcome_test';
+    if (s.includes('mid-term') || s.includes('midterm') || s.includes('ca') || s === '2' || s.startsWith('2.') || s.startsWith('2 -') || s.startsWith('2:')) return 'midterm_ca';
+    if (s.includes('terminal') || s.includes('examination') || s.includes('exam') || s === '3' || s.startsWith('3.') || s.startsWith('3 -') || s.startsWith('3:')) return 'examination';
+    if (s.includes('custom') || s === '4' || s.startsWith('4.') || s.startsWith('4 -') || s.startsWith('4:')) return 'custom_assessment';
+    return s;
+}
+
 router.get('/reports/class-subject-summary', async (req, res, next) => {
     try {
-        const { class_id, class: classParam, subject_id, subject: subjectParam, academic_term_id, term: termParam } = req.query;
+        const { class_id, class: classParam, subject_id, subject: subjectParam, academic_term_id, term: termParam, assessment_slot: slotParam } = req.query;
+        const targetAssessmentSlot = normalizeSlotName(slotParam);
 
         // Resolve active term & session
         let activeTerm = null;
@@ -905,7 +1029,56 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
 
         const normSubject = normalizeSubjectName(subjectName);
 
+        // Check if question bank has questions for this slot; if 0 questions exist, strictly return 0 submissions
+        if (targetAssessmentSlot) {
+            const qCountRow = await dbGet(
+                `SELECT COUNT(*) AS cnt FROM questions WHERE LOWER(subject) = LOWER(?) AND (LOWER(class) = LOWER(?) OR LOWER(?) LIKE LOWER(class) || '%' OR LOWER(class) LIKE LOWER(?) || '%' OR class IS NULL) AND assessment_slot = ?`,
+                [normSubject, className, className, className, targetAssessmentSlot]
+            );
+            if (!qCountRow || qCountRow.cnt === 0) {
+                const studentsRoster = await dbAll(
+                    `SELECT id, COALESCE(registration_no, reg_number) AS reg_number, surname, first_name, class FROM students WHERE (LOWER(class) = LOWER(?) OR LOWER(class) LIKE LOWER(?) || '%' OR class_id = ?) ORDER BY UPPER(surname) ASC, UPPER(first_name) ASC`,
+                    [className, className, resolvedClassId]
+                );
+                const defaultObtainable = await getObtainableScore(className, normSubject);
+                return res.status(200).json({
+                    success: true,
+                    metadata: {
+                        class_name: className,
+                        class_id: resolvedClassId,
+                        subject_name: normSubject,
+                        subject_id: resolvedSubjectId,
+                        academic_session: activeTerm.session,
+                        academic_term: activeTerm.name,
+                        academic_term_id: activeTerm.id,
+                        total_candidates: studentsRoster.length,
+                        submissions_count: 0,
+                        total_obtainable_marks: defaultObtainable
+                    },
+                    candidates: studentsRoster.map((s, idx) => ({
+                        sn: idx + 1,
+                        id: s.id,
+                        student_id: s.id,
+                        reg_number: s.reg_number,
+                        registration_no: s.reg_number,
+                        surname: String(s.surname || '').toUpperCase(),
+                        first_name: String(s.first_name || '').trim(),
+                        full_name: s.first_name ? `${String(s.surname || '').toUpperCase()}, ${String(s.first_name).trim()}` : String(s.surname || '').toUpperCase(),
+                        raw_score: null,
+                        score: null,
+                        total_marks: defaultObtainable,
+                        obtainable_score: defaultObtainable,
+                        percentage: 'N/A',
+                        pct_value: null,
+                        status: 'Not Taken',
+                        submission_time: null
+                    }))
+                });
+            }
+        }
+
         // Unified candidate roster query over both exam_sessions and student_exam_sessions
+        // Strict assessment_slot filtering on JOINs to prevent cross-slot contamination
         const querySql = `
             SELECT 
                 s.id,
@@ -921,12 +1094,14 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
                 COALESCE(es.login_time, ses.started_at) AS login_time
             FROM students s
             LEFT JOIN exam_sessions es ON s.id = es.student_id AND LOWER(es.subject) = LOWER(?)
+                AND (? IS NULL OR es.assessment_slot = ?)
             LEFT JOIN student_exam_sessions ses ON s.id = ses.student_id AND LOWER(ses.subject_name) = LOWER(?)
-            WHERE (LOWER(s.class) = LOWER(?) OR s.class_id = ?)
+                AND (? IS NULL OR ses.assessment_slot = ?)
+            WHERE (LOWER(s.class) = LOWER(?) OR LOWER(s.class) LIKE LOWER(?) || '%' OR s.class_id = ?)
             ORDER BY UPPER(s.surname) ASC, UPPER(s.first_name) ASC
         `;
 
-        const candidatesRaw = await dbAll(querySql, [normSubject, normSubject, className, resolvedClassId]);
+        const candidatesRaw = await dbAll(querySql, [normSubject, targetAssessmentSlot, targetAssessmentSlot, normSubject, targetAssessmentSlot, targetAssessmentSlot, className, className, resolvedClassId]);
         const defaultObtainable = await getObtainableScore(className, normSubject);
 
         let submissionsCount = 0;
@@ -990,7 +1165,8 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
         console.error('❌ [Class Subject Summary Report Error]:', error);
         next(error);
     }
-});// --------------------------------------------------------------------------
+});
+// --------------------------------------------------------------------------
 // 4. GET /api/admin/results
 // Fetch all student results & complete class rosters dynamically for all classes & subjects
 // --------------------------------------------------------------------------
@@ -1002,15 +1178,7 @@ router.get('/results', async (req, res, next) => {
         const academicSession = req.query.session || '2026/2027';
         const academicTerm = req.query.term || '1st Term';
 
-        let normSlot = null;
-        if (targetSlot && targetSlot !== 'ALL' && targetSlot !== 'All' && targetSlot !== 'All Slots') {
-            const s = String(targetSlot).trim().toLowerCase();
-            if (s.includes('welcome') || s.includes('mock') || s === '1' || s.startsWith('1.')) normSlot = 'welcome_test';
-            else if (s.includes('mid-term') || s.includes('midterm') || s.includes('ca') || s === '2' || s.startsWith('2.')) normSlot = 'midterm_ca';
-            else if (s.includes('terminal') || s.includes('examination') || s.includes('exam') || s === '3' || s.startsWith('3.')) normSlot = 'examination';
-            else if (s.includes('custom') || s === '4' || s.startsWith('4.')) normSlot = 'custom_assessment';
-            else normSlot = s;
-        }
+        let normSlot = normalizeSlotName(targetSlot);
 
         let sql = `
             SELECT 
@@ -1065,10 +1233,6 @@ router.get('/results', async (req, res, next) => {
             studentRosterSql += ` AND (LOWER(class) = LOWER(?) OR LOWER(class) LIKE LOWER(?))`;
             rosterParams.push(targetClass.trim(), `${targetClass.trim()} %`);
         }
-        if (targetSubject && targetSubject !== 'ALL') {
-            studentRosterSql += ` AND (LOWER(assigned_subject) LIKE LOWER(?) OR id IN (SELECT student_id FROM exam_sessions WHERE LOWER(subject) = LOWER(?)))`;
-            rosterParams.push(`%${targetSubject.trim()}%`, targetSubject.trim());
-        }
         studentRosterSql += ` ORDER BY surname ASC, first_name ASC`;
         const allStudents = await dbAll(studentRosterSql, rosterParams);
         
@@ -1082,7 +1246,7 @@ router.get('/results', async (req, res, next) => {
 
         const studentRosterWithScores = await Promise.all(allStudents.map(async s => {
             const sess = latestSessionMap.get(s.id);
-            const rawSub = sess ? sess.subject : s.assigned_subject;
+            const rawSub = sess ? sess.subject : (targetSubject || s.assigned_subject);
             const normSub = rawSub ? normalizeSubjectName(String(rawSub).split(/[,;]/)[0]) : (targetSubject || 'Mathematics');
             const obtainable = await getObtainableScore(s.class, normSub, sess ? sess.question_order : null);
             const isSubm = sess ? (sess.status === 'submitted' || sess.is_locked === 1) : false;
@@ -1100,7 +1264,7 @@ router.get('/results', async (req, res, next) => {
                 class_tier: s.class,
                 assigned_subject: s.assigned_subject,
                 subject: normSub,
-                assessment_slot: sess ? (sess.assessment_slot || 'midterm_ca') : (normSlot || 'midterm_ca'),
+                assessment_slot: sess ? (sess.assessment_slot || 'welcome_test') : (normSlot || 'welcome_test'),
                 status: isSubm ? 'submitted' : (sess ? sess.status : 'not_taken'),
                 score: sess ? sess.score : null,
                 obtainable_score: obtainable,
@@ -1111,19 +1275,36 @@ router.get('/results', async (req, res, next) => {
             };
         }));
 
+        let questionCount = 0;
+        if (targetSubject && targetSubject !== 'ALL') {
+            const normSub = normalizeSubjectName(targetSubject);
+            let qSql = `SELECT COUNT(*) AS cnt FROM questions WHERE LOWER(subject) = LOWER(?) AND (LOWER(class) = LOWER(?) OR LOWER(?) LIKE LOWER(class) || '%' OR class IS NULL)`;
+            const qParams = [normSub, targetClass || '', targetClass || ''];
+            if (normSlot) {
+                qSql += ` AND LOWER(assessment_slot) = LOWER(?)`;
+                qParams.push(normSlot);
+            }
+            const qCountRow = await dbGet(qSql, qParams);
+            questionCount = qCountRow ? qCountRow.cnt : 0;
+        }
+
         const hasScores = studentRosterWithScores.some(r => r.status === 'submitted' || r.score !== null);
 
         return res.status(200).json({
             success: true,
-            count: results.length,
-            totalCandidates: studentRosterWithScores.length,
-            submittedCount: studentRosterWithScores.filter(r => r.status === 'submitted').length,
-            hasScores: hasScores,
-            data: studentRosterWithScores,
-            results: results,
+            total: studentRosterWithScores.length,
             classes: allClasses,
             subjects: allSubjects,
-            studentRoster: studentRosterWithScores
+            results: results,
+            studentRoster: studentRosterWithScores,
+            hasScores: hasScores,
+            question_count: questionCount,
+            has_questions: questionCount > 0,
+            filter: {
+                class: targetClass,
+                subject: targetSubject,
+                slot: normSlot
+            }
         });
     } catch (error) {
         console.error('❌ [Admin Results Error]:', error);
@@ -1143,15 +1324,10 @@ router.get('/live-results', (req, res, next) => {
 // GET /api/admin/reports/check-availability
 // Checks if exam results/submissions exist for a specific class and subject
 // --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-// 5. GET /api/admin/reports/export (and aliases /export-excel, /export-csv)
-// --------------------------------------------------------------------------
-// GET /api/admin/reports/check-availability
-// Checks if exam results/submissions exist for a specific class and subject
-// --------------------------------------------------------------------------
 router.get('/reports/check-availability', async (req, res, next) => {
     try {
-        const { class_id, class: classParam, subject_id, subject: subjectParam } = req.query;
+        const { class_id, class: classParam, subject_id, subject: subjectParam, assessment_slot: slotParam } = req.query;
+        const targetAssessmentSlot = normalizeSlotName(slotParam);
 
         let targetClass = null;
         if (class_id && class_id !== 'ALL') {
@@ -1191,17 +1367,35 @@ router.get('/reports/check-availability', async (req, res, next) => {
 
         const normSubject = normalizeSubjectName(targetSubject);
 
+        if (targetAssessmentSlot) {
+            const qCountRow = await dbGet(
+                `SELECT COUNT(*) AS cnt FROM questions WHERE LOWER(subject) = LOWER(?) AND (LOWER(class) = LOWER(?) OR LOWER(?) LIKE LOWER(class) || '%' OR LOWER(class) LIKE LOWER(?) || '%' OR class IS NULL) AND assessment_slot = ?`,
+                [normSubject, targetClass, targetClass, targetClass, targetAssessmentSlot]
+            );
+            if (!qCountRow || qCountRow.cnt === 0) {
+                return res.status(200).json({
+                    success: true,
+                    has_results: false,
+                    submissions_count: 0,
+                    class_name: targetClass,
+                    subject_name: normSubject
+                });
+            }
+        }
+
         const countRow = await dbGet(`
             SELECT COUNT(DISTINCT s.id) AS count
             FROM students s
             LEFT JOIN exam_sessions es ON s.id = es.student_id AND LOWER(es.subject) = LOWER(?)
+                AND (? IS NULL OR es.assessment_slot = ?)
             LEFT JOIN student_exam_sessions ses ON s.id = ses.student_id AND LOWER(ses.subject_name) = LOWER(?)
-            WHERE (LOWER(s.class) = LOWER(?) OR s.class_id = ?)
+                AND (? IS NULL OR ses.assessment_slot = ?)
+            WHERE (LOWER(s.class) = LOWER(?) OR LOWER(s.class) LIKE LOWER(?) || '%' OR s.class_id = ?)
               AND (
                 LOWER(es.status) = 'submitted' OR es.score IS NOT NULL
                 OR LOWER(ses.status) = 'submitted' OR ses.score IS NOT NULL
               )
-        `, [normSubject.toLowerCase(), normSubject.toLowerCase(), targetClass.toLowerCase(), parseInt(class_id, 10) || -1]);
+        `, [normSubject.toLowerCase(), targetAssessmentSlot, targetAssessmentSlot, normSubject.toLowerCase(), targetAssessmentSlot, targetAssessmentSlot, targetClass.toLowerCase(), targetClass.toLowerCase(), parseInt(class_id, 10) || -1]);
 
         const submissionsCount = countRow ? countRow.count : 0;
 
@@ -1223,7 +1417,8 @@ router.get('/reports/check-availability', async (req, res, next) => {
 // --------------------------------------------------------------------------
 const handleExportReport = async (req, res, next) => {
     try {
-        const { class_id, class: classParam, subject_id, subject: subjectParam, format: formatParam } = req.query;
+        const { class_id, class: classParam, subject_id, subject: subjectParam, format: formatParam, assessment_slot: slotParam } = req.query;
+        const targetAssessmentSlot = normalizeSlotName(slotParam);
 
         // Resolve Class Name
         let targetClass = null;
@@ -1263,18 +1458,33 @@ const handleExportReport = async (req, res, next) => {
         const classNameLabel = targetClass;
         const subjectNameLabel = normalizeSubjectName(targetSubject);
 
+        if (targetAssessmentSlot) {
+            const qCountRow = await dbGet(
+                `SELECT COUNT(*) AS cnt FROM questions WHERE LOWER(subject) = LOWER(?) AND (LOWER(class) = LOWER(?) OR LOWER(?) LIKE LOWER(class) || '%' OR LOWER(class) LIKE LOWER(?) || '%' OR class IS NULL) AND assessment_slot = ?`,
+                [subjectNameLabel, classNameLabel, classNameLabel, classNameLabel, targetAssessmentSlot]
+            );
+            if (!qCountRow || qCountRow.cnt === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: `No examination questions or results available yet for ${classNameLabel} - ${subjectNameLabel} (${targetAssessmentSlot}).`
+                });
+            }
+        }
+
         // Strict Validation: Check Result Submissions Availability using unified join
         const countRow = await dbGet(`
             SELECT COUNT(DISTINCT s.id) AS count
             FROM students s
             LEFT JOIN exam_sessions es ON s.id = es.student_id AND LOWER(es.subject) = LOWER(?)
+                AND (? IS NULL OR es.assessment_slot = ?)
             LEFT JOIN student_exam_sessions ses ON s.id = ses.student_id AND LOWER(ses.subject_name) = LOWER(?)
-            WHERE (LOWER(s.class) = LOWER(?) OR s.class_id = ?)
+                AND (? IS NULL OR ses.assessment_slot = ?)
+            WHERE (LOWER(s.class) = LOWER(?) OR LOWER(s.class) LIKE LOWER(?) || '%' OR s.class_id = ?)
               AND (
                 LOWER(es.status) = 'submitted' OR es.score IS NOT NULL
                 OR LOWER(ses.status) = 'submitted' OR ses.score IS NOT NULL
               )
-        `, [subjectNameLabel.toLowerCase(), subjectNameLabel.toLowerCase(), classNameLabel.toLowerCase(), parseInt(class_id, 10) || -1]);
+        `, [subjectNameLabel.toLowerCase(), targetAssessmentSlot, targetAssessmentSlot, subjectNameLabel.toLowerCase(), targetAssessmentSlot, targetAssessmentSlot, classNameLabel.toLowerCase(), classNameLabel.toLowerCase(), parseInt(class_id, 10) || -1]);
 
         const submissionsCount = countRow ? countRow.count : 0;
         if (submissionsCount === 0) {
@@ -1300,12 +1510,14 @@ const handleExportReport = async (req, res, next) => {
                 COALESCE(es.login_time, ses.started_at) AS login_time
             FROM students s
             LEFT JOIN exam_sessions es ON s.id = es.student_id AND LOWER(es.subject) = LOWER(?)
+                AND (? IS NULL OR es.assessment_slot = ?)
             LEFT JOIN student_exam_sessions ses ON s.id = ses.student_id AND LOWER(ses.subject_name) = LOWER(?)
+                AND (? IS NULL OR ses.assessment_slot = ?)
             WHERE (LOWER(s.class) = LOWER(?) OR s.class_id = ?)
             ORDER BY s.class ASC, UPPER(s.surname) ASC, UPPER(s.first_name) ASC
         `;
 
-        const rows = await dbAll(sql, [subjectNameLabel, subjectNameLabel, classNameLabel.toLowerCase(), parseInt(class_id, 10) || -1]);
+        const rows = await dbAll(sql, [subjectNameLabel, targetAssessmentSlot, targetAssessmentSlot, subjectNameLabel, targetAssessmentSlot, targetAssessmentSlot, classNameLabel.toLowerCase(), parseInt(class_id, 10) || -1]);
         const defaultObtainable = await getObtainableScore(classNameLabel, subjectNameLabel);
 
         const reportData = [];

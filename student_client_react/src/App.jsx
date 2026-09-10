@@ -43,11 +43,29 @@ export default function App() {
   });
 
   const [durationMinutes, setDurationMinutes] = useState(() => {
-    return Number(localStorage.getItem('cbt_duration_minutes')) || 45;
+    const saved = localStorage.getItem('cbt_duration_minutes');
+    return saved && Number(saved) > 0 ? Number(saved) : 15;
+  });
+
+  const [assessmentSlot, setAssessmentSlot] = useState(() => {
+    return localStorage.getItem('cbt_assessment_slot') || 'welcome_test';
+  });
+
+  const [academicSession, setAcademicSession] = useState(() => {
+    return localStorage.getItem('cbt_academic_session') || '2026/2027';
+  });
+
+  const [academicTerm, setAcademicTerm] = useState(() => {
+    return localStorage.getItem('cbt_academic_term') || '1st Term';
+  });
+
+  const [configId, setConfigId] = useState(() => {
+    return localStorage.getItem('cbt_config_id') || null;
   });
 
   const [timeRemaining, setTimeRemaining] = useState(() => {
-    return Number(localStorage.getItem('cbt_time_remaining')) || 2700;
+    const saved = localStorage.getItem('cbt_time_remaining');
+    return saved && Number(saved) > 0 ? Number(saved) : (15 * 60);
   });
 
   const [answers, setAnswers] = useState(() => {
@@ -85,15 +103,19 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('cbt_stage', stage);
     if (student && sessionId) {
-      storageService.saveActiveSession({ student, sessionId, subject, stage });
+      storageService.saveActiveSession({ student, sessionId, subject, stage, assessmentSlot, academicSession, academicTerm, configId });
     }
     if (student) localStorage.setItem('cbt_student', JSON.stringify(student));
     if (sessionId) localStorage.setItem('cbt_session_id', String(sessionId));
     if (subject) localStorage.setItem('cbt_subject', subject);
+    if (assessmentSlot) localStorage.setItem('cbt_assessment_slot', assessmentSlot);
+    if (academicSession) localStorage.setItem('cbt_academic_session', academicSession);
+    if (academicTerm) localStorage.setItem('cbt_academic_term', academicTerm);
+    if (configId) localStorage.setItem('cbt_config_id', String(configId));
     if (questions.length > 0) localStorage.setItem('cbt_questions', JSON.stringify(questions));
     localStorage.setItem('cbt_duration_minutes', String(durationMinutes));
     if (completionInfo) localStorage.setItem('cbt_completion_info', JSON.stringify(completionInfo));
-  }, [stage, student, sessionId, subject, questions, durationMinutes, completionInfo]);
+  }, [stage, student, sessionId, subject, assessmentSlot, academicSession, academicTerm, configId, questions, durationMinutes, completionInfo]);
 
   // Step 1: Login Success -> Navigate to Full-Screen Student Dashboard
   const handleLoginSuccess = ({ student: std, sessionId: sessId }) => {
@@ -104,14 +126,26 @@ export default function App() {
   };
 
   // Step 2: Subject Selected on Dashboard -> Navigate to Pre-Exam Instructions
-  const handleSelectSubject = ({ subject: sub, sessionId: sId, questions: qList, durationMinutes: dMins, durationSeconds: dSecs }) => {
-    const validMinutes = Number(dMins) > 0 ? Number(dMins) : 10;
+  const handleSelectSubject = ({ subject: sub, sessionId: sId, questions: qList, durationMinutes: dMins, durationSeconds: dSecs, assessmentSlot: aSlot, session: aSession, term: aTerm, configId: cId }) => {
+    const validMinutes = Number(dMins) > 0 ? Number(dMins) : 15;
     const validSeconds = Number(dSecs) > 0 ? Number(dSecs) : validMinutes * 60;
+    const resolvedSlot = aSlot || 'welcome_test';
+    const resolvedSession = aSession || '2026/2027';
+    const resolvedTerm = aTerm || '1st Term';
+
     if (sId) setSessionId(sId);
     setSubject(sub);
+    setAssessmentSlot(resolvedSlot);
+    setAcademicSession(resolvedSession);
+    setAcademicTerm(resolvedTerm);
+    if (cId) setConfigId(cId);
     setQuestions(qList);
     setDurationMinutes(validMinutes);
     setTimeRemaining(validSeconds);
+    localStorage.setItem('cbt_assessment_slot', resolvedSlot);
+    localStorage.setItem('cbt_academic_session', resolvedSession);
+    localStorage.setItem('cbt_academic_term', resolvedTerm);
+    if (cId) localStorage.setItem('cbt_config_id', String(cId));
     localStorage.setItem('cbt_duration_minutes', String(validMinutes));
     localStorage.setItem('cbt_time_remaining', String(validSeconds));
 
@@ -134,6 +168,10 @@ export default function App() {
     localStorage.removeItem('cbt_student');
     localStorage.removeItem('cbt_session_id');
     localStorage.removeItem('cbt_subject');
+    localStorage.removeItem('cbt_assessment_slot');
+    localStorage.removeItem('cbt_academic_session');
+    localStorage.removeItem('cbt_academic_term');
+    localStorage.removeItem('cbt_config_id');
     localStorage.removeItem('cbt_questions');
     localStorage.removeItem('cbt_duration_minutes');
     localStorage.removeItem('cbt_time_remaining');
@@ -144,11 +182,15 @@ export default function App() {
     setStudent(null);
     setSessionId(null);
     setSubject('');
+    setAssessmentSlot('welcome_test');
+    setAcademicSession('2026/2027');
+    setAcademicTerm('1st Term');
+    setConfigId(null);
     setQuestions([]);
     setAnswers({});
     setFlagged({});
     setCurrentIndex(0);
-    setTimeRemaining(2700);
+    setTimeRemaining(15 * 60);
     setCompletionInfo(null);
     setStage('LOGIN');
   };
@@ -167,9 +209,11 @@ export default function App() {
     setAnswers({});
     setFlagged({});
     setCurrentIndex(0);
-    setTimeRemaining(2700);
+    setTimeRemaining(15 * 60);
     setCompletionInfo(null);
     localStorage.removeItem('cbt_subject');
+    localStorage.removeItem('cbt_assessment_slot');
+    localStorage.removeItem('cbt_config_id');
     localStorage.removeItem('cbt_questions');
     localStorage.removeItem('cbt_duration_minutes');
     localStorage.removeItem('cbt_time_remaining');
@@ -231,6 +275,10 @@ export default function App() {
           student={student}
           subject={subject}
           sessionId={sessionId}
+          assessmentSlot={assessmentSlot}
+          academicSession={academicSession}
+          academicTerm={academicTerm}
+          configId={configId}
           questions={questions}
           durationSeconds={timeRemaining}
           initialAnswers={answers}
