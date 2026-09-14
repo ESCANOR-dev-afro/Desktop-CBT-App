@@ -67,6 +67,26 @@ export const heartbeatService = {
     }
     isTransmitting = false;
   },
+
+  /**
+   * Immediately transmits a security alert/flag event to server
+   */
+  sendFlagEvent: async (payload = {}) => {
+    try {
+      const baseUrl = getApiBaseUrl();
+      const endpoint = `${baseUrl}/exam/node-heartbeat`;
+      await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...payload,
+          is_blurred: true,
+          status: 'FLAGGED',
+          event: 'WINDOW_BLUR_TAB_SWITCH',
+        }),
+      });
+    } catch (_) {}
+  },
 };
 
 export default heartbeatService;

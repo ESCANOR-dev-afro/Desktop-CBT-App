@@ -5,12 +5,14 @@ import DashboardOverview from './components/DashboardOverview';
 import LiveResults from './components/LiveResults';
 import ClassWorkspace from './components/ClassWorkspace';
 import QuestionBankMainView from './components/QuestionBankMainView';
+import WorkstationMonitorView from './components/WorkstationMonitorView';
 import AddSubjectModal from './components/AddSubjectModal';
 import AddStudentModal from './components/AddStudentModal';
 import UploadRosterModal from './components/UploadRosterModal';
 import Toast from './components/Toast';
 import ErrorBoundary from './components/ErrorBoundary';
 import AdminLoginGate from './components/AdminLoginGate';
+import { useAcademicSession } from './context/AcademicSessionContext';
 
 import {
   allClassArms,
@@ -46,9 +48,10 @@ export default function App() {
   const [workstations, setWorkstations] = useState(initialWorkstations);
   const [activityLogs, setActivityLogs] = useState(initialActivityLogs);
 
-  // Academic Term & Session State
-  const [activeTerm, setActiveTerm] = useState('2nd Term');
-  const [academicSession, setAcademicSession] = useState('2026/2027');
+  // Global Academic Term & Session State from Context
+  const { currentSession, currentTerm, changeTerm, changeSession } = useAcademicSession();
+  const activeTerm = currentTerm;
+  const academicSession = currentSession;
 
   // Modals state
   const [isAddSubjectOpen, setIsAddSubjectOpen] = useState(false);
@@ -65,20 +68,7 @@ export default function App() {
     }, 4000);
   };
 
-  // Fetch active academic term on load
-  useEffect(() => {
-    fetch('/api/admin/academic-terms')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success) {
-          if (data.active_term) setActiveTerm(data.active_term);
-          if (data.session) setAcademicSession(data.session);
-        }
-      })
-      .catch((err) => console.log('Notice: Academic terms API load fallback active', err));
-  }, []);
-
-  // Fetch dynamic class subjects mapping from database on load with state reconciliation
+  // Dynamic Class Subjects mapping from database on load with state reconciliation
   useEffect(() => {
     // Cache-busting check for legacy curriculum cache
     try {
@@ -97,7 +87,6 @@ export default function App() {
       .then((data) => {
         if (data.success && data.classSubjects && Object.keys(data.classSubjects).length > 0) {
           // Authoritative state reconciliation:
-          // Merge fetched mappings with initial default lists so counts never downgrade below the standard
           setSubjectsByClass((prev) => {
             const merged = { ...initialSubjectsByClass, ...prev };
             Object.entries(data.classSubjects).forEach(([cls, fetchedList]) => {
@@ -117,34 +106,18 @@ export default function App() {
       .catch((err) => console.log('Notice: Class subjects API load fallback active', err));
   }, []);
 
-  // Academic Term Switch Handler with Backend Auto-Persistence
+  // Academic Term Switch Handler with Context & Activity Log
   const handleSelectAcademicTerm = async (newTerm) => {
-    try {
-      const res = await fetch('/api/admin/academic-terms/active', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ term: newTerm, session: academicSession }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setActiveTerm(newTerm);
-        showToast(`Active Academic Term updated to ${newTerm} (${academicSession}) and saved to database!`, 'success');
-        setActivityLogs((prev) => [
-          {
-            id: String(Date.now()),
-            time: new Date().toLocaleTimeString('en-US', { hour12: false }),
-            event: `Academic Term switched to ${newTerm} (${academicSession})`,
-            category: 'AcademicTermEngine',
-          },
-          ...prev,
-        ]);
-      } else {
-        showToast(data.message || 'Failed to update academic term', 'error');
-      }
-    } catch (e) {
-      setActiveTerm(newTerm);
-      showToast(`Switched active term to ${newTerm}`, 'success');
-    }
+    await changeTerm(newTerm);
+    setActivityLogs((prev) => [
+      {
+        id: String(Date.now()),
+        time: new Date().toLocaleTimeString('en-US', { hour12: false }),
+        event: `Academic Term switched to ${newTerm} (${currentSession})`,
+        category: 'AcademicTermEngine',
+      },
+      ...prev,
+    ]);
   };
 
   // Dynamic Class-Specific Subject Isolation Handler with Database Persistence
@@ -419,6 +392,10 @@ export default function App() {
                 onAddQuestion={handleAddQuestion}
                 onShowToast={showToast}
               />
+            )}
+
+            {activeView === 'workstation-monitor' && (
+              <WorkstationMonitorView onShowToast={showToast} />
             )}
 
             {activeView === 'class-workspace' && (

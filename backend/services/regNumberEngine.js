@@ -17,7 +17,7 @@
  *   '2026/2027' -> '2627'
  *   '2026/2027 • 1st Term' -> '2627'
  *   '2027/2028' -> '2728'
- *   '2025/2026' -> '2526'
+ *   '2028/2029' -> '2829'
  */
 function deriveSessionPrefix(sessionString) {
     if (!sessionString || typeof sessionString !== 'string') {

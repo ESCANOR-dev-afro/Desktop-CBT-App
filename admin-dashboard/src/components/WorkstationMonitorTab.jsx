@@ -27,8 +27,11 @@ export default function WorkstationMonitorTab({
   });
   const [loading, setLoading] = useState(true);
 
-  // Real-time polling tick for live class sessions
+  // Real-time polling tick for live class sessions (visibility-aware)
   const fetchLiveMonitor = async () => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      return;
+    }
     try {
       const res = await fetch(`/api/admin/live-monitor?class=${encodeURIComponent(currentClass)}`);
       if (res.ok) {
@@ -56,7 +59,23 @@ export default function WorkstationMonitorTab({
   useEffect(() => {
     fetchLiveMonitor();
     const interval = setInterval(fetchLiveMonitor, 3000);
-    return () => clearInterval(interval);
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchLiveMonitor();
+      }
+    };
+
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      window.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (typeof window !== 'undefined' && window.removeEventListener) {
+        window.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
   }, [currentClass]);
 
   // Format seconds or timestamp to mm:ss countdown

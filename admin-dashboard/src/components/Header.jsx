@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useServerHealth } from '../hooks/useServerHealth';
 import { useTheme } from '../context/ThemeContext';
+import { useAcademicSession } from '../context/AcademicSessionContext';
 import {
   Search,
   Bell,
@@ -24,8 +25,8 @@ export default function Header({
   selectedClass,
   onOpenAddSubject,
   onOpenAddStudent,
-  activeTerm = '2nd Term',
-  academicSession = '2026/2027',
+  activeTerm: propActiveTerm,
+  academicSession: propAcademicSession,
   onSelectAcademicTerm,
   onShowToast,
 }) {
@@ -33,9 +34,13 @@ export default function Header({
   const [isBackingUp, setIsBackingUp] = useState(false);
   const { status, latency } = useServerHealth(5000);
   const { isDark, toggleTheme } = useTheme();
+  const { currentSession, currentTerm, termOptions: contextTermOptions, changeTerm } = useAcademicSession();
   const dropdownRef = useRef(null);
 
-  const termOptions = ['1st Term', '2nd Term', '3rd Term'];
+  const rawSession = propAcademicSession || currentSession;
+  const academicSession = (rawSession && rawSession !== '2025/2026' && !rawSession.includes('2025')) ? rawSession : '2026/2027';
+  const activeTerm = propActiveTerm || currentTerm;
+  const termOptions = contextTermOptions || ['1st Term', '2nd Term', '3rd Term'];
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -52,6 +57,7 @@ export default function Header({
 
   const handleTermSelect = (term) => {
     setIsTermDropdownOpen(false);
+    changeTerm(term);
     if (onSelectAcademicTerm && term !== activeTerm) {
       onSelectAcademicTerm(term);
     }

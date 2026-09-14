@@ -3,11 +3,12 @@ import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
 /**
- * MathRenderer — Offline KaTeX Math Rendering Component (Admin Dashboard)
+ * MathRenderer — Offline KaTeX Math & Rich Formatting Rendering Component (Admin Dashboard)
  *
  * Parses a string for inline LaTeX expressions enclosed in single dollar signs
- * ($...$) and renders them using KaTeX. Non-math segments are rendered as plain
- * text. All math rendering happens fully offline via the bundled katex npm package.
+ * ($...$) and renders them using KaTeX. Non-math segments are safely parsed for
+ * semantic formatting tags (<sup>, <sub>, <u>, <b>, <strong>, <i>, <em>, <s>, <strike>, **).
+ * All math and formatting happens fully offline via the bundled katex npm package.
  *
  * @param {string} content - The text string to parse and render.
  * @param {string} [className] - Optional CSS class names to apply to the wrapper.
@@ -49,52 +50,75 @@ export default function MathRenderer({ content, className = '' }) {
     return parts.length > 0 ? parts : [{ type: 'text', value: content }];
   }, [content]);
 
-  // Safely parse inline emphasis formatting (<u>...</u> and **...**) in non-math text segments
+  // Safely parse inline formatting tags (<sup>, <sub>, <u>, <b>, <strong>, <i>, <em>, <s>, <strike>, **) in non-math segments
   const renderFormattedText = (text, keyPrefix) => {
     if (!text || typeof text !== 'string') return null;
 
-    // Split by <u>...</u> or **...** (case-insensitive for <u> tags)
-    const formatRegex = /(<u>[\s\S]*?<\/u>|\*\*[\s\S]*?\*\*)/gi;
+    const formatRegex = /(<sup>[\s\S]*?<\/sup>|<sub>[\s\S]*?<\/sub>|<u>[\s\S]*?<\/u>|<b>[\s\S]*?<\/b>|<strong>[\s\S]*?<\/strong>|<i>[\s\S]*?<\/i>|<em>[\s\S]*?<\/em>|<s>[\s\S]*?<\/s>|<strike>[\s\S]*?<\/strike>|\*\*[\s\S]*?\*\*)/gi;
     const tokens = text.split(formatRegex);
 
     return tokens.map((token, idx) => {
       if (!token) return null;
+      const subKey = `${keyPrefix}-${idx}`;
+
+      const supMatch = token.match(/^<sup>([\s\S]*?)<\/sup>$/i);
+      if (supMatch) {
+        return (
+          <sup key={subKey} className="text-[0.75em] leading-none align-super font-semibold">
+            {renderFormattedText(supMatch[1], `${subKey}-sup`)}
+          </sup>
+        );
+      }
+
+      const subMatch = token.match(/^<sub>([\s\S]*?)<\/sub>$/i);
+      if (subMatch) {
+        return (
+          <sub key={subKey} className="text-[0.75em] leading-none align-sub font-semibold">
+            {renderFormattedText(subMatch[1], `${subKey}-sub`)}
+          </sub>
+        );
+      }
 
       const uMatch = token.match(/^<u>([\s\S]*?)<\/u>$/i);
       if (uMatch) {
-        const inner = uMatch[1].replace(/^\*\*([\s\S]*?)\*\*$/, '$1');
         return (
           <span
-            key={`${keyPrefix}-u-${idx}`}
+            key={subKey}
             className="underline font-bold underline-offset-4 decoration-2 decoration-orange-500 text-orange-600 dark:text-orange-400"
           >
-            {inner}
+            {renderFormattedText(uMatch[1], `${subKey}-u`)}
           </span>
         );
       }
 
-      const bMatch = token.match(/^\*\*([\s\S]*?)\*\*$/);
+      const bMatch = token.match(/^(?:<b>|<strong>|\*\*)([\s\S]*?)(?:<\/b>|<\/strong>|\*\*)$/i);
       if (bMatch) {
-        const inner = bMatch[1];
-        const innerUMatch = inner.match(/^<u>([\s\S]*?)<\/u>$/i);
-        if (innerUMatch) {
-          return (
-            <span
-              key={`${keyPrefix}-bu-${idx}`}
-              className="underline font-bold underline-offset-4 decoration-2 decoration-orange-500 text-orange-600 dark:text-orange-400"
-            >
-              {innerUMatch[1]}
-            </span>
-          );
-        }
         return (
-          <strong key={`${keyPrefix}-b-${idx}`} className="font-bold">
-            {inner}
+          <strong key={subKey} className="font-bold">
+            {renderFormattedText(bMatch[1], `${subKey}-b`)}
           </strong>
         );
       }
 
-      return <React.Fragment key={`${keyPrefix}-t-${idx}`}>{token}</React.Fragment>;
+      const iMatch = token.match(/^(?:<i>|<em>)([\s\S]*?)(?:<\/i>|<\/em>)$/i);
+      if (iMatch) {
+        return (
+          <em key={subKey} className="italic">
+            {renderFormattedText(iMatch[1], `${subKey}-i`)}
+          </em>
+        );
+      }
+
+      const sMatch = token.match(/^(?:<s>|<strike>)([\s\S]*?)(?:<\/s>|<\/strike>)$/i);
+      if (sMatch) {
+        return (
+          <s key={subKey} className="line-through">
+            {renderFormattedText(sMatch[1], `${subKey}-s`)}
+          </s>
+        );
+      }
+
+      return <React.Fragment key={subKey}>{token}</React.Fragment>;
     });
   };
 

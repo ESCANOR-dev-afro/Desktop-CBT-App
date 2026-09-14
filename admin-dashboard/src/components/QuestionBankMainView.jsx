@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   FileText,
   UploadCloud,
@@ -19,9 +19,15 @@ import {
   X,
   RefreshCw,
   Sliders,
-  Shuffle
+  Shuffle,
+  AlertTriangle,
+  FileType2,
+  ClipboardCheck,
+  Cpu,
+  Loader2
 } from 'lucide-react';
 import MathRenderer from './MathRenderer';
+import { useAcademicSession } from '../context/AcademicSessionContext';
 
 const questionBankClasses = [
   'JSS 1',
@@ -47,9 +53,13 @@ export default function QuestionBankMainView({
   onAddQuestion = () => {},
   onShowToast = () => {},
 }) {
+  const { currentSession, currentTerm, changeTerm, changeSession } = useAcademicSession();
+  const selectedSession = currentSession;
+  const selectedTerm = currentTerm;
+  const setSelectedSession = changeSession;
+  const setSelectedTerm = changeTerm;
+
   const [activeClass, setActiveClass] = useState('JSS 1');
-  const [selectedSession, setSelectedSession] = useState('2026/2027');
-  const [selectedTerm, setSelectedTerm] = useState('1st Term');
   const [selectedSlot, setSelectedSlot] = useState('midterm_ca');
 
   const safeSubjectsByClass = subjectsByClass || {};
@@ -83,9 +93,18 @@ export default function QuestionBankMainView({
   const [savingDuration, setSavingDuration] = useState(false);
   const [togglingActive, setTogglingActive] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [isParsingDocument, setIsParsingDocument] = useState(false);
+  const [parsingFilename, setParsingFilename] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const fileInputRef = useRef(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // DOCX/TXT Preview Modal State
+  const [parserProfile, setParserProfile] = useState('auto');
+  const [docxPreviewData, setDocxPreviewData] = useState(null);
+  const [isDocxPreviewOpen, setIsDocxPreviewOpen] = useState(false);
+  const [commitingDocx, setCommitingDocx] = useState(false);
+  const [docxFileName, setDocxFileName] = useState('');
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
@@ -150,6 +169,45 @@ export default function QuestionBankMainView({
   const [optC, setOptC] = useState('');
   const [optD, setOptD] = useState('');
   const [correctAns, setCorrectAns] = useState('A');
+
+  // Interactive Question Key Updater for Main Table
+  const handleUpdateQuestionKey = async (questionId, newKey) => {
+    if (!questionId || !newKey) return;
+
+    // Optimistically update local questions list
+    setDbQuestions(prev => prev.map(q => {
+      if (q.id === questionId) {
+        return { ...q, correct_answer: newKey };
+      }
+      return q;
+    }));
+
+    if (previewQuestion && previewQuestion.id === questionId) {
+      setPreviewQuestion(prev => ({ ...prev, correct_answer: newKey }));
+    }
+
+    try {
+      const res = await fetch(`/api/admin/questions/${questionId}/correct-answer`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
+        body: JSON.stringify({ correct_answer: newKey }),
+      });
+      const data = await res.json();
+      if (data && data.success) {
+        onShowToast(`Question #${questionId} key updated to [${newKey}]`, 'success');
+      } else {
+        onShowToast(data?.message || 'Failed to update answer key.', 'error');
+        fetchBankQuestions();
+      }
+    } catch (err) {
+      console.error('Failed to update question key:', err);
+      onShowToast('Network error updating answer key.', 'error');
+      fetchBankQuestions();
+    }
+  };
 
   // Clear selectedSubject if activeClass changes and previously selectedSubject is not available
   useEffect(() => {
@@ -359,12 +417,161 @@ export default function QuestionBankMainView({
     }
   };
 
+  // ── DOCX/TXT Upload Handler (Two-Phase: Parse → Preview → Commit) ──
+  const handleDocxUpload = async (file) => {
+    if (!file || isParsingDocument) return;
+    if (!selectedSubject) {
+      onShowToast('Please select a target subject before uploading a document.', 'error');
+      return;
+    }
+
+    const fileName = file.name || 'document';
+    setIsParsingDocument(true);
+    setParsingFilename(fileName);
+    setDocxFileName(fileName);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('session', selectedSession);
+      formData.append('term', selectedTerm);
+      formData.append('class', activeClass);
+      formData.append('classTier', activeClass);
+      formData.append('class_tier', activeClass);
+      formData.append('subject', selectedSubject);
+      formData.append('target_subject', selectedSubject);
+      formData.append('slot', selectedSlot);
+      formData.append('assessment_slot', selectedSlot);
+      formData.append('profile_mode', parserProfile);
+      formData.append('mode', parserProfile);
+
+      const response = await fetch('/api/admin/questions/upload-docx', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (data && data.success && data.preview && data.questions) {
+        setDocxPreviewData(data);
+        setIsDocxPreviewOpen(true);
+        return;
+      }
+
+      onShowToast(data?.message || 'Failed to parse document.', 'error');
+    } catch (e) {
+      console.error('DOCX upload error:', e);
+      onShowToast('Failed to parse the uploaded document. Please check the file format.', 'error');
+    } finally {
+      setIsParsingDocument(false);
+      setParsingFilename('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // ── DOCX Commit Handler (Phase 2: Confirm & Insert) ──
+  const handleDocxCommit = async (reviewedQuestions) => {
+    if (!reviewedQuestions || reviewedQuestions.length === 0) return;
+
+    setCommitingDocx(true);
+    const validMinutes = parseInt(examDurationInput, 10) || 45;
+
+    try {
+      const response = await fetch('/api/admin/questions/commit-docx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session: selectedSession,
+          term: selectedTerm,
+          assessment_slot: selectedSlot,
+          slot: selectedSlot,
+          class: activeClass,
+          classId: activeClass,
+          subject: selectedSubject,
+          subjectId: selectedSubject,
+          overwrite: false,
+          questions: reviewedQuestions,
+          filename: docxFileName,
+          duration_minutes: validMinutes,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data && data.success) {
+        const feedbackMsg = data.message || `Imported ${data.importedCount || 0} questions!`;
+        onShowToast(feedbackMsg, 'success');
+        setIsDocxPreviewOpen(false);
+        setDocxPreviewData(null);
+        setCommitingDocx(false);
+        await fetchBankQuestions();
+        return;
+      }
+
+      setCommitingDocx(false);
+      onShowToast(data.message || 'Failed to commit questions.', 'error');
+    } catch (e) {
+      console.error('DOCX commit error:', e);
+      setCommitingDocx(false);
+      onShowToast('Failed to commit parsed questions to database.', 'error');
+    }
+  };
+
+  // ── DOCX Preview Cancel / Discard Handler (Cleans unconfirmed staging diagrams) ──
+  const handleDiscardDocxPreview = async () => {
+    if (docxPreviewData) {
+      const extractedImages = [];
+      if (Array.isArray(docxPreviewData.questions)) {
+        docxPreviewData.questions.forEach(q => {
+          if (q.diagram_image_url) extractedImages.push(q.diagram_image_url);
+          if (q.image_url && q.image_url !== q.diagram_image_url) extractedImages.push(q.image_url);
+        });
+      }
+      if (docxPreviewData.images?.filenames && Array.isArray(docxPreviewData.images.filenames)) {
+        docxPreviewData.images.filenames.forEach(f => extractedImages.push(f));
+      }
+
+      const uniqueImages = Array.from(new Set(extractedImages.filter(Boolean)));
+      if (uniqueImages.length > 0) {
+        try {
+          await fetch('/api/admin/questions/discard-preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imagePaths: uniqueImages }),
+          });
+        } catch (err) {
+          console.warn('Failed to discard preview assets:', err);
+        }
+      }
+    }
+    setIsDocxPreviewOpen(false);
+    setDocxPreviewData(null);
+  };
+
+  // ── File Upload Router (detects file type and dispatches to correct pipeline) ──
   const handleFileUpload = async (filesPayload) => {
-    if (!filesPayload) return;
+    if (!filesPayload || isParsingDocument) return;
     const fileList = filesPayload.length !== undefined ? Array.from(filesPayload) : [filesPayload];
     if (fileList.length === 0) return;
 
-    setUploading(true);
+    if (!selectedSubject) {
+      onShowToast('Please select a target subject before uploading a document.', 'error');
+      return;
+    }
+
+    const firstFile = fileList[0];
+    const ext = (firstFile.name || '').split('.').pop().toLowerCase();
+
+    // Route .docx and .txt files to the new two-phase DOCX pipeline
+    if (ext === 'docx' || ext === 'doc' || ext === 'txt') {
+      await handleDocxUpload(firstFile);
+      return;
+    }
+
+    // Existing Excel/ZIP pipeline
+    const fileName = firstFile.name || 'Archive / Spreadsheet';
+    setIsParsingDocument(true);
+    setParsingFilename(fileName);
     const validMinutes = parseInt(examDurationInput, 10) || 45;
     const targetCount = assessmentMode === 'TEST' ? 30 : assessmentMode === 'EXAM' ? 50 : (parseInt(customDeliveryCount, 10) || 30);
 
@@ -380,6 +587,7 @@ export default function QuestionBankMainView({
       formData.append('term', selectedTerm);
       formData.append('classId', activeClass);
       formData.append('class', activeClass);
+      formData.append('classTier', activeClass);
       formData.append('subjectId', selectedSubject);
       formData.append('subject', selectedSubject);
       formData.append('duration_minutes', String(validMinutes));
@@ -395,19 +603,25 @@ export default function QuestionBankMainView({
       if (response.ok) {
         const data = await response.json();
         if (data && data.success) {
-          setUploading(false);
           const feedbackMsg = data.message || `Uploaded ${data.importedCount || 0} questions!`;
           onShowToast(feedbackMsg, 'success');
           await fetchBankQuestions();
           return;
+        } else {
+          onShowToast(data?.message || 'Failed to upload questions paper.', 'error');
         }
+      } else {
+        const data = await response.json().catch(() => ({}));
+        onShowToast(data?.message || 'Failed to upload questions paper.', 'error');
       }
     } catch (e) {
-      console.log('Upload error:', e);
+      console.error('Upload error:', e);
+      onShowToast(`Failed to upload questions paper. Please check server logs.`, 'error');
+    } finally {
+      setIsParsingDocument(false);
+      setParsingFilename('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
-
-    setUploading(false);
-    onShowToast(`Failed to upload questions paper. Please check server logs.`, 'error');
   };
 
   const handleManualAddQuestion = async (e) => {
@@ -518,7 +732,10 @@ export default function QuestionBankMainView({
         <div className="flex items-center space-x-3 shrink-0">
           <button
             onClick={fetchBankQuestions}
-            className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-darkBorder text-xs font-semibold transition-all flex items-center space-x-1.5 cursor-pointer shadow-xs"
+            disabled={isParsingDocument || loadingQuestions}
+            className={`p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-darkBorder text-xs font-semibold transition-all flex items-center space-x-1.5 shadow-xs ${
+              isParsingDocument || loadingQuestions ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer'
+            }`}
             title="Refresh questions from database"
           >
             <RefreshCw className={`w-4 h-4 ${loadingQuestions ? 'animate-spin text-brand' : ''}`} />
@@ -527,7 +744,10 @@ export default function QuestionBankMainView({
 
           <button
             onClick={() => setIsAddQuestionModalOpen(true)}
-            className="px-4 py-2.5 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-md shadow-brand/20 flex items-center space-x-2 brand-glow-sm cursor-pointer"
+            disabled={isParsingDocument}
+            className={`px-4 py-2.5 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-md shadow-brand/20 flex items-center space-x-2 brand-glow-sm ${
+              isParsingDocument ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer'
+            }`}
           >
             <Plus className="w-4 h-4" />
             <span>+ Add Question Manually</span>
@@ -540,13 +760,15 @@ export default function QuestionBankMainView({
         <div className="flex items-center space-x-3">
           <span className="text-xs font-extrabold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Academic Session:</span>
           <select
-            value={selectedSession}
+            value={selectedSession && selectedSession !== '2025/2026' && !selectedSession.includes('2025') ? selectedSession : '2026/2027'}
             onChange={(e) => setSelectedSession(e.target.value)}
             className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-bold rounded-xl px-3 py-2 focus:border-brand focus:outline-none cursor-pointer"
           >
-            <option value="2026/2027" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">2026/2027 Session</option>
-            <option value="2027/2028" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">2027/2028 Session</option>
-            <option value="2028/2029" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">2028/2029 Session</option>
+            {['2026/2027', '2027/2028', '2028/2029', '2029/2030'].map((sess) => (
+              <option key={sess} value={sess} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                {sess} Session
+              </option>
+            ))}
           </select>
         </div>
 
@@ -831,63 +1053,136 @@ export default function QuestionBankMainView({
         <div
           onDragOver={(e) => {
             e.preventDefault();
-            setIsDragging(true);
+            if (!isParsingDocument) setIsDragging(true);
           }}
           onDragLeave={() => setIsDragging(false)}
           onDrop={(e) => {
             e.preventDefault();
             setIsDragging(false);
+            if (isParsingDocument) return;
             if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
               handleFileUpload(e.dataTransfer.files);
             }
           }}
-          className={`lg:col-span-2 border-2 border-dashed rounded-2xl p-6 transition-all flex flex-col items-center justify-center text-center shadow-xs ${
+          className={`relative overflow-hidden lg:col-span-2 border-2 border-dashed rounded-2xl p-6 transition-all flex flex-col items-center justify-center text-center shadow-xs ${
             isDragging
               ? 'border-brand bg-brand/10 scale-[0.99]'
               : 'border-slate-300 dark:border-slate-800 hover:border-brand/50 bg-slate-50 dark:bg-slate-900/60'
           }`}
         >
+          {/* High-Visibility Document Parsing & Extraction Overlay */}
+          {isParsingDocument && (
+            <div className="absolute inset-0 z-30 bg-[#0f172a]/85 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center p-6 text-white animate-in fade-in duration-200 pointer-events-none select-none">
+              <div className="relative mb-3.5 flex items-center justify-center">
+                <div className="w-14 h-14 rounded-full border-4 border-orange-500/25 border-t-orange-500 animate-spin shadow-lg shadow-orange-500/20" />
+                <RefreshCw className="w-6 h-6 text-orange-400 absolute animate-spin" />
+              </div>
+              <h4 className="text-base font-extrabold text-white text-center tracking-tight">
+                Analyzing Assessment Document...
+              </h4>
+              <p className="text-xs text-orange-300 font-semibold mt-1 max-w-sm text-center">
+                Parsing {parsingFilename || 'Assessment Paper'} • Extracting questions &amp; diagrams
+              </p>
+              <p className="text-[11px] text-slate-300 mt-1 text-center font-medium">
+                Please wait, preparing preview...
+              </p>
+              <div className="w-48 h-1.5 bg-slate-800/80 rounded-full mt-3.5 overflow-hidden border border-slate-700/60 shadow-inner">
+                <div className="h-full bg-gradient-to-r from-orange-500 via-amber-400 to-orange-500 rounded-full w-full animate-pulse" />
+              </div>
+            </div>
+          )}
+
           <div className="p-3.5 bg-brand/15 border border-brand/30 rounded-2xl text-brand mb-3">
             <UploadCloud className="w-8 h-8" />
           </div>
           <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">
-            Upload Question Document, Spreadsheet & Diagram Images
+            Upload Question Document, Spreadsheet &amp; Diagram Images
           </h4>
-          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mb-4 leading-relaxed">
-            Drag & drop spreadsheet (<strong className="text-slate-800 dark:text-slate-200">.xlsx / .csv</strong>) or a single <strong className="text-slate-800 dark:text-slate-200">.zip package</strong> containing questions & diagram images. Previous outdated questions will be overwritten automatically.
+          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mb-3 leading-relaxed">
+            Drag &amp; drop a <strong className="text-slate-800 dark:text-slate-200">Word document (.docx)</strong>, <strong className="text-slate-800 dark:text-slate-200">plaintext (.txt)</strong>, spreadsheet (<strong className="text-slate-800 dark:text-slate-200">.xlsx / .csv</strong>), or a <strong className="text-slate-800 dark:text-slate-200">.zip package</strong> with questions &amp; diagram images.
           </p>
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            <span className="px-2 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg text-[10px] font-bold border border-blue-200 dark:border-blue-700/50">
+              📄 .docx Word Papers
+            </span>
+            <span className="px-2 py-0.5 bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-lg text-[10px] font-bold border border-green-200 dark:border-green-700/50">
+              📊 .xlsx Spreadsheets
+            </span>
+            <span className="px-2 py-0.5 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-lg text-[10px] font-bold border border-purple-200 dark:border-purple-700/50">
+              📝 .txt Plaintext
+            </span>
+            <span className="px-2 py-0.5 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-lg text-[10px] font-bold border border-amber-200 dark:border-amber-700/50">
+              📦 .zip Archive
+            </span>
+          </div>
+
+          {/* Document Parser Profile Selector */}
+          <div className="w-full max-w-md mb-4 text-left">
+            <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+              <span className="flex items-center space-x-1.5">
+                <Cpu className="w-3.5 h-3.5 text-brand" />
+                <span>Document Parser Strategy Profile:</span>
+              </span>
+              <span className="text-[10px] text-slate-400 font-normal">Offline Engine</span>
+            </label>
+            <select
+              value={parserProfile}
+              onChange={(e) => setParserProfile(e.target.value)}
+              disabled={isParsingDocument}
+              className={`w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-bold rounded-xl px-3 py-2 focus:border-brand focus:outline-none shadow-xs cursor-pointer ${
+                isParsingDocument ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              <option value="auto">🎯 Auto-Detect (Dynamic based on Subject &amp; Document)</option>
+              <option value="math_science">🧮 Maths &amp; Physical Sciences (LaTeX OMML &amp; Physics Diagrams)</option>
+              <option value="english_languages">📖 English &amp; Oral English (Passages, Cloze &amp; Section Directives)</option>
+              <option value="standard_general">📝 General / Standard Subjects (Biology Multi-Q &amp; Aiken MCQs)</option>
+            </select>
+          </div>
 
           <div className="flex flex-wrap items-center justify-center gap-3 mb-4">
-            <label className="px-4 py-2.5 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-md shadow-brand/20 flex items-center space-x-2 brand-glow-sm cursor-pointer">
-              {uploading ? (
+            <label
+              className={`px-4 py-2.5 rounded-xl bg-brand text-white text-xs font-bold transition-all shadow-md shadow-brand/20 flex items-center space-x-2 select-none ${
+                isParsingDocument
+                  ? 'opacity-60 cursor-not-allowed pointer-events-none'
+                  : 'hover:bg-brand-600 brand-glow-sm cursor-pointer'
+              }`}
+            >
+              {isParsingDocument ? (
                 <>
-                  <Sparkles className="w-4 h-4 animate-spin" />
-                  <span>Extracting & Overwriting Bank...</span>
+                  <RefreshCw className="w-4 h-4 animate-spin mr-1" />
+                  <span>Extracting Questions...</span>
                 </>
               ) : (
                 <>
                   <FileText className="w-4 h-4" />
-                  <span>Upload Paper, Diagrams & ZIP Archive</span>
+                  <span>Upload Paper, Diagrams &amp; ZIP Archive</span>
                 </>
               )}
               <input
+                ref={fileInputRef}
                 type="file"
                 multiple
                 accept=".docx, .doc, .xlsx, .xls, .csv, .zip, .txt, image/*, .png, .jpg, .jpeg, .webp, .svg"
                 className="hidden"
                 onChange={(e) => {
-                  if (e.target.files && e.target.files.length > 0) {
+                  if (!isParsingDocument && e.target.files && e.target.files.length > 0) {
                     handleFileUpload(e.target.files);
                   }
                 }}
-                disabled={uploading}
+                disabled={isParsingDocument}
               />
             </label>
 
             <button
               type="button"
               onClick={() => setIsClearModalOpen(true)}
-              className="px-4 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-600/15 hover:bg-rose-100 dark:hover:bg-rose-600/25 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/40 text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer shadow-xs"
+              disabled={isParsingDocument || clearingSubject}
+              className={`px-4 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-600/15 hover:bg-rose-100 dark:hover:bg-rose-600/25 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/40 text-xs font-bold transition-all flex items-center space-x-2 shadow-xs ${
+                isParsingDocument || clearingSubject
+                  ? 'opacity-50 cursor-not-allowed pointer-events-none'
+                  : 'cursor-pointer'
+              }`}
               title={`Clear all questions for ${activeClass} - ${selectedSubject}`}
             >
               <Trash2 className="w-4 h-4 text-rose-500 dark:text-rose-400" />
@@ -897,8 +1192,12 @@ export default function QuestionBankMainView({
             <button
               type="button"
               onClick={handleManualRefresh}
-              disabled={isRefreshing}
-              className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer shadow-xs disabled:opacity-50"
+              disabled={isParsingDocument || isRefreshing}
+              className={`px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-bold transition-all flex items-center space-x-2 shadow-xs ${
+                isParsingDocument || isRefreshing
+                  ? 'opacity-50 cursor-not-allowed pointer-events-none'
+                  : 'cursor-pointer'
+              }`}
               title="Refresh questions and slot counts"
             >
               <RefreshCw className={`w-4 h-4 text-orange-500 dark:text-orange-400 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -1064,11 +1363,26 @@ export default function QuestionBankMainView({
                         </div>
                       </td>
 
-                      {/* Correct Key */}
+                      {/* Correct Key (Interactive Click-to-Edit) */}
                       <td className="p-3.5 text-center">
-                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-200 dark:border-emerald-500/40 text-emerald-600 dark:text-emerald-400 font-extrabold text-xs">
-                          {correctKey}
-                        </span>
+                        <div className="inline-flex items-center justify-center">
+                          <select
+                            value={q.correct_answer || ''}
+                            onChange={(e) => handleUpdateQuestionKey(q.id, e.target.value)}
+                            title="Click to change correct answer key"
+                            className={`h-7 px-2 text-xs font-black rounded-lg border transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand shadow-2xs ${
+                              !q.correct_answer
+                                ? 'bg-amber-50 dark:bg-amber-950/40 border-dashed border-amber-400 dark:border-amber-500 text-amber-700 dark:text-amber-400 animate-pulse'
+                                : 'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/25'
+                            }`}
+                          >
+                            {!q.correct_answer && <option value="">?</option>}
+                            <option value="A">A</option>
+                            <option value="B">B</option>
+                            <option value="C">C</option>
+                            <option value="D">D</option>
+                          </select>
+                        </div>
                       </td>
 
                       {/* Diagram Linked */}
@@ -1411,6 +1725,294 @@ export default function QuestionBankMainView({
           </div>
         </div>
       )}
+
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* DOCX/TXT Preview Modal — Two-Phase Commit Flow           */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      <DocxPreviewModal
+        isOpen={isDocxPreviewOpen}
+        data={docxPreviewData}
+        fileName={docxFileName}
+        activeClass={activeClass}
+        selectedSubject={selectedSubject}
+        selectedSlot={selectedSlot}
+        selectedSession={selectedSession}
+        selectedTerm={selectedTerm}
+        commiting={commitingDocx}
+        onClose={handleDiscardDocxPreview}
+        onConfirm={handleDocxCommit}
+      />
+    </div>
+  );
+}
+
+/**
+ * DocxPreviewModal
+ * 
+ * Standalone modal component for reviewing and editing parsed questions
+ * before committing to SQLite. Properly encapsulates editable answer state.
+ */
+function DocxPreviewModal({
+  isOpen,
+  data,
+  fileName,
+  activeClass,
+  selectedSubject,
+  selectedSlot,
+  selectedSession,
+  selectedTerm,
+  commiting,
+  onClose,
+  onConfirm,
+}) {
+  if (!isOpen || !data) return null;
+
+  const previewQuestions = data.questions || [];
+  const previewWarnings = data.warnings || [];
+  const previewMeta = data.metadata || {};
+  const previewImages = data.images || {};
+
+  const [editedAnswers, setEditedAnswers] = useState(() => {
+    const map = {};
+    previewQuestions.forEach((q, i) => {
+      map[i] = q.correct_answer || '';
+    });
+    return map;
+  });
+
+  // Keep state in sync if data changes
+  useEffect(() => {
+    const map = {};
+    (data.questions || []).forEach((q, i) => {
+      map[i] = q.correct_answer || '';
+    });
+    setEditedAnswers(map);
+  }, [data]);
+
+  const noAnswerCount = previewQuestions.filter((q) => !q.has_answer && !editedAnswers[previewQuestions.indexOf(q)]).length;
+  const fiveOptCount = (previewMeta.fiveOptionConversions || []).length;
+
+  const handleConfirmImport = () => {
+    const correctedQuestions = previewQuestions.map((q, i) => ({
+      ...q,
+      correct_answer: editedAnswers[i] || q.correct_answer || 'A',
+      has_answer: Boolean(editedAnswers[i] || q.correct_answer),
+    }));
+    onConfirm(correctedQuestions);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-darkBorder rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+        {/* Modal Header */}
+        <div className="p-5 border-b border-slate-200 dark:border-darkBorder flex items-center justify-between shrink-0">
+          <div>
+            <div className="flex items-center space-x-2 text-brand font-bold text-xs uppercase tracking-wider mb-1">
+              <FileType2 className="w-4 h-4" />
+              <span>Document Parser Preview</span>
+              {previewMeta.profileApplied && (
+                <span className="ml-2 px-2.5 py-0.5 rounded-md bg-brand/10 text-brand text-[10px] font-extrabold border border-brand/20 flex items-center space-x-1">
+                  <Cpu className="w-3 h-3" />
+                  <span>{previewMeta.profileApplied}</span>
+                </span>
+              )}
+            </div>
+            <h3 className="text-lg font-extrabold text-slate-900 dark:text-slate-100">
+              {fileName}
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              {previewQuestions.length} question(s) parsed | {previewImages.count || 0} image(s) extracted | {previewWarnings.length} warning(s)
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-all cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Warning Banners */}
+        {(noAnswerCount > 0 || fiveOptCount > 0) && (
+          <div className="px-5 py-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-700/40 flex flex-wrap gap-3 shrink-0">
+            {noAnswerCount > 0 && (
+              <div className="flex items-center space-x-2 text-amber-700 dark:text-amber-400 text-xs font-bold">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{noAnswerCount} question(s) have no answer key — please select keys below before importing.</span>
+              </div>
+            )}
+            {fiveOptCount > 0 && (
+              <div className="flex items-center space-x-2 text-amber-700 dark:text-amber-400 text-xs font-bold">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{fiveOptCount} question(s) had 5 options (A–E) — converted to A–D.</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Scope Info Bar */}
+        <div className="px-5 py-2.5 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-darkBorder flex flex-wrap gap-3 text-[11px] font-bold text-slate-600 dark:text-slate-400 shrink-0">
+          <span>Class: <strong className="text-slate-900 dark:text-slate-200">{activeClass}</strong></span>
+          <span>Subject: <strong className="text-slate-900 dark:text-slate-200">{selectedSubject}</strong></span>
+          <span>Slot: <strong className="text-brand">{selectedSlot}</strong></span>
+          <span>Session: <strong className="text-slate-900 dark:text-slate-200">{selectedSession}</strong></span>
+          <span>Term: <strong className="text-slate-900 dark:text-slate-200">{selectedTerm}</strong></span>
+          {previewMeta.answerKeyMode && (
+            <span>Answer Key: <strong className="text-emerald-600 dark:text-emerald-400">{previewMeta.answerKeyMode}</strong></span>
+          )}
+        </div>
+
+        {/* Scrollable Question List */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          {previewQuestions.map((q, idx) => {
+            const currentSelectedKey = editedAnswers[idx] || q.correct_answer || '';
+            const isMissingAnswer = !currentSelectedKey;
+            return (
+              <div
+                key={idx}
+                className={`p-4 rounded-xl border transition-colors ${
+                  isMissingAnswer
+                    ? 'border-amber-300 dark:border-amber-600/50 bg-amber-50/50 dark:bg-amber-900/10'
+                    : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-2 mb-1">
+                      <span className="text-[10px] font-bold text-white bg-brand px-2 py-0.5 rounded-md">
+                        Q{q.number}
+                      </span>
+                      {isMissingAnswer && (
+                        <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded-md animate-pulse">
+                          ⚠ Select Answer Key
+                        </span>
+                      )}
+                      {q.diagram_image_url && (
+                        <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded-md">
+                          🖼 Has Diagram
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-slate-900 dark:text-slate-100 font-medium leading-relaxed">
+                      <MathRenderer content={q.question_text} />
+                    </p>
+                  </div>
+
+                  {/* Editable Answer Dropdown */}
+                  <div className="shrink-0 flex flex-col items-end">
+                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-0.5">Answer Key</label>
+                    <select
+                      value={currentSelectedKey}
+                      onChange={(e) => setEditedAnswers(prev => ({ ...prev, [idx]: e.target.value }))}
+                      className={`text-center text-xs font-black rounded-lg px-2.5 py-1.5 border cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand transition-all ${
+                        !currentSelectedKey
+                          ? 'bg-amber-50 dark:bg-amber-900/30 border-amber-400 dark:border-amber-500 text-amber-800 dark:text-amber-300'
+                          : 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-300 dark:border-emerald-600 text-emerald-700 dark:text-emerald-300'
+                      }`}
+                    >
+                      <option value="">[ Select Key ▾ ]</option>
+                      <option value="A">Key A</option>
+                      <option value="B">Key B</option>
+                      <option value="C">Key C</option>
+                      <option value="D">Key D</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Options Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-2">
+                  {['A', 'B', 'C', 'D'].map((letter) => {
+                    const optKey = `option_${letter.toLowerCase()}`;
+                    const optText = q[optKey] || '';
+                    const isCorrect = currentSelectedKey === letter;
+                    return (
+                      <div
+                        key={letter}
+                        onClick={() => setEditedAnswers(prev => ({ ...prev, [idx]: letter }))}
+                        className={`flex items-start space-x-2 px-3 py-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                          isCorrect
+                            ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-600 shadow-xs'
+                            : 'bg-slate-50 dark:bg-slate-950/60 text-slate-700 dark:text-slate-300 border border-slate-100 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                        }`}
+                      >
+                        <span className={`font-extrabold shrink-0 ${
+                          isCorrect ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-500'
+                        }`}>
+                          {letter}.
+                        </span>
+                        <span><MathRenderer content={optText} /></span>
+                        {isCorrect && <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0 ml-auto mt-0.5" />}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Diagram Thumbnail */}
+                {q.diagram_image_url && (
+                  <div className="mt-2 flex items-center space-x-2">
+                    <img
+                      src={q.diagram_image_url}
+                      alt={`Diagram for Q${q.number}`}
+                      className="max-h-24 rounded-lg border border-slate-200 dark:border-slate-700 shadow-xs"
+                      onError={(e) => { e.target.style.display = 'none'; }}
+                    />
+                    <span className="text-[10px] text-slate-400 font-mono">{q.diagram_image_url}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Warnings Accordion */}
+        {previewWarnings.length > 0 && (
+          <div className="px-5 py-3 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-darkBorder shrink-0">
+            <details className="text-xs">
+              <summary className="font-bold text-slate-600 dark:text-slate-400 cursor-pointer hover:text-slate-900 dark:hover:text-slate-200">
+                ⚠ {previewWarnings.length} Parser Warning(s) — Click to expand
+              </summary>
+              <ul className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                {previewWarnings.map((w, i) => (
+                  <li key={i} className="text-amber-700 dark:text-amber-400 font-medium pl-4 relative">
+                    <span className="absolute left-0">•</span> {w}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </div>
+        )}
+
+        {/* Modal Footer Actions */}
+        <div className="p-5 border-t border-slate-200 dark:border-darkBorder flex items-center justify-between shrink-0 bg-white dark:bg-slate-900">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer border border-slate-200 dark:border-slate-700"
+          >
+            Cancel
+          </button>
+
+          <button
+            type="button"
+            onClick={handleConfirmImport}
+            disabled={commiting || previewQuestions.length === 0}
+            className="px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-md shadow-brand/20 flex items-center space-x-2 brand-glow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {commiting ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Importing to Database...</span>
+              </>
+            ) : (
+              <>
+                <ClipboardCheck className="w-4 h-4" />
+                <span>Confirm & Import {previewQuestions.length} Question(s)</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -26,10 +26,35 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Disable x-powered-by header for security and speed
 app.disable('x-powered-by');
 
-// Log incoming API requests
+// Enforce explicit UTF-8 JSON headers for API responses (supporting Oral English IPA, KaTeX, Unicode)
+app.use('/api', (req, res, next) => {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    next();
+});
+
+// Log incoming API requests (Bypass routine health, heartbeat, and background polling for clean terminal output)
+const silentRoutes = [
+    '/api/health',
+    '/health',
+    '/api/exam/node-heartbeat',
+    '/api/exam/heartbeat',
+    '/api/student/session-heartbeat',
+    '/api/admin/dashboard-stats',
+    '/api/admin/dashboard/stats',
+    '/api/admin/workstation-grid',
+    '/api/admin/live-monitor'
+];
+
 app.use((req, res, next) => {
-    if (req.originalUrl.startsWith('/api')) {
-        console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - IP: ${req.ip}`);
+    const url = req.originalUrl || req.url || '';
+    const pathOnly = req.path || '';
+
+    if (silentRoutes.some(route => pathOnly.startsWith(route) || url.startsWith(route))) {
+        return next(); // Don't log routine health/heartbeat/polling pings to terminal stdout
+    }
+
+    if (url.startsWith('/api')) {
+        console.log(`[${new Date().toISOString()}] ${req.method} ${url} - IP: ${req.ip}`);
     }
     next();
 });
@@ -69,7 +94,12 @@ const handleAdminLogin = (req, res) => {
 app.post('/api/admin/login', handleAdminLogin);
 app.post('/admin/api/admin/login', handleAdminLogin);
 
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+    maxAge: '1d',
+    immutable: true,
+    etag: true,
+    lastModified: true
+}));
 app.use('/api/exam', examRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/questions', questionRoutes);

@@ -9,6 +9,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('./database');
+const workstationManager = require('./services/workstationManager');
 
 /**
  * Utility helper to run SQL queries returning a single row as a Promise.
@@ -375,6 +376,16 @@ const handleStudentLogin = async (req, res, next) => {
             sessionId = result.lastID;
             console.log(`🔑 [New Session Created] Student ID ${student.id} (${student.registration_no || student.reg_number}) started Session #${sessionId} from IP ${clientIp}`);
         }
+
+        // Record student login on workstation registry
+        try {
+            workstationManager.recordLogin(req, {
+                student_name: student.first_name ? `${student.surname}, ${student.first_name}` : student.surname,
+                student_reg: student.registration_no || student.reg_number,
+                class_tier: student.class,
+                subject: (student.assigned_subject || '').split(/[,;]/)[0]?.trim() || 'General'
+            });
+        } catch (_) {}
 
         // Step g: Return success response with student metadata & session_id
         return res.status(200).json({
@@ -968,6 +979,22 @@ router.post('/student/session-heartbeat', async (req, res, next) => {
                 [currIdx, remSecs, student.id]
             );
         }
+
+        // Record heartbeat in workstation manager
+        try {
+            workstationManager.recordHeartbeat(req, {
+                student_name: student.first_name ? `${student.surname}, ${student.first_name}` : student.surname,
+                student_reg: student.registration_no || student.reg_number,
+                class_tier: student.class,
+                subject: subName || student.assigned_subject,
+                current_question: currIdx,
+                total_questions: totalQuestions || total_questions || 0,
+                answered_count: answeredCount || answered_count || 0,
+                time_remaining: remSecs,
+                status: req.body?.is_blurred ? 'FLAGGED' : (activeStatus === 'SUBMITTED' ? 'SUBMITTED' : 'IN_PROGRESS'),
+                is_blurred: Boolean(req.body?.is_blurred)
+            });
+        } catch (_) {}
 
         return res.status(200).json({
             success: true,

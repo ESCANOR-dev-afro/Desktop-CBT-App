@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Clock, Bookmark, ChevronLeft, ChevronRight, Calculator, Send, CheckCircle2, AlertTriangle, X, Image as ImageIcon, ZoomIn, LogOut, BookOpen } from 'lucide-react';
+import { Clock, Bookmark, ChevronLeft, ChevronRight, Calculator, Send, CheckCircle2, AlertTriangle, X, Image as ImageIcon, ZoomIn, LogOut, BookOpen, RefreshCw } from 'lucide-react';
 import QuestionPalette from './QuestionPalette';
 import CalculatorModal from './CalculatorModal';
 import SubmitModal from './SubmitModal';
@@ -8,6 +8,7 @@ import PassageDrawer from './PassageDrawer';
 import { autosaveAnswer, submitExam } from '../api';
 import storageService from '../services/storageService';
 import heartbeatService from '../services/heartbeatService';
+import autosaveQueueService from '../services/autosaveQueueService';
 
 export default function ExamScreen({
   student,
@@ -48,10 +49,22 @@ export default function ExamScreen({
   const [isPassageOpen, setIsPassageOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
+  const [syncState, setSyncState] = useState({ status: 'SAVED', pendingCount: 0 });
 
   const activeQuestion = questions[currentIndex] || null;
   const totalQuestions = questions.length;
   const isAutoSubmitting = useRef(false);
+
+  // Initialize and subscribe to resilient autosave offline queue
+  useEffect(() => {
+    autosaveQueueService.initSession(sessionId, answers);
+    const unsubscribe = autosaveQueueService.subscribe((status, pendingCount) => {
+      setSyncState({ status, pendingCount });
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [sessionId]);
 
   // 1. Dynamic Countdown Timer Effect
   useEffect(() => {
@@ -106,6 +119,35 @@ export default function ExamScreen({
     };
   }, [student?.id, regNo, subject, assessmentSlot, currentIndex, answers, totalQuestions, timeRemaining]);
 
+  // Anti-Cheat Window Blur / Tab Switch Security Telemetry
+  useEffect(() => {
+    const handleBlurOrHide = () => {
+      if (document.hidden || !document.hasFocus()) {
+        heartbeatService.sendFlagEvent({
+          regNumber: regNo,
+          studentId: student?.id,
+          student_name: student?.first_name ? `${student.surname}, ${student.first_name}` : student?.surname,
+          subject: subject,
+          class_tier: student?.class,
+          assessment_slot: assessmentSlot,
+          current_question: currentIndex,
+          total_questions: totalQuestions,
+          time_remaining: timeRemaining,
+          is_blurred: true,
+          status: 'FLAGGED',
+        });
+      }
+    };
+
+    window.addEventListener('blur', handleBlurOrHide);
+    document.addEventListener('visibilitychange', handleBlurOrHide);
+
+    return () => {
+      window.removeEventListener('blur', handleBlurOrHide);
+      document.removeEventListener('visibilitychange', handleBlurOrHide);
+    };
+  }, [regNo, student, subject, assessmentSlot, currentIndex, totalQuestions, timeRemaining]);
+
   // 3. LocalStorage Real-Time Persistence for 100% Session & Crash Resilience
   useEffect(() => {
     try {
@@ -134,11 +176,18 @@ export default function ExamScreen({
     setAnswers(newAnswers);
     storageService.saveAnswers(regNo, subject, newAnswers);
 
+    // 1. Immediately persist full state to browser storage
+    // 2. Enqueue delta & full map into autosaveQueueService for background sync and silent retry
     if (student?.id || regNo) {
-      autosaveAnswer(student?.id, qId, optionKey, {
+      autosaveQueueService.enqueue({
+        studentId: student?.id,
         regNumber: regNo,
-        reg_number: regNo,
-        subject: subject,
+        subject: subjectName,
+        questionId: qId,
+        selectedOption: optionKey,
+        answers: newAnswers,
+        sessionId: sessionId,
+        timestamp: Date.now(),
       });
     }
   };
@@ -149,6 +198,19 @@ export default function ExamScreen({
     delete newAnswers[qId];
     setAnswers(newAnswers);
     storageService.saveAnswers(regNo, subject, newAnswers);
+
+    if (student?.id || regNo) {
+      autosaveQueueService.enqueue({
+        studentId: student?.id,
+        regNumber: regNo,
+        subject: subjectName,
+        questionId: qId,
+        selectedOption: null,
+        answers: newAnswers,
+        sessionId: sessionId,
+        timestamp: Date.now(),
+      });
+    }
   };
 
   const handleToggleFlag = () => {
@@ -189,6 +251,7 @@ export default function ExamScreen({
     } catch (err) {
       console.warn('Auto-submit API warning:', err.message);
     } finally {
+      autosaveQueueService.clearQueue(sessionId);
       storageService.clearAnswers(regNo, subjectName);
       storageService.clearFlagged(regNo, subjectName);
       onExamComplete({
@@ -225,6 +288,7 @@ export default function ExamScreen({
     } catch (err) {
       console.warn('Submit API warning:', err.message);
     } finally {
+      autosaveQueueService.clearQueue(sessionId);
       storageService.clearAnswers(regNo, subjectName);
       storageService.clearFlagged(regNo, subjectName);
       setIsSubmitModalOpen(false);
@@ -299,8 +363,28 @@ export default function ExamScreen({
           </div>
         </div>
 
-        {/* Right Controls: Timer Pill & Submit Button */}
-        <div className="flex items-center gap-3">
+        {/* Right Controls: Sync Badge, Timer Pill & Submit Button */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Real-time Autosave Sync Status Indicator Badge */}
+          {syncState.status === 'RECONNECTING' ? (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-400 text-amber-950 rounded-xl text-xs font-bold shadow-sm animate-pulse border border-amber-300">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-950 shrink-0" />
+              <span className="truncate max-w-[120px] sm:max-w-none">
+                Reconnecting to server...
+              </span>
+            </div>
+          ) : syncState.status === 'SYNCING' ? (
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 bg-white/20 text-white rounded-xl text-xs font-semibold">
+              <RefreshCw className="w-3.5 h-3.5 text-white animate-spin shrink-0" />
+              <span>Saving...</span>
+            </div>
+          ) : (
+            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 bg-white/15 text-white rounded-xl text-xs font-medium">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+              <span>Saved</span>
+            </div>
+          )}
+
           {/* 60-Minute Countdown Timer Display */}
           <div
             className={`px-3.5 py-1.5 rounded-full flex items-center gap-2 transition-all shadow-sm ${
@@ -361,6 +445,12 @@ export default function ExamScreen({
                 <CheckCircle2 className={`w-3.5 h-3.5 ${selectedOption ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`} />
                 <span>{selectedOption ? `ANSWERED (${selectedOption})` : 'UNANSWERED'}</span>
               </span>
+              {syncState.status === 'RECONNECTING' && (
+                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 animate-pulse flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 text-amber-700" />
+                  <span>Syncing offline...</span>
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-2">

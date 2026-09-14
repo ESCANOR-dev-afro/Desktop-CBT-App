@@ -22,6 +22,26 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
     }
 });
 
+// Enforce critical connection-level PRAGMAs immediately upon creation
+db.serialize(() => {
+    db.run('PRAGMA journal_mode = WAL;', (err) => {
+        if (err) console.error('❌ [Database Error] Failed to enable WAL mode:', err.message);
+        else console.log('⚡ [Database Performance] SQLite WAL mode enabled for high-concurrency.');
+    });
+    db.run('PRAGMA busy_timeout = 10000;', (err) => {
+        if (err) console.error('❌ [Database Error] Failed to set busy timeout:', err.message);
+        else console.log('⏱️ [Database Performance] 10,000ms busy timeout configured.');
+    });
+    db.run('PRAGMA synchronous = NORMAL;', () => {});
+    db.run('PRAGMA cache_size = -64000;', () => {});
+    db.run('PRAGMA temp_store = MEMORY;', () => {});
+    db.run("PRAGMA encoding = 'UTF-8';", () => {});
+    db.run('PRAGMA foreign_keys = ON;', (err) => {
+        if (err) console.error('❌ [Database Error] Failed to enable foreign keys:', err.message);
+        else console.log('⚙️ [Database Config] Foreign key constraints enabled.');
+    });
+});
+
 /**
  * Executes a Promise-based SQL run statement.
  */
@@ -83,6 +103,7 @@ function initDatabase() {
         db.run('PRAGMA synchronous = NORMAL;', () => {});
         db.run('PRAGMA cache_size = -64000;', () => {});
         db.run('PRAGMA temp_store = MEMORY;', () => {});
+        db.run("PRAGMA encoding = 'UTF-8';", () => {});
 
         // 1. Enable Foreign Key Constraints
         db.run('PRAGMA foreign_keys = ON;', (err) => {
@@ -153,6 +174,8 @@ function initDatabase() {
         db.run(`ALTER TABLE questions ADD COLUMN exam_id INTEGER;`, () => {});
         db.run(`ALTER TABLE questions ADD COLUMN class_id INTEGER;`, () => {});
         db.run(`ALTER TABLE questions ADD COLUMN subject_id INTEGER;`, () => {});
+        db.run(`ALTER TABLE questions ADD COLUMN instruction TEXT;`, () => {});
+        db.run(`ALTER TABLE questions ADD COLUMN passage TEXT;`, () => {});
         db.run(`UPDATE questions SET session = '2026/2027' WHERE session IS NULL OR TRIM(session) = '';`, () => {});
         db.run(`UPDATE questions SET term = '1st Term' WHERE term IS NULL OR TRIM(term) = '';`, () => {});
         // Only default truly NULL/empty slots — do NOT override 'general' or any other legitimate slot value
@@ -351,7 +374,7 @@ function initDatabase() {
             CREATE TABLE IF NOT EXISTS academic_terms (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
-                session TEXT NOT NULL DEFAULT '2025/2026',
+                session TEXT NOT NULL DEFAULT '2026/2027',
                 is_current INTEGER NOT NULL DEFAULT 0 CHECK(is_current IN (0, 1)),
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(name, session)
@@ -466,6 +489,45 @@ function initDatabase() {
                 db.run(`CREATE INDEX IF NOT EXISTS idx_ses_student_status ON student_exam_sessions(student_id, status);`, () => {});
                 db.run(`CREATE INDEX IF NOT EXISTS idx_ses_student_subject_status ON student_exam_sessions(student_id, subject_name, status);`, () => {});
             }
+        });
+
+        // 15. View: `exam_submissions` for live aggregation and report views
+        const createExamSubmissionsView = `
+            CREATE VIEW IF NOT EXISTS exam_submissions AS
+            SELECT 
+                id,
+                student_id,
+                subject,
+                session AS academic_session,
+                term,
+                assessment_slot,
+                score,
+                score AS score_percentage,
+                status,
+                login_time AS submitted_at
+            FROM exam_sessions
+            WHERE status = 'submitted' OR score IS NOT NULL;
+        `;
+        db.run(createExamSubmissionsView, () => {});
+
+        // 16. System Settings Table (Key-Value Store for Active Academic Session & Term)
+        const createSystemSettingsTable = `
+            CREATE TABLE IF NOT EXISTS system_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+        `;
+        db.run(createSystemSettingsTable, () => {
+            db.run(`INSERT OR IGNORE INTO system_settings (key, value) VALUES ('current_session', '2026/2027');`, () => {});
+            db.run(`INSERT OR IGNORE INTO system_settings (key, value) VALUES ('current_term', '1st Term');`, () => {});
+            // Migration: Sanitize any legacy '2025/2026' records
+            db.run(`UPDATE system_settings SET value = '2026/2027', updated_at = CURRENT_TIMESTAMP WHERE key = 'current_session' AND (value = '2025/2026' OR value LIKE '%2025%');`, () => {});
+            db.run(`UPDATE academic_terms SET session = '2026/2027' WHERE session = '2025/2026';`, () => {});
+            db.run(`DELETE FROM academic_terms WHERE session = '2025/2026';`, () => {});
+            db.run(`UPDATE questions SET session = '2026/2027' WHERE session = '2025/2026';`, () => {});
+            db.run(`UPDATE exam_sessions SET session = '2026/2027' WHERE session = '2025/2026';`, () => {});
+            db.run(`UPDATE assessment_configs SET session = '2026/2027' WHERE session = '2025/2026';`, () => {});
         });
 
         // Seed default catalog data (subjects, terms) — safe INSERT OR IGNORE, no data loss
@@ -721,5 +783,11 @@ initDatabase();
 // no DROP, TRUNCATE, or DELETE FROM students runs during server startup.
 console.log('🔒 [Data Persistence] Student roster data is permanently preserved across server restarts. No destructive migrations executed.');
 
+db.DB_PATH = DB_PATH;
+db.runAsync = runAsync;
+db.getAsync = getAsync;
+db.allAsync = allAsync;
+
 module.exports = db;
+
 

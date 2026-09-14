@@ -14,6 +14,8 @@ const path = require('path');
 const fs = require('fs');
 const db = require('./database');
 const { logAuditAction } = require('./services/auditLogger');
+const { deleteDiagramFiles } = require('./services/parsers/common/docxMediaExtractor');
+const { saveOptimizedDiagram } = require('./services/parsers/common/imageOptimizer');
 
 const AdmZip = require('adm-zip');
 
@@ -152,17 +154,38 @@ function runTransaction(callback) {
  */
 async function handleQuestionBankUpload(req, res, next) {
     try {
+        // Operational Safety Guard: Prevent question uploads / heavy extraction during active exam sessions
+        const activeExamCount = await new Promise((resolve) => {
+            db.get(
+                `SELECT COUNT(*) as active_count FROM student_exam_sessions WHERE UPPER(TRIM(status)) = 'IN_PROGRESS'`,
+                [],
+                (err, row) => {
+                    if (err) {
+                        db.get(`SELECT COUNT(*) as active_count FROM exam_sessions WHERE UPPER(TRIM(status)) = 'ACTIVE'`, [], (e2, r2) => {
+                            resolve(r2?.active_count || 0);
+                        });
+                    } else {
+                        resolve(row?.active_count || 0);
+                    }
+                }
+            );
+        });
+
+        if (activeExamCount > 0) {
+            return res.status(423).json({
+                success: false,
+                error: 'EXAM_IN_PROGRESS_LOCKOUT',
+                message: `Question upload locked: There are currently ${activeExamCount} active candidate exam session(s) in progress. Please wait until all exams are submitted or stopped before uploading new questions.`
+            });
+        }
+
         const files = req.files || [];
 
-        // Directories for diagrams: ensure both backend/public/uploads/diagrams and backend/uploads/diagrams exist
-        const publicDiagramsDir = path.join(__dirname, 'public/uploads/diagrams');
+        // Canonical directory for diagrams: backend/uploads/diagrams
         const backendDiagramsDir = path.join(__dirname, 'uploads/diagrams');
-
-        [publicDiagramsDir, backendDiagramsDir].forEach(dir => {
-            if (!fs.existsSync(dir)) {
-                fs.mkdirSync(dir, { recursive: true });
-            }
-        });
+        if (!fs.existsSync(backendDiagramsDir)) {
+            fs.mkdirSync(backendDiagramsDir, { recursive: true });
+        }
 
         const imageFilesMap = new Map();
         let spreadsheetBuffer = null;
@@ -175,12 +198,12 @@ async function handleQuestionBankUpload(req, res, next) {
             return name.endsWith('.zip') || f.mimetype === 'application/zip' || f.mimetype === 'application/x-zip-compressed';
         });
 
-        zipFiles.forEach(zipFile => {
+        for (const zipFile of zipFiles) {
             try {
                 const zip = new AdmZip(zipFile.buffer);
                 const zipEntries = zip.getEntries();
-                zipEntries.forEach(entry => {
-                    if (entry.isDirectory || entry.entryName.includes('__MACOSX')) return;
+                for (const entry of zipEntries) {
+                    if (entry.isDirectory || entry.entryName.includes('__MACOSX')) continue;
 
                     const baseName = path.basename(entry.entryName);
                     const ext = path.extname(baseName).toLowerCase();
@@ -191,11 +214,9 @@ async function handleQuestionBankUpload(req, res, next) {
                         spreadsheetName = baseName;
                     } else if (['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext)) {
                         const safeName = baseName.replace(/[^a-zA-Z0-9_\.-]/g, '_');
-                        const destPublic = path.join(publicDiagramsDir, safeName);
                         const destBackend = path.join(backendDiagramsDir, safeName);
                         const data = entry.getData();
-                        fs.writeFileSync(destPublic, data);
-                        fs.writeFileSync(destBackend, data);
+                        await saveOptimizedDiagram(data, destBackend);
 
                         const publicUrl = `/uploads/diagrams/${safeName}`;
                         imageFilesMap.set(baseName.toLowerCase(), publicUrl);
@@ -204,11 +225,11 @@ async function handleQuestionBankUpload(req, res, next) {
                         imageFilesMap.set(cleanKey(path.parse(baseName).name), publicUrl);
                         registeredImagesCount++;
                     }
-                });
+                }
             } catch (zipErr) {
                 console.warn('⚠️ [Zip Extraction Warning]:', zipErr.message);
             }
-        });
+        }
 
         // 2. Check directly attached spreadsheet file if not extracted from zip package
         if (!spreadsheetBuffer) {
@@ -228,15 +249,13 @@ async function handleQuestionBankUpload(req, res, next) {
             return !zipFiles.includes(f) && (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.webp') || name.endsWith('.gif') || name.endsWith('.svg') || (f.mimetype && f.mimetype.startsWith('image/')));
         });
 
-        directImages.forEach(f => {
+        for (const f of directImages) {
             const baseName = path.basename(f.originalname);
             const ext = path.extname(baseName).toLowerCase();
             if (['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext) || (f.mimetype && f.mimetype.startsWith('image/'))) {
                 const safeName = baseName.replace(/[^a-zA-Z0-9_\.-]/g, '_');
-                const destPublic = path.join(publicDiagramsDir, safeName);
                 const destBackend = path.join(backendDiagramsDir, safeName);
-                fs.writeFileSync(destPublic, f.buffer);
-                fs.writeFileSync(destBackend, f.buffer);
+                await saveOptimizedDiagram(f.buffer, destBackend);
 
                 const publicUrl = `/uploads/diagrams/${safeName}`;
                 imageFilesMap.set(baseName.toLowerCase(), publicUrl);
@@ -245,7 +264,7 @@ async function handleQuestionBankUpload(req, res, next) {
                 imageFilesMap.set(cleanKey(path.parse(baseName).name), publicUrl);
                 registeredImagesCount++;
             }
-        });
+        }
 
         if (!spreadsheetBuffer) {
             return res.status(400).json({
@@ -413,12 +432,25 @@ async function handleQuestionBankUpload(req, res, next) {
             const normSub = normalizeSubjectName(fallbackSubject);
             const targetCls = fallbackClass ? String(fallbackClass).trim() : null;
             try {
+                const deleteCondition = `session = ? AND term = ? AND assessment_slot = ? AND LOWER(subject) = LOWER(?)` + (targetCls ? ` AND (class IS NULL OR TRIM(class) = '' OR LOWER(class) = LOWER(?))` : ``);
+                const params = targetCls ? [fallbackSession, fallbackTerm, fallbackSlot, normSub, targetCls] : [fallbackSession, fallbackTerm, fallbackSlot, normSub];
+
+                // Clean disk diagrams for overwritten questions
+                const oldDiagrams = await new Promise((resP) => {
+                    db.all(`SELECT diagram_image_url FROM questions WHERE ${deleteCondition}`, params, (err, rows) => {
+                        if (err || !rows) return resP([]);
+                        resP(rows);
+                    });
+                });
+                if (oldDiagrams && oldDiagrams.length > 0) {
+                    deleteDiagramFiles(oldDiagrams.map(d => d.diagram_image_url).filter(Boolean));
+                }
+
                 await new Promise((resP, rejP) => {
-                    const deleteSubquery = `SELECT id FROM questions WHERE session = ? AND term = ? AND assessment_slot = ? AND LOWER(subject) = LOWER(?)` + (targetCls ? ` AND (class IS NULL OR TRIM(class) = '' OR LOWER(class) = LOWER(?))` : ``);
-                    const params = targetCls ? [fallbackSession, fallbackTerm, fallbackSlot, normSub, targetCls] : [fallbackSession, fallbackTerm, fallbackSlot, normSub];
+                    const deleteSubquery = `SELECT id FROM questions WHERE ${deleteCondition}`;
                     db.run(`DELETE FROM question_options WHERE question_id IN (${deleteSubquery})`, params, (err) => {
                         if (err) return rejP(err);
-                        const deleteQuestions = `DELETE FROM questions WHERE session = ? AND term = ? AND assessment_slot = ? AND LOWER(subject) = LOWER(?)` + (targetCls ? ` AND (class IS NULL OR TRIM(class) = '' OR LOWER(class) = LOWER(?))` : ``);
+                        const deleteQuestions = `DELETE FROM questions WHERE ${deleteCondition}`;
                         db.run(deleteQuestions, params, (err2) => {
                             if (err2) return rejP(err2);
                             resP();
@@ -552,6 +584,66 @@ async function handleQuestionBankUpload(req, res, next) {
 
 router.post('/upload-bank', upload.any(), handleQuestionBankUpload);
 router.post('/upload', upload.any(), handleQuestionBankUpload);
+
+// --------------------------------------------------------------------------
+// POST /api/questions/discard-preview
+// Clean up unconfirmed preview diagram assets
+// --------------------------------------------------------------------------
+router.post('/discard-preview', express.json({ limit: '5mb' }), async (req, res, next) => {
+    try {
+        const imagePaths = req.body.imagePaths || req.body.images || req.body.filenames || [];
+        if (!Array.isArray(imagePaths) || imagePaths.length === 0) {
+            return res.status(200).json({ success: true, message: 'No images to discard', discardedCount: 0 });
+        }
+
+        const diagramsDir = path.join(__dirname, 'uploads/diagrams');
+        let discardedCount = 0;
+
+        for (const rawPath of imagePaths) {
+            if (!rawPath || typeof rawPath !== 'string') continue;
+
+            const safeFilename = path.basename(rawPath.split('?')[0]);
+            if (!safeFilename || safeFilename === '.' || safeFilename === '..' || safeFilename.includes('/') || safeFilename.includes('\\')) {
+                continue;
+            }
+
+            const targetFilePath = path.join(diagramsDir, safeFilename);
+
+            const isReferenced = await new Promise((resolve, reject) => {
+                db.get(
+                    `SELECT id FROM questions WHERE diagram_image_url LIKE ? LIMIT 1`,
+                    [`%${safeFilename}%`],
+                    (err, row) => {
+                        if (err) reject(err);
+                        else resolve(row);
+                    }
+                );
+            });
+
+            if (!isReferenced && fs.existsSync(targetFilePath)) {
+                try {
+                    fs.unlinkSync(targetFilePath);
+                    discardedCount++;
+                } catch (unlinkErr) {
+                    console.warn(`⚠️ [Discard Preview] Could not delete ${targetFilePath}:`, unlinkErr.message);
+                }
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: `Cleaned up ${discardedCount} unconfirmed preview asset(s).`,
+            discardedCount
+        });
+    } catch (error) {
+        console.error('❌ [Discard Preview Error]:', error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to discard preview assets.",
+            error: error.message
+        });
+    }
+});
 
 module.exports = router;
 module.exports.handleQuestionBankUpload = handleQuestionBankUpload;

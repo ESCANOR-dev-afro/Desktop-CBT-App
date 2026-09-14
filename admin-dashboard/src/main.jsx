@@ -4,12 +4,15 @@ import './index.css'
 import App from './App.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { ThemeProvider } from './context/ThemeContext.jsx'
+import { AcademicSessionProvider } from './context/AcademicSessionContext.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ErrorBoundary>
       <ThemeProvider>
-        <App />
+        <AcademicSessionProvider>
+          <App />
+        </AcademicSessionProvider>
       </ThemeProvider>
     </ErrorBoundary>
   </StrictMode>,

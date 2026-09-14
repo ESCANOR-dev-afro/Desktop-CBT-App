@@ -14,6 +14,7 @@ import {
   X,
   Trash2
 } from 'lucide-react';
+import { useAcademicSession } from '../context/AcademicSessionContext';
 
 export default function LiveResults({
   students = [],
@@ -21,10 +22,14 @@ export default function LiveResults({
   onSelectClass,
   classesList = [],
   subjectsByClass = {},
-  activeTerm = '2nd Term',
-  academicSession = '2026/2027',
+  activeTerm: propActiveTerm,
+  academicSession: propAcademicSession,
   onShowToast
 }) {
+  const { currentSession, currentTerm } = useAcademicSession();
+  const academicSession = propAcademicSession || currentSession || '2026/2027';
+  const activeTerm = propActiveTerm || currentTerm || '1st Term';
+
   const [selectedClass, setSelectedClass] = useState(
     propSelectedClass && propSelectedClass !== 'ALL' && propSelectedClass !== 'All Classes' ? propSelectedClass : ''
   );
@@ -430,6 +435,28 @@ export default function LiveResults({
   const printMetadata = activePrintPayload?.metadata || null;
   const printRoster = activePrintPayload?.roster || filteredRoster;
 
+  // Dynamic total questions / obtainable marks denominator for printable score sheet
+  const printMaxMarks = useMemo(() => {
+    // 1. From candidate records in printRoster if any candidate has total_marks, obtainable_score, or total_questions
+    const rosterSample = (Array.isArray(printRoster) ? printRoster : []).find(r => (r.total_marks !== undefined && r.total_marks !== null && r.total_marks > 0) || (r.obtainable_score !== undefined && r.obtainable_score !== null && r.obtainable_score > 0) || (r.total_questions !== undefined && r.total_questions !== null && r.total_questions > 0));
+    if (rosterSample) {
+      const val = rosterSample.total_marks || rosterSample.obtainable_score || rosterSample.total_questions;
+      if (typeof val === 'number' && val > 0) return val;
+      const parsed = parseInt(val, 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+    // 2. From server report printMetadata if provided
+    if (printMetadata?.total_obtainable_marks) {
+      const metaVal = typeof printMetadata.total_obtainable_marks === 'number' ? printMetadata.total_obtainable_marks : parseInt(printMetadata.total_obtainable_marks, 10);
+      if (!isNaN(metaVal) && metaVal > 0) return metaVal;
+    }
+    // 3. From backend question count if active for this subject/slot
+    if (backendQuestionCount && typeof backendQuestionCount === 'number' && backendQuestionCount > 0) {
+      return backendQuestionCount;
+    }
+    return 10;
+  }, [printMetadata, printRoster, backendQuestionCount]);
+
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* Top Banner (Hidden on Print) */}
@@ -682,7 +709,10 @@ export default function LiveResults({
                         const isSubmitted = student.status === 'submitted' || student.score !== null;
                         const isActive = student.status === 'active';
                         const scoreVal = student.score !== null && student.score !== undefined ? student.score : null;
-                        const obtainableMark = student.obtainable_score || student.total_marks || 50;
+                        const defaultScreenObtainable = (Array.isArray(roster) && roster.find(r => (r.obtainable_score || r.total_marks || r.total_questions)))
+                          ? (roster.find(r => r.obtainable_score || r.total_marks || r.total_questions)?.obtainable_score || roster.find(r => r.obtainable_score || r.total_marks || r.total_questions)?.total_marks || roster.find(r => r.obtainable_score || r.total_questions)?.total_questions)
+                          : (backendQuestionCount && backendQuestionCount > 0 ? backendQuestionCount : 10);
+                        const obtainableMark = student.obtainable_score || student.total_marks || student.total_questions || defaultScreenObtainable;
 
                         return (
                           <tr key={student.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
@@ -826,7 +856,7 @@ export default function LiveResults({
             <div>Term: <span className="font-black">{printMetadata?.academic_term || activeTerm}</span></div>
             <div>Total Candidates: <span className="font-black">{printMetadata?.total_candidates || printRoster.length}</span></div>
             <div>Submissions Count: <span className="font-black">{printMetadata?.submissions_count !== undefined ? printMetadata.submissions_count : printRoster.filter(r => r.raw_score !== null || r.status === 'Submitted' || r.status === 'submitted').length}</span></div>
-            <div>Total Marks: <span className="font-black">{printMetadata?.total_obtainable_marks || 50}</span></div>
+            <div>Total Marks: <span className="font-black">{printMaxMarks}</span></div>
           </div>
         </div>
 
@@ -837,13 +867,13 @@ export default function LiveResults({
               <th className="border border-black px-3 py-2 text-center w-12">S/N</th>
               <th className="border border-black px-3 py-2 text-left w-36">REG NO</th>
               <th className="border border-black px-3 py-2 text-left">CANDIDATE NAME (A-Z)</th>
-              <th className="border border-black px-3 py-2 text-center w-40">SCORE (/{printMetadata?.total_obtainable_marks || 50})</th>
+              <th className="border border-black px-3 py-2 text-center w-40">SCORE (/{printMaxMarks})</th>
               <th className="border border-black px-3 py-2 text-center w-32">STATUS</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-black font-medium text-black">
             {printRoster.map((student, idx) => {
-              const obtainable = student.total_marks || student.obtainable_score || printMetadata?.total_obtainable_marks || 50;
+              const obtainable = student.total_marks || student.obtainable_score || student.total_questions || printMaxMarks;
               const score = student.raw_score !== undefined ? student.raw_score : (student.score !== null && student.score !== undefined ? student.score : null);
               const isSubmitted = score !== null || (student.status && String(student.status).toLowerCase() === 'submitted');
               const statusText = isSubmitted ? 'Submitted' : (student.status && String(student.status).toLowerCase().includes('active') ? 'Active Session' : 'Absent');
