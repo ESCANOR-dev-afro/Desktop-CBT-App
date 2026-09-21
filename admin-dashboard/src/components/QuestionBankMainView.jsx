@@ -46,6 +46,52 @@ const questionBankClasses = [
 
 const getSubName = (s) => (typeof s === 'string' ? s : (s?.name || String(s || '')));
 
+const canonicalMap = {
+  'agric': 'Agricultural Science',
+  'agriculture': 'Agricultural Science',
+  'agricultural science': 'Agricultural Science',
+  'basic tech': 'Basic Technology',
+  'basic technology': 'Basic Technology',
+  'sos': 'Social Studies',
+  'social studies': 'Social Studies',
+  'phe': 'PHE',
+  'physical and health education': 'PHE',
+  'physical & health education': 'PHE',
+  'bus studies': 'Business Studies',
+  'business studies': 'Business Studies',
+  'home ec': 'Home Economics',
+  'home econ': 'Home Economics',
+  'home economics': 'Home Economics',
+  'crs': 'CRS',
+  'crk': 'CRS',
+  'christian religious studies': 'CRS',
+  'crs/irs': 'CRS',
+  'irs': 'IRS',
+  'irk': 'IRS',
+  'islamic religious studies': 'IRS',
+  'account': 'Financial Accounting',
+  'accounting': 'Financial Accounting',
+  'financial accounting': 'Financial Accounting',
+  'literature': 'Literature in English',
+  'literature in english': 'Literature in English',
+  'history': 'Nigeria History',
+  'nigerian history': 'Nigeria History',
+  'nigeria history': 'Nigeria History',
+  'comp sci': 'Computer Studies',
+  'computer': 'Computer Studies',
+  'computer science': 'Computer Studies',
+  'computer studies': 'Computer Studies',
+  'civics': 'Civic Education',
+  'civic education': 'Civic Education'
+};
+
+const normalizeSubjectName = (raw) => {
+  const str = getSubName(raw).trim();
+  if (!str) return '';
+  const lower = str.toLowerCase();
+  return canonicalMap[lower] || str;
+};
+
 export default function QuestionBankMainView({
   classesList = ['JSS 1', 'JSS 2', 'JSS 3', 'SS 1', 'SS 2', 'SS 3'],
   subjectsByClass = {},
@@ -64,10 +110,33 @@ export default function QuestionBankMainView({
 
   const safeSubjectsByClass = subjectsByClass || {};
 
-  const rawAvailable = safeSubjectsByClass[activeClass] 
-    || safeSubjectsByClass[activeClass?.replace?.(/\s+(Science|Art|Commercial)$/i, '')] 
+  const rawSubjectList = safeSubjectsByClass[activeClass] 
+    || safeSubjectsByClass[activeClass?.replace?.(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '')] 
     || [];
-  const availableSubjects = Array.isArray(rawAvailable) ? rawAvailable : [];
+
+  // Compute canonical deduplicated available subjects for active class
+  const availableSubjects = useMemo(() => {
+    const list = Array.isArray(rawSubjectList) ? rawSubjectList : [];
+    return Array.from(
+      new Set(
+        list
+          .map((s) => {
+            const name = (typeof s === 'string' ? s : s?.name || s?.subject_name || '').trim();
+            const lower = name.toLowerCase();
+            if (lower === 'agric' || lower === 'agriculture') return 'Agricultural Science';
+            if (lower === 'basic tech') return 'Basic Technology';
+            return canonicalMap[lower] || name;
+          })
+          .filter(Boolean)
+          .filter((name) => {
+            // Disallow Agricultural Science entirely for Art and Commercial classes
+            const isArtOrComm = activeClass?.includes('Art') || activeClass?.includes('Commercial');
+            if (isArtOrComm && name.toLowerCase().includes('agric')) return false;
+            return true;
+          })
+      )
+    ).sort();
+  }, [rawSubjectList, activeClass]);
     
   const [selectedSubject, setSelectedSubject] = useState('');
 
@@ -94,10 +163,31 @@ export default function QuestionBankMainView({
   const [togglingActive, setTogglingActive] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isParsingDocument, setIsParsingDocument] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [showUploadBackdrop, setShowUploadBackdrop] = useState(false);
   const [parsingFilename, setParsingFilename] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const fileInputRef = useRef(null);
+  const uploadLockRef = useRef(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Native cancel listener to guarantee locks and backdrops are freed if user cancels file dialog
+  useEffect(() => {
+    const inputEl = fileInputRef.current;
+    if (!inputEl) return;
+    const handleCancel = () => {
+      setIsExtracting(false);
+      setIsParsingDocument(false);
+      setShowUploadBackdrop(false);
+      uploadLockRef.current = false;
+      if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = false;
+      setParsingFilename('');
+    };
+    inputEl.addEventListener('cancel', handleCancel);
+    return () => {
+      inputEl.removeEventListener('cancel', handleCancel);
+    };
+  }, []);
 
   // DOCX/TXT Preview Modal State
   const [parserProfile, setParserProfile] = useState('auto');
@@ -212,7 +302,7 @@ export default function QuestionBankMainView({
   // Clear selectedSubject if activeClass changes and previously selectedSubject is not available
   useEffect(() => {
     if (selectedSubject && availableSubjects.length > 0) {
-      const exists = availableSubjects.find(s => getSubName(s) === selectedSubject);
+      const exists = availableSubjects.find(s => s === selectedSubject || s.toLowerCase() === selectedSubject.toLowerCase());
       if (!exists) {
         setSelectedSubject('');
         setDbQuestions([]);
@@ -220,8 +310,8 @@ export default function QuestionBankMainView({
     }
   }, [activeClass, availableSubjects, selectedSubject]);
 
-  // Fetch Questions from API for current class, subject, session, term & slot
-  const fetchBankQuestions = async () => {
+  // Unified Fetch: Single coordinated fetch for questions, slot counts breakdown, and slot assessment configuration
+  const fetchBankQuestions = useCallback(async (signal) => {
     if (!selectedSubject || !activeClass || !selectedSlot) {
       setDbQuestions([]);
       return;
@@ -229,49 +319,34 @@ export default function QuestionBankMainView({
     setLoadingQuestions(true);
     setDbQuestions([]); // Instantly clear previous table list before fetch to prevent question bleed
     try {
+      const canonicalSub = normalizeSubjectName(selectedSubject);
       const params = new URLSearchParams({
         session: selectedSession || '2026/2027',
         term: selectedTerm || '1st Term',
         class: activeClass,
         classId: activeClass,
-        subject: selectedSubject,
-        subjectId: selectedSubject,
+        subject: canonicalSub,
+        subjectId: canonicalSub,
         slot: selectedSlot,
         assessment_slot: selectedSlot,
         _t: String(Date.now()),
       });
 
-      // 1. Fetch questions for current slot
       const res = await fetch(`/api/admin/questions?${params.toString()}`, {
-        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' }
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' },
+        signal
       });
-
-      // 2. Fetch counts breakdown for all 4 slots
-      fetch(`/api/admin/questions/counts?${params.toString()}`, {
-        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' }
-      })
-        .then(r => r.json())
-        .then(cData => {
-          if (cData && cData.success && (cData.counts || cData.slotCounts)) {
-            setSlotCounts(cData.counts || cData.slotCounts);
-          }
-        })
-        .catch(() => {});
 
       if (res.ok) {
         const data = await res.json();
         if (data && data.success) {
-          if (Array.isArray(data.questions)) {
-            setDbQuestions(data.questions);
-          } else {
-            setDbQuestions([]);
-          }
+          setDbQuestions(Array.isArray(data.questions) ? data.questions : []);
           if (data.slotCounts) {
             setSlotCounts(data.slotCounts);
           }
-          if (data.assessment_config) {
-            const cfg = data.assessment_config;
-            if (cfg.duration_minutes) setExamDurationInput(String(cfg.duration_minutes));
+          const cfg = data.assessment_config || data.config;
+          if (cfg) {
+            if (cfg.duration_minutes !== undefined) setExamDurationInput(String(cfg.duration_minutes));
             if (cfg.is_active !== undefined) setIsExamActive(cfg.is_active === true || cfg.is_active === 1);
             if (cfg.preset_mode) setAssessmentMode((cfg.preset_mode === 'terminal_exam' || cfg.preset_mode === 'examination') ? 'EXAM' : (cfg.preset_mode === 'custom' || cfg.preset_mode === 'custom_assessment') ? 'CUSTOM' : 'TEST');
             if (cfg.custom_count) setCustomDeliveryCount(String(cfg.custom_count));
@@ -288,44 +363,26 @@ export default function QuestionBankMainView({
         }
       }
     } catch (e) {
-      console.error('Notice: DB questions fetch error:', e);
+      if (e.name !== 'AbortError') {
+        console.error('Notice: DB questions fetch error:', e);
+      }
     }
 
     setDbQuestions([]);
     setLoadingQuestions(false);
-  };
+  }, [selectedSubject, activeClass, selectedSlot, selectedSession, selectedTerm]);
 
+  // Single trigger effect on active filter changes with AbortController debounce
   useEffect(() => {
-    setDbQuestions([]);
-    fetchBankQuestions();
-  }, [activeClass, selectedSubject, selectedSession, selectedTerm, selectedSlot]);
+    const controller = new AbortController();
+    fetchBankQuestions(controller.signal);
+    return () => controller.abort();
+  }, [fetchBankQuestions]);
 
   // Reset page to 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [activeClass, selectedSubject, selectedSession, selectedTerm, selectedSlot, searchQuery, pageSize]);
-
-  // Load assessment configuration for exact slot tuple
-  useEffect(() => {
-    if (!selectedSubject) return;
-    fetch(
-      `/api/admin/assessment-config?session=${encodeURIComponent(selectedSession)}&term=${encodeURIComponent(selectedTerm)}&class=${encodeURIComponent(activeClass)}&subject=${encodeURIComponent(selectedSubject)}&assessment_slot=${encodeURIComponent(selectedSlot)}`
-    )
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.success && data.config) {
-          const cfg = data.config;
-          if (cfg.duration_minutes) setExamDurationInput(String(cfg.duration_minutes));
-          if (cfg.is_active !== undefined) setIsExamActive(cfg.is_active === true || cfg.is_active === 1);
-          if (cfg.preset_mode) setAssessmentMode((cfg.preset_mode === 'terminal_exam' || cfg.preset_mode === 'examination') ? 'EXAM' : (cfg.preset_mode === 'custom' || cfg.preset_mode === 'custom_assessment') ? 'CUSTOM' : 'TEST');
-          if (cfg.custom_count) setCustomDeliveryCount(String(cfg.custom_count));
-          if (cfg.shuffle_questions !== undefined) setShuffleQuestions(cfg.shuffle_questions);
-          if (cfg.shuffle_options !== undefined) setShuffleOptions(cfg.shuffle_options);
-          if (cfg.assessment_title) setAssessmentTitle(cfg.assessment_title);
-        }
-      })
-      .catch(() => {});
-  }, [activeClass, selectedSubject, selectedSession, selectedTerm, selectedSlot]);
 
   const handleSaveConfig = async () => {
     const parsed = parseInt(examDurationInput, 10);
@@ -419,14 +476,32 @@ export default function QuestionBankMainView({
 
   // ── DOCX/TXT Upload Handler (Two-Phase: Parse → Preview → Commit) ──
   const handleDocxUpload = async (file) => {
-    if (!file || isParsingDocument) return;
+    if (!file) {
+      uploadLockRef.current = false;
+      setIsParsingDocument(false);
+      setIsExtracting(false);
+      setShowUploadBackdrop(false);
+      if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = false;
+      return;
+    }
     if (!selectedSubject) {
+      uploadLockRef.current = false;
+      setIsParsingDocument(false);
+      setIsExtracting(false);
+      setShowUploadBackdrop(false);
+      if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = false;
+      setParsingFilename('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
       onShowToast('Please select a target subject before uploading a document.', 'error');
       return;
     }
 
     const fileName = file.name || 'document';
+    const canonicalSub = normalizeSubjectName(selectedSubject);
     setIsParsingDocument(true);
+    setIsExtracting(true);
+    setShowUploadBackdrop(true);
+    if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = true;
     setParsingFilename(fileName);
     setDocxFileName(fileName);
 
@@ -438,8 +513,8 @@ export default function QuestionBankMainView({
       formData.append('class', activeClass);
       formData.append('classTier', activeClass);
       formData.append('class_tier', activeClass);
-      formData.append('subject', selectedSubject);
-      formData.append('target_subject', selectedSubject);
+      formData.append('subject', canonicalSub);
+      formData.append('target_subject', canonicalSub);
       formData.append('slot', selectedSlot);
       formData.append('assessment_slot', selectedSlot);
       formData.append('profile_mode', parserProfile);
@@ -455,6 +530,9 @@ export default function QuestionBankMainView({
       if (data && data.success && data.preview && data.questions) {
         setDocxPreviewData(data);
         setIsDocxPreviewOpen(true);
+        const qCount = data.questions?.length || 0;
+        const imgCount = data.images?.filenames?.length || 0;
+        onShowToast(`Successfully extracted ${qCount} question(s) and ${imgCount} diagram(s).`, 'success');
         return;
       }
 
@@ -463,7 +541,11 @@ export default function QuestionBankMainView({
       console.error('DOCX upload error:', e);
       onShowToast('Failed to parse the uploaded document. Please check the file format.', 'error');
     } finally {
+      uploadLockRef.current = false;
       setIsParsingDocument(false);
+      setIsExtracting(false);
+      setShowUploadBackdrop(false);
+      if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = false;
       setParsingFilename('');
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -475,6 +557,7 @@ export default function QuestionBankMainView({
 
     setCommitingDocx(true);
     const validMinutes = parseInt(examDurationInput, 10) || 45;
+    const canonicalSub = normalizeSubjectName(selectedSubject);
 
     try {
       const response = await fetch('/api/admin/questions/commit-docx', {
@@ -487,8 +570,8 @@ export default function QuestionBankMainView({
           slot: selectedSlot,
           class: activeClass,
           classId: activeClass,
-          subject: selectedSubject,
-          subjectId: selectedSubject,
+          subject: canonicalSub,
+          subjectId: canonicalSub,
           overwrite: false,
           questions: reviewedQuestions,
           filename: docxFileName,
@@ -550,11 +633,32 @@ export default function QuestionBankMainView({
 
   // ── File Upload Router (detects file type and dispatches to correct pipeline) ──
   const handleFileUpload = async (filesPayload) => {
-    if (!filesPayload || isParsingDocument) return;
+    if (!filesPayload) {
+      uploadLockRef.current = false;
+      setIsParsingDocument(false);
+      setIsExtracting(false);
+      setShowUploadBackdrop(false);
+      if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = false;
+      return;
+    }
     const fileList = filesPayload.length !== undefined ? Array.from(filesPayload) : [filesPayload];
-    if (fileList.length === 0) return;
+    if (fileList.length === 0) {
+      uploadLockRef.current = false;
+      setIsParsingDocument(false);
+      setIsExtracting(false);
+      setShowUploadBackdrop(false);
+      if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = false;
+      return;
+    }
 
     if (!selectedSubject) {
+      uploadLockRef.current = false;
+      setIsParsingDocument(false);
+      setIsExtracting(false);
+      setShowUploadBackdrop(false);
+      if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = false;
+      setParsingFilename('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
       onShowToast('Please select a target subject before uploading a document.', 'error');
       return;
     }
@@ -570,7 +674,11 @@ export default function QuestionBankMainView({
 
     // Existing Excel/ZIP pipeline
     const fileName = firstFile.name || 'Archive / Spreadsheet';
+    const canonicalSub = normalizeSubjectName(selectedSubject);
     setIsParsingDocument(true);
+    setIsExtracting(true);
+    setShowUploadBackdrop(true);
+    if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = true;
     setParsingFilename(fileName);
     const validMinutes = parseInt(examDurationInput, 10) || 45;
     const targetCount = assessmentMode === 'TEST' ? 30 : assessmentMode === 'EXAM' ? 50 : (parseInt(customDeliveryCount, 10) || 30);
@@ -588,8 +696,8 @@ export default function QuestionBankMainView({
       formData.append('classId', activeClass);
       formData.append('class', activeClass);
       formData.append('classTier', activeClass);
-      formData.append('subjectId', selectedSubject);
-      formData.append('subject', selectedSubject);
+      formData.append('subjectId', canonicalSub);
+      formData.append('subject', canonicalSub);
       formData.append('duration_minutes', String(validMinutes));
       formData.append('assessment_mode', assessmentMode);
       formData.append('delivery_count', String(targetCount));
@@ -603,7 +711,7 @@ export default function QuestionBankMainView({
       if (response.ok) {
         const data = await response.json();
         if (data && data.success) {
-          const feedbackMsg = data.message || `Uploaded ${data.importedCount || 0} questions!`;
+          const feedbackMsg = data.message || `Uploaded ${data.importedCount || data.count || 0} questions!`;
           onShowToast(feedbackMsg, 'success');
           await fetchBankQuestions();
           return;
@@ -618,10 +726,62 @@ export default function QuestionBankMainView({
       console.error('Upload error:', e);
       onShowToast(`Failed to upload questions paper. Please check server logs.`, 'error');
     } finally {
+      uploadLockRef.current = false;
       setIsParsingDocument(false);
+      setIsExtracting(false);
+      setShowUploadBackdrop(false);
+      if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = false;
       setParsingFilename('');
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  // Instant UI spinner file selection handler (synchronously triggers loading before heavy reads)
+  const handleFileSelect = (e) => {
+    const files = e.target.files;
+    const file = files?.[0];
+    if (!file) {
+      setIsExtracting(false);
+      setIsParsingDocument(false);
+      setShowUploadBackdrop(false);
+      uploadLockRef.current = false;
+      if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = false;
+      return;
+    }
+    if (!selectedSubject) {
+      uploadLockRef.current = false;
+      setIsParsingDocument(false);
+      setIsExtracting(false);
+      setShowUploadBackdrop(false);
+      if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = false;
+      setParsingFilename('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      onShowToast('Please select a target subject before uploading a document.', 'error');
+      return;
+    }
+
+    // 1. Instantly trigger visual loader synchronously on FIRST line
+    setIsExtracting(true);
+    setIsParsingDocument(true);
+    setShowUploadBackdrop(true);
+    uploadLockRef.current = true;
+    if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = true;
+    setParsingFilename(file.name || 'Assessment Document');
+
+    // 2. Allow DOM repaint before heavy parsing
+    setTimeout(async () => {
+      try {
+        await handleFileUpload(files);
+      } catch (err) {
+        console.error('File upload error:', err);
+        setIsExtracting(false);
+        setIsParsingDocument(false);
+        setShowUploadBackdrop(false);
+        uploadLockRef.current = false;
+        if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = false;
+        setParsingFilename('');
+      }
+    }, 50);
   };
 
   const handleManualAddQuestion = async (e) => {
@@ -890,15 +1050,11 @@ export default function QuestionBankMainView({
               <option value="" className="bg-white dark:bg-[#0f172a] text-slate-400 py-1.5 font-medium">
                 -- Select Target Subject --
               </option>
-              {availableSubjects.map((sub) => {
-                const subName = getSubName(sub);
-                const subKey = typeof sub === 'string' ? sub : (sub.id || subName);
-                return (
-                  <option key={subKey} value={subName} className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-white py-1.5 font-medium">
-                    {subName}
-                  </option>
-                );
-              })}
+              {availableSubjects.map((subName) => (
+                <option key={subName} value={subName} className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-white py-1.5 font-medium">
+                  {subName}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -1053,16 +1209,44 @@ export default function QuestionBankMainView({
         <div
           onDragOver={(e) => {
             e.preventDefault();
-            if (!isParsingDocument) setIsDragging(true);
+            if (!isParsingDocument && !isExtracting && !uploadLockRef.current) setIsDragging(true);
           }}
           onDragLeave={() => setIsDragging(false)}
           onDrop={(e) => {
             e.preventDefault();
             setIsDragging(false);
-            if (isParsingDocument) return;
-            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-              handleFileUpload(e.dataTransfer.files);
+            if (isParsingDocument || isExtracting || uploadLockRef.current) return;
+            const files = e.dataTransfer.files;
+            const file = files?.[0];
+            if (!file) return;
+
+            if (!selectedSubject) {
+              onShowToast('Please select a target subject before uploading a document.', 'error');
+              return;
             }
+
+            // 1. Instantly trigger visual loader synchronously on FIRST line
+            setIsExtracting(true);
+            setIsParsingDocument(true);
+            setShowUploadBackdrop(true);
+            uploadLockRef.current = true;
+            if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = true;
+            setParsingFilename(file.name || 'Assessment Document');
+
+            // 2. Allow DOM repaint before heavy parsing
+            setTimeout(async () => {
+              try {
+                await handleFileUpload(files);
+              } catch (err) {
+                console.error('Drop upload error:', err);
+                setIsExtracting(false);
+                setIsParsingDocument(false);
+                setShowUploadBackdrop(false);
+                uploadLockRef.current = false;
+                if (typeof window !== 'undefined') window.__IS_EXTRACTING_QUESTIONS__ = false;
+                setParsingFilename('');
+              }
+            }, 50);
           }}
           className={`relative overflow-hidden lg:col-span-2 border-2 border-dashed rounded-2xl p-6 transition-all flex flex-col items-center justify-center text-center shadow-xs ${
             isDragging
@@ -1071,22 +1255,19 @@ export default function QuestionBankMainView({
           }`}
         >
           {/* High-Visibility Document Parsing & Extraction Overlay */}
-          {isParsingDocument && (
-            <div className="absolute inset-0 z-30 bg-[#0f172a]/85 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center p-6 text-white animate-in fade-in duration-200 pointer-events-none select-none">
+          {(isParsingDocument || isExtracting) && (
+            <div className="absolute inset-0 z-30 bg-[#0f172a]/90 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center p-6 text-white animate-in fade-in duration-150 select-none">
               <div className="relative mb-3.5 flex items-center justify-center">
                 <div className="w-14 h-14 rounded-full border-4 border-orange-500/25 border-t-orange-500 animate-spin shadow-lg shadow-orange-500/20" />
-                <RefreshCw className="w-6 h-6 text-orange-400 absolute animate-spin" />
+                <Loader2 className="w-6 h-6 text-orange-400 absolute animate-spin" />
               </div>
               <h4 className="text-base font-extrabold text-white text-center tracking-tight">
-                Analyzing Assessment Document...
+                Extracting &amp; Parsing Assessment Document... Please wait
               </h4>
-              <p className="text-xs text-orange-300 font-semibold mt-1 max-w-sm text-center">
-                Parsing {parsingFilename || 'Assessment Paper'} • Extracting questions &amp; diagrams
+              <p className="text-xs text-orange-300 font-semibold mt-1.5 max-w-sm text-center">
+                Processing {parsingFilename || 'Assessment Document'} • Extracting questions &amp; diagrams
               </p>
-              <p className="text-[11px] text-slate-300 mt-1 text-center font-medium">
-                Please wait, preparing preview...
-              </p>
-              <div className="w-48 h-1.5 bg-slate-800/80 rounded-full mt-3.5 overflow-hidden border border-slate-700/60 shadow-inner">
+              <div className="w-56 h-1.5 bg-slate-800/90 rounded-full mt-3.5 overflow-hidden border border-slate-700/60 shadow-inner">
                 <div className="h-full bg-gradient-to-r from-orange-500 via-amber-400 to-orange-500 rounded-full w-full animate-pulse" />
               </div>
             </div>
@@ -1128,9 +1309,9 @@ export default function QuestionBankMainView({
             <select
               value={parserProfile}
               onChange={(e) => setParserProfile(e.target.value)}
-              disabled={isParsingDocument}
+              disabled={isParsingDocument || isExtracting || uploadLockRef.current}
               className={`w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-bold rounded-xl px-3 py-2 focus:border-brand focus:outline-none shadow-xs cursor-pointer ${
-                isParsingDocument ? 'opacity-50 cursor-not-allowed' : ''
+                isParsingDocument || isExtracting || uploadLockRef.current ? 'opacity-50 cursor-not-allowed' : ''
               }`}
             >
               <option value="auto">🎯 Auto-Detect (Dynamic based on Subject &amp; Document)</option>
@@ -1143,12 +1324,12 @@ export default function QuestionBankMainView({
           <div className="flex flex-wrap items-center justify-center gap-3 mb-4">
             <label
               className={`px-4 py-2.5 rounded-xl bg-brand text-white text-xs font-bold transition-all shadow-md shadow-brand/20 flex items-center space-x-2 select-none ${
-                isParsingDocument
+                isParsingDocument || isExtracting || uploadLockRef.current
                   ? 'opacity-60 cursor-not-allowed pointer-events-none'
                   : 'hover:bg-brand-600 brand-glow-sm cursor-pointer'
               }`}
             >
-              {isParsingDocument ? (
+              {isParsingDocument || isExtracting ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin mr-1" />
                   <span>Extracting Questions...</span>
@@ -1165,21 +1346,17 @@ export default function QuestionBankMainView({
                 multiple
                 accept=".docx, .doc, .xlsx, .xls, .csv, .zip, .txt, image/*, .png, .jpg, .jpeg, .webp, .svg"
                 className="hidden"
-                onChange={(e) => {
-                  if (!isParsingDocument && e.target.files && e.target.files.length > 0) {
-                    handleFileUpload(e.target.files);
-                  }
-                }}
-                disabled={isParsingDocument}
+                onChange={handleFileSelect}
+                disabled={isParsingDocument || isExtracting}
               />
             </label>
 
             <button
               type="button"
               onClick={() => setIsClearModalOpen(true)}
-              disabled={isParsingDocument || clearingSubject}
+              disabled={isParsingDocument || clearingSubject || uploadLockRef.current}
               className={`px-4 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-600/15 hover:bg-rose-100 dark:hover:bg-rose-600/25 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/40 text-xs font-bold transition-all flex items-center space-x-2 shadow-xs ${
-                isParsingDocument || clearingSubject
+                isParsingDocument || clearingSubject || uploadLockRef.current
                   ? 'opacity-50 cursor-not-allowed pointer-events-none'
                   : 'cursor-pointer'
               }`}
@@ -1192,9 +1369,9 @@ export default function QuestionBankMainView({
             <button
               type="button"
               onClick={handleManualRefresh}
-              disabled={isParsingDocument || isRefreshing}
+              disabled={isParsingDocument || isRefreshing || uploadLockRef.current}
               className={`px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-bold transition-all flex items-center space-x-2 shadow-xs ${
-                isParsingDocument || isRefreshing
+                isParsingDocument || isRefreshing || uploadLockRef.current
                   ? 'opacity-50 cursor-not-allowed pointer-events-none'
                   : 'cursor-pointer'
               }`}
@@ -1722,6 +1899,25 @@ export default function QuestionBankMainView({
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Global Upload & Extraction Spinner Backdrop */}
+      {showUploadBackdrop && (isParsingDocument || isExtracting) && (
+        <div className="fixed inset-0 z-[9999] bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-white animate-in fade-in duration-100 select-none">
+          <div className="relative mb-4 flex items-center justify-center">
+            <div className="w-16 h-16 rounded-full border-4 border-orange-500/30 border-t-orange-500 animate-spin shadow-xl shadow-orange-500/30" />
+            <Loader2 className="w-8 h-8 text-orange-400 absolute animate-spin" />
+          </div>
+          <h3 className="text-lg font-extrabold text-white text-center tracking-tight">
+            Extracting &amp; Parsing Assessment Document... Please wait
+          </h3>
+          <p className="text-xs text-orange-300 font-semibold mt-1.5 max-w-md text-center">
+            Processing {parsingFilename || 'Assessment Document'} • Extracting questions &amp; diagrams
+          </p>
+          <div className="w-64 h-2 bg-slate-800 rounded-full mt-4 overflow-hidden border border-slate-700/60 shadow-inner">
+            <div className="h-full bg-gradient-to-r from-orange-500 via-amber-400 to-orange-500 rounded-full w-full animate-pulse" />
           </div>
         </div>
       )}

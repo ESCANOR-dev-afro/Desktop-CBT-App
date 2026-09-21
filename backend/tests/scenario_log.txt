@@ -1,0 +1,10 @@
+Starting scenarios...
+DB opened successfully
+🧪 Running Comprehensive End-to-End CBT Assessment Verification Tests...
+
+✅ [PASS] 1. No Legacy Aliases in class_subjects: All class_subjects entries use canonical naming.
+✅ [PASS] 2. No Legacy Aliases in assessment_configs: All assessment_configs entries use canonical naming.
+✅ [PASS] 3. Zero Phantom Active Assessment Configs: 0 phantom active assessment configs.
+✅ [PASS] 4. Student Active Assessments Question Count > 0: All 0 active assessments have question_count > 0: 
+✅ [PASS] 5. Dynamic Active/Inactive Toggle Sync Between Admin and Student: Excluded when inactive: true, Included when active: true
+✅ [PASS] 6. Strict Zero-Question Exclusion Guard (HAVING COUNT(q.id) > 0): Zero-question active assessment was successfully blocked from student view: true

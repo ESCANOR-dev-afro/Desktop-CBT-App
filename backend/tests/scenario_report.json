@@ -1,0 +1,32 @@
+[
+  {
+    "name": "1. No Legacy Aliases in class_subjects",
+    "passed": true,
+    "details": "All class_subjects entries use canonical naming."
+  },
+  {
+    "name": "2. No Legacy Aliases in assessment_configs",
+    "passed": true,
+    "details": "All assessment_configs entries use canonical naming."
+  },
+  {
+    "name": "3. Zero Phantom Active Assessment Configs",
+    "passed": true,
+    "details": "0 phantom active assessment configs."
+  },
+  {
+    "name": "4. Student Active Assessments Question Count > 0",
+    "passed": true,
+    "details": "All 0 active assessments have question_count > 0: "
+  },
+  {
+    "name": "5. Dynamic Active/Inactive Toggle Sync Between Admin and Student",
+    "passed": true,
+    "details": "Excluded when inactive: true, Included when active: true"
+  },
+  {
+    "name": "6. Strict Zero-Question Exclusion Guard (HAVING COUNT(q.id) > 0)",
+    "passed": true,
+    "details": "Zero-question active assessment was successfully blocked from student view: true"
+  }
+]

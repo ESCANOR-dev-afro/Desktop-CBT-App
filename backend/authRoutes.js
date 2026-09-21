@@ -59,10 +59,21 @@ function normalizeSubjectName(rawSubject) {
     if (!trimmed) return '';
 
     const lower = trimmed.toLowerCase();
-    if (lower === 'english' || lower === 'eng') return 'English Language';
-    if (lower === 'math' || lower === 'maths') return 'Mathematics';
-    if (lower === 'comp sci' || lower === 'computer' || lower === 'computer science') return 'Computer Studies';
-    if (lower === 'civics') return 'Civic Education';
+    if (lower === 'english' || lower === 'eng' || lower === 'english language') return 'English Language';
+    if (lower === 'math' || lower === 'maths' || lower === 'mathematics') return 'Mathematics';
+    if (lower === 'comp sci' || lower === 'computer' || lower === 'computer science' || lower === 'computer studies') return 'Computer Studies';
+    if (lower === 'civics' || lower === 'civic education') return 'Civic Education';
+    if (lower === 'agric' || lower === 'agriculture' || lower === 'agricultural science') return 'Agricultural Science';
+    if (lower === 'sos' || lower === 'social studies') return 'Social Studies';
+    if (lower === 'crs' || lower === 'christian religious studies' || lower === 'crk' || lower === 'crs/irs') return 'CRS';
+    if (lower === 'irs' || lower === 'islamic religious studies' || lower === 'irk') return 'IRS';
+    if (lower === 'basic tech' || lower === 'basic technology') return 'Basic Technology';
+    if (lower === 'phe' || lower === 'physical and health education' || lower === 'physical & health education') return 'PHE';
+    if (lower === 'bus studies' || lower === 'business studies') return 'Business Studies';
+    if (lower === 'home ec' || lower === 'home econ' || lower === 'home economics') return 'Home Economics';
+    if (lower === 'account' || lower === 'accounting' || lower === 'financial accounting') return 'Financial Accounting';
+    if (lower === 'literature' || lower === 'literature in english') return 'Literature in English';
+    if (lower === 'history' || lower === 'nigerian history' || lower === 'nigeria history') return 'Nigeria History';
 
     return trimmed.split(' ')
         .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
@@ -534,39 +545,35 @@ async function fetchActiveExamsForStudent({ studentId, studentClass, session, te
           AND LOWER(TRIM(ac.term)) = LOWER(TRIM(?))
           AND ac.is_active = 1
         GROUP BY ac.id
+        HAVING COUNT(q.id) > 0
         ORDER BY ac.subject ASC
     `;
 
     const queryParams = [...classVars, currentSession, currentTerm];
-    const rows = await dbAll(sql, queryParams);
+    const rawRows = await dbAll(sql, queryParams);
+    const rows = (rawRows || []).filter(r => (Number(r.question_count) || 0) > 0);
 
-    // Fetch student's session history across both session tables for status resolution
+    // Fetch student's session history in parallel across session tables for status resolution (eliminating N+1)
     let studentExamSessions = [];
     let legacyExamSessions = [];
-    let studentAnswersSubjects = [];
 
     if (studentId) {
-        studentExamSessions = await dbAll(
-            `SELECT session_id, LOWER(TRIM(subject_name)) AS subject, assessment_slot, status, score, started_at, expires_at 
-             FROM student_exam_sessions 
-             WHERE student_id = ?`,
-            [studentId]
-        );
-
-        legacyExamSessions = await dbAll(
-            `SELECT id, LOWER(TRIM(subject)) AS subject, assessment_slot, status, is_locked, score, login_time 
-             FROM exam_sessions 
-             WHERE student_id = ?`,
-            [studentId]
-        );
-
-        studentAnswersSubjects = await dbAll(
-            `SELECT DISTINCT LOWER(TRIM(q.subject)) AS subject 
-             FROM answers a 
-             JOIN questions q ON a.question_id = q.id 
-             WHERE a.student_id = ?`,
-            [studentId]
-        );
+        const [sesRows, legRows] = await Promise.all([
+            dbAll(
+                `SELECT session_id, LOWER(TRIM(subject_name)) AS subject, assessment_slot, status, score, started_at, expires_at 
+                 FROM student_exam_sessions 
+                 WHERE student_id = ?`,
+                [studentId]
+            ),
+            dbAll(
+                `SELECT id, LOWER(TRIM(subject)) AS subject, assessment_slot, status, is_locked, score, login_time 
+                 FROM exam_sessions 
+                 WHERE student_id = ?`,
+                [studentId]
+            )
+        ]);
+        studentExamSessions = sesRows || [];
+        legacyExamSessions = legRows || [];
     }
 
     const normSlot = (s) => {
@@ -616,6 +623,11 @@ async function fetchActiveExamsForStudent({ studentId, studentClass, session, te
         const score = isSubmitted ? (submittedSES?.score ?? submittedLegacy?.score ?? null) : null;
         const submittedAt = isSubmitted ? (submittedSES?.started_at || submittedLegacy?.login_time || null) : null;
 
+        const actualCount = Number(row.question_count) || 0;
+        const targetDeliveryCount = (row.custom_count && parseInt(row.custom_count, 10) > 0)
+            ? Math.min(parseInt(row.custom_count, 10), actualCount)
+            : actualCount;
+
         return {
             id: row.config_id || row.id,
             config_id: row.config_id || row.id,
@@ -633,9 +645,10 @@ async function fetchActiveExamsForStudent({ studentId, studentClass, session, te
             duration_minutes: Number(row.duration_minutes) > 0 ? Number(row.duration_minutes) : 15,
             duration: Number(row.duration_minutes) > 0 ? Number(row.duration_minutes) : 15,
             preset_mode: row.preset_mode || 'ca_test',
-            questions_count: (row.custom_count && parseInt(row.custom_count, 10) > 0) ? parseInt(row.custom_count, 10) : (row.question_count || 30),
-            question_count: (row.custom_count && parseInt(row.custom_count, 10) > 0) ? parseInt(row.custom_count, 10) : (row.question_count || 30),
-            total_questions: (row.custom_count && parseInt(row.custom_count, 10) > 0) ? parseInt(row.custom_count, 10) : (row.question_count || 30),
+            questions_count: targetDeliveryCount,
+            question_count: targetDeliveryCount,
+            total_questions: actualCount,
+            actual_question_count: actualCount,
             custom_count: (row.custom_count && parseInt(row.custom_count, 10) > 0) ? parseInt(row.custom_count, 10) : 30,
             is_active: 1,
             isActive: true,
@@ -831,28 +844,41 @@ router.post('/student/start-exam', async (req, res, next) => {
             });
         }
 
-        const normSubLower = targetSubject.toLowerCase();
+        const canonicalSubject = normalizeSubjectName(targetSubject);
+        const normSubLower = canonicalSubject.toLowerCase();
 
         // Check if candidate already submitted this specific subject
         const submittedSession = await dbGet(
-            `SELECT session_id as id FROM student_exam_sessions WHERE student_id = ? AND LOWER(subject_name) = ? AND status = 'SUBMITTED'
+            `SELECT session_id as id FROM student_exam_sessions WHERE student_id = ? AND (LOWER(subject_name) = ? OR LOWER(subject_name) = ?) AND status = 'SUBMITTED'
              UNION
-             SELECT id FROM exam_sessions WHERE student_id = ? AND LOWER(subject) = ? AND (status = 'submitted' OR is_locked = 1)
+             SELECT id FROM exam_sessions WHERE student_id = ? AND (LOWER(subject) = ? OR LOWER(subject) = ?) AND (status = 'submitted' OR is_locked = 1)
              UNION
-             SELECT session_id as id FROM answers WHERE student_id = ? AND question_id IN (SELECT id FROM questions WHERE LOWER(subject) = ?)`,
-            [targetStudentId, normSubLower, targetStudentId, normSubLower, targetStudentId, normSubLower]
+             SELECT session_id as id FROM answers WHERE student_id = ? AND question_id IN (SELECT id FROM questions WHERE LOWER(subject) = ? OR LOWER(subject) = ?)`,
+            [targetStudentId, normSubLower, targetSubject.toLowerCase(), targetStudentId, normSubLower, targetSubject.toLowerCase(), targetStudentId, normSubLower, targetSubject.toLowerCase()]
         );
 
         if (submittedSession) {
             return res.status(403).json({
                 success: false,
-                message: `You have already submitted the examination for this specific subject (${targetSubject}).`
+                message: `You have already submitted the examination for this specific subject (${canonicalSubject}).`
+            });
+        }
+
+        // Strict check: Question bank count > 0 for this subject
+        const qCount = await dbGet(
+            `SELECT COUNT(*) as cnt FROM questions WHERE LOWER(subject) = ? OR LOWER(subject) = ?`,
+            [normSubLower, targetSubject.toLowerCase()]
+        );
+        if (!qCount || qCount.cnt <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: `No questions have been configured or uploaded for "${canonicalSubject}". Please notify your invigilator.`
             });
         }
 
         return res.status(200).json({
             success: true,
-            message: `Subject "${targetSubject}" session validated and ready to start.`
+            message: `Subject "${canonicalSubject}" session validated and ready to start.`
         });
 
     } catch (error) {

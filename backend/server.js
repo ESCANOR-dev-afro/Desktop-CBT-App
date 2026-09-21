@@ -10,6 +10,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const db = require('./database'); // Initialize and import SQLite database
+const createQueryProfiler = require('./middleware/queryProfiler');
 
 const app = express();
 
@@ -42,8 +43,18 @@ const silentRoutes = [
     '/api/admin/dashboard-stats',
     '/api/admin/dashboard/stats',
     '/api/admin/workstation-grid',
-    '/api/admin/live-monitor'
+    '/api/admin/live-monitor',
+    '/api/admin/active-context',
+    '/api/admin/system-settings',
+    '/api/student/assigned-exams',
+    '/api/student/assigned-papers',
+    '/api/student/assigned-subjects',
+    '/api/assigned-exams',
+    '/api/assigned-papers'
 ];
+
+// Request-Scoped Query Profiler & N+1 Anti-Pattern Detector
+app.use(createQueryProfiler({ silentRoutes, threshold: 5 }));
 
 app.use((req, res, next) => {
     const url = req.originalUrl || req.url || '';

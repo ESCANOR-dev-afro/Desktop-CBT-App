@@ -49,6 +49,36 @@ function dbRun(sql, params = []) {
 
 // --------------------------------------------------------------------------
 /**
+ * Normalizes and standardizes subject names across aliases
+ */
+function normalizeSubjectName(rawSubject) {
+    if (!rawSubject || typeof rawSubject !== 'string') return '';
+    let trimmed = rawSubject.trim().replace(/\s+/g, ' ');
+    if (!trimmed) return '';
+
+    const lower = trimmed.toLowerCase();
+    if (lower === 'english' || lower === 'eng' || lower === 'english language') return 'English Language';
+    if (lower === 'math' || lower === 'maths' || lower === 'mathematics') return 'Mathematics';
+    if (lower === 'comp sci' || lower === 'computer' || lower === 'computer science' || lower === 'computer studies') return 'Computer Studies';
+    if (lower === 'civics' || lower === 'civic education') return 'Civic Education';
+    if (lower === 'agric' || lower === 'agriculture' || lower === 'agricultural science') return 'Agricultural Science';
+    if (lower === 'sos' || lower === 'social studies') return 'Social Studies';
+    if (lower === 'crs' || lower === 'christian religious studies' || lower === 'crk' || lower === 'crs/irs') return 'CRS';
+    if (lower === 'irs' || lower === 'islamic religious studies' || lower === 'irk') return 'IRS';
+    if (lower === 'basic tech' || lower === 'basic technology') return 'Basic Technology';
+    if (lower === 'phe' || lower === 'physical and health education' || lower === 'physical & health education') return 'PHE';
+    if (lower === 'bus studies' || lower === 'business studies') return 'Business Studies';
+    if (lower === 'home ec' || lower === 'home econ' || lower === 'home economics') return 'Home Economics';
+    if (lower === 'account' || lower === 'accounting' || lower === 'financial accounting') return 'Financial Accounting';
+    if (lower === 'literature' || lower === 'literature in english') return 'Literature in English';
+    if (lower === 'history' || lower === 'nigerian history' || lower === 'nigeria history') return 'Nigeria History';
+
+    return trimmed.split(' ')
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join(' ');
+}
+
+/**
  * Fisher-Yates Shuffle Algorithm
  * Produces an unbiased random permutation of an array.
  */
@@ -196,12 +226,15 @@ async function resolveExamConfig(studentClass, subject, session = '2026/2027', t
         if (normSlot === 'terminal_exam' || normSlot === 'terminal' || normSlot === 'exam') normSlot = 'examination';
         if (normSlot === 'custom_exam' || normSlot === 'custom') normSlot = 'custom_assessment';
 
+        const canonicalSubject = normalizeSubjectName(subject);
+        const rawTrimmed = (subject || '').trim();
+
         let sql = `
             SELECT duration_minutes, is_active, preset_mode, custom_count, shuffle_questions, shuffle_options
             FROM assessment_configs
-            WHERE session = ? AND term = ? AND (LOWER(assessment_slot) = LOWER(?) OR (LOWER(assessment_slot) = 'terminal_exam' AND ? = 'examination') OR (LOWER(assessment_slot) = 'custom_exam' AND ? = 'custom_assessment')) AND LOWER(subject) = LOWER(?)
+            WHERE session = ? AND term = ? AND (LOWER(assessment_slot) = LOWER(?) OR (LOWER(assessment_slot) = 'terminal_exam' AND ? = 'examination') OR (LOWER(assessment_slot) = 'custom_exam' AND ? = 'custom_assessment')) AND (LOWER(subject) = LOWER(?) OR LOWER(subject) = LOWER(?))
         `;
-        const params = [session, term, normSlot, normSlot, normSlot, subject.trim()];
+        const params = [session, term, normSlot, normSlot, normSlot, canonicalSubject, rawTrimmed];
         const classVars = getClassVariations(studentClass);
         if (classVars.length > 0) {
             const placeholders = classVars.map(() => 'LOWER(class) = LOWER(?)').join(' OR ');
@@ -322,11 +355,35 @@ router.get('/available-assessments', async (req, res, next) => {
             { slot: 'custom_exam', title: 'Custom Assessment Paper' }
         ];
 
-        // Fetch active configs from DB
-        const activeConfigs = await dbAll(
-            `SELECT * FROM assessment_configs WHERE session = ? AND term = ? AND (LOWER(class) = LOWER(?) OR class IS NULL) AND is_active = 1`,
-            [currentSession, currentTerm, studentClass || '']
-        );
+        const classVars = getClassVariations(studentClass);
+        let classFilter = '';
+        let classParams = [];
+        if (classVars.length > 0) {
+            const placeholders = classVars.map(() => 'LOWER(ac.class) = LOWER(?)').join(' OR ');
+            classFilter = ` AND (${placeholders} OR ac.class IS NULL)`;
+            classParams = [...classVars];
+        } else if (studentClass) {
+            classFilter = ` AND (LOWER(ac.class) = LOWER(?) OR ac.class IS NULL)`;
+            classParams = [studentClass];
+        }
+
+        // Fetch active configs from DB that have at least 1 uploaded question in the bank
+        const activeConfigs = await dbAll(`
+            SELECT ac.*, COUNT(q.id) as question_count 
+            FROM assessment_configs ac
+            JOIN questions q ON (
+                (LOWER(TRIM(q.class)) = LOWER(TRIM(ac.class)) OR ac.class IS NULL OR TRIM(ac.class) = '' OR q.class IS NULL OR TRIM(q.class) = '')
+                AND LOWER(TRIM(q.subject)) = LOWER(TRIM(ac.subject))
+                AND (LOWER(TRIM(q.assessment_slot)) = LOWER(TRIM(ac.assessment_slot)) 
+                     OR (LOWER(TRIM(q.assessment_slot)) = 'examination' AND LOWER(TRIM(ac.assessment_slot)) = 'terminal_exam')
+                     OR (LOWER(TRIM(q.assessment_slot)) = 'custom_assessment' AND LOWER(TRIM(ac.assessment_slot)) = 'custom_exam'))
+                AND LOWER(TRIM(q.session)) = LOWER(TRIM(ac.session))
+                AND LOWER(TRIM(q.term)) = LOWER(TRIM(ac.term))
+            )
+            WHERE ac.session = ? AND ac.term = ? ${classFilter} AND ac.is_active = 1
+            GROUP BY ac.id
+            HAVING COUNT(q.id) > 0
+        `, [currentSession, currentTerm, ...classParams]);
 
         return res.status(200).json({
             success: true,
@@ -362,7 +419,8 @@ router.get('/questions/:subject', async (req, res, next) => {
             });
         }
 
-        const normalizedSubject = subject.trim();
+        const canonicalSubject = normalizeSubjectName(subject);
+        const normalizedSubject = canonicalSubject || subject.trim();
 
         // Look up student class dynamically if student_id is provided
         let targetClass = classScope;
@@ -513,20 +571,21 @@ router.get('/questions/:subject', async (req, res, next) => {
         const fetchQuestionsSql = `
             SELECT id, session, term, class, subject, assessment_slot, question_text, option_a, option_b, option_c, option_d, correct_answer, marks, diagram_image_url, instruction, passage
             FROM questions
-            WHERE LOWER(subject) = LOWER(?)
+            WHERE (LOWER(subject) = LOWER(?) OR LOWER(subject) = LOWER(?))
               ${classFilter}
               AND session = ?
               AND term = ?
               AND (LOWER(assessment_slot) = LOWER(?) OR (LOWER(assessment_slot) = 'terminal_exam' AND ? = 'examination') OR (LOWER(assessment_slot) = 'custom_exam' AND ? = 'custom_assessment'))
             ORDER BY id ASC
         `;
-        const params = [normalizedSubject, ...classParams, academicSession, academicTerm, assessmentSlot, assessmentSlot, assessmentSlot];
+        const params = [normalizedSubject, subject.trim(), ...classParams, academicSession, academicTerm, assessmentSlot, assessmentSlot, assessmentSlot];
 
         let rawQuestions = await dbAll(fetchQuestionsSql, params);
 
         if (rawQuestions.length === 0) {
-            return res.status(200).json({
-                success: true,
+            return res.status(404).json({
+                success: false,
+                message: `No questions found in question bank for "${normalizedSubject}" [${assessmentSlot}]. Please contact your administrator.`,
                 subject: normalizedSubject.toLowerCase(),
                 assessment_mode: examConfig.assessment_mode,
                 preset_mode: examConfig.preset_mode,

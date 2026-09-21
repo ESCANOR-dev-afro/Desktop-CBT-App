@@ -26,8 +26,9 @@ const notifySubscribers = () => {
 };
 
 const executeHealthCheck = async () => {
-  // Prevent stacking multiple simultaneous requests or polling when browser tab is inactive
+  // Prevent stacking multiple simultaneous requests, polling when browser tab is inactive, or during heavy extraction
   if (isFetching) return;
+  if (typeof window !== 'undefined' && window.__IS_EXTRACTING_QUESTIONS__) return;
   if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
 
   isFetching = true;

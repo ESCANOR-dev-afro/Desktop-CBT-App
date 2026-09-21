@@ -28,8 +28,67 @@ export default function QuestionBankTab({
   const safeSubjectsByClass = subjectsByClass || {};
   const safeQuestionsData = questionsData || {};
 
-  const rawAvailable = safeSubjectsByClass[currentClass] || [];
-  const availableSubjects = Array.isArray(rawAvailable) ? rawAvailable : [];
+  const canonicalMap = {
+    'agric': 'Agricultural Science',
+    'agriculture': 'Agricultural Science',
+    'agricultural science': 'Agricultural Science',
+    'basic tech': 'Basic Technology',
+    'basic technology': 'Basic Technology',
+    'sos': 'Social Studies',
+    'social studies': 'Social Studies',
+    'phe': 'PHE',
+    'physical and health education': 'PHE',
+    'physical & health education': 'PHE',
+    'bus studies': 'Business Studies',
+    'business studies': 'Business Studies',
+    'home ec': 'Home Economics',
+    'home econ': 'Home Economics',
+    'home economics': 'Home Economics',
+    'crs': 'CRS',
+    'crk': 'CRS',
+    'christian religious studies': 'CRS',
+    'crs/irs': 'CRS',
+    'irs': 'IRS',
+    'irk': 'IRS',
+    'islamic religious studies': 'IRS',
+    'account': 'Financial Accounting',
+    'accounting': 'Financial Accounting',
+    'financial accounting': 'Financial Accounting',
+    'literature': 'Literature in English',
+    'literature in english': 'Literature in English',
+    'history': 'Nigeria History',
+    'nigerian history': 'Nigeria History',
+    'nigeria history': 'Nigeria History',
+    'comp sci': 'Computer Studies',
+    'computer': 'Computer Studies',
+    'computer science': 'Computer Studies',
+    'computer studies': 'Computer Studies',
+    'civics': 'Civic Education',
+    'civic education': 'Civic Education'
+  };
+
+  const rawAvailable = safeSubjectsByClass[currentClass] 
+    || safeSubjectsByClass[currentClass?.replace?.(/\s+(Science|Art|Commercial|Gold|Silver|Diamond)$/i, '')] 
+    || [];
+  const rawList = Array.isArray(rawAvailable) ? rawAvailable : [];
+  const availableSubjects = Array.from(
+    new Set(
+      rawList
+        .map((s) => {
+          const name = typeof s === 'string' ? s : (s?.name || s?.subject_name || '');
+          const lower = (name || '').trim().toLowerCase();
+          return canonicalMap[lower] || (name || '').trim();
+        })
+        .filter((name) => {
+          if (!name) return false;
+          if (currentClass && (currentClass.includes('Art') || currentClass.includes('Commercial'))) {
+            return !name.toLowerCase().includes('agric');
+          }
+          return true;
+        })
+    )
+  ).sort();
+
   const [selectedSubject, setSelectedSubject] = useState(
     getSubName(availableSubjects[0]) || ''
   );

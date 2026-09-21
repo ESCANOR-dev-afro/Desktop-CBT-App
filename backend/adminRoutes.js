@@ -112,10 +112,21 @@ function normalizeSubjectName(rawSubject) {
     if (!trimmed) return '';
 
     const lower = trimmed.toLowerCase();
-    if (lower === 'english' || lower === 'eng') return 'English Language';
-    if (lower === 'math' || lower === 'maths') return 'Mathematics';
-    if (lower === 'comp sci' || lower === 'computer' || lower === 'computer science') return 'Computer Studies';
-    if (lower === 'civics') return 'Civic Education';
+    if (lower === 'english' || lower === 'eng' || lower === 'english language') return 'English Language';
+    if (lower === 'math' || lower === 'maths' || lower === 'mathematics') return 'Mathematics';
+    if (lower === 'comp sci' || lower === 'computer' || lower === 'computer science' || lower === 'computer studies') return 'Computer Studies';
+    if (lower === 'civics' || lower === 'civic education') return 'Civic Education';
+    if (lower === 'agric' || lower === 'agriculture' || lower === 'agricultural science') return 'Agricultural Science';
+    if (lower === 'sos' || lower === 'social studies') return 'Social Studies';
+    if (lower === 'crs' || lower === 'christian religious studies' || lower === 'crk' || lower === 'crs/irs') return 'CRS';
+    if (lower === 'irs' || lower === 'islamic religious studies' || lower === 'irk') return 'IRS';
+    if (lower === 'basic tech' || lower === 'basic technology') return 'Basic Technology';
+    if (lower === 'phe' || lower === 'physical and health education' || lower === 'physical & health education') return 'PHE';
+    if (lower === 'bus studies' || lower === 'business studies') return 'Business Studies';
+    if (lower === 'home ec' || lower === 'home econ' || lower === 'home economics') return 'Home Economics';
+    if (lower === 'account' || lower === 'accounting' || lower === 'financial accounting') return 'Financial Accounting';
+    if (lower === 'literature' || lower === 'literature in english') return 'Literature in English';
+    if (lower === 'history' || lower === 'nigerian history' || lower === 'nigeria history') return 'Nigeria History';
 
     return trimmed.split(' ')
         .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
@@ -248,23 +259,24 @@ const authoritativeCurriculumByStream = {
         "English Language", "Mathematics", "Civic Education", "Social Studies",
         "Yoruba", "Music", "French", "Digital Technology",
         "Computer Hardware and GSM repair", "Horticulture", "Home Economics",
-        "Agriculture", "Oral English", "Intermediate Science", "Basic Science",
-        "Basic Tech", "CRS", "Business Studies", "PHE", "Nigeria History"
+        "Agricultural Science", "Oral English", "Intermediate Science", "Basic Science",
+        "Basic Technology", "CRS", "Business Studies", "PHE", "Nigeria History",
+        "ICT"
     ],
     science: [
         "English Language", "Mathematics", "Physics", "Chemistry", "Biology",
         "Economics", "Further Mathematics", "Digital Technology", "ICT",
-        "Oral English", "Geography", "Civic Education", "Agric",
+        "Oral English", "Geography", "Civic Education", "Agricultural Science",
         "Horticulture and crop production", "Computer hardware and GSM repair",
         "Catering craft"
     ],
     commercial: [
-        "English Language", "Mathematics", "Account", "Commerce", "Government",
+        "English Language", "Mathematics", "Financial Accounting", "Commerce", "Government",
         "Economics", "Further Mathematics", "Digital Technology", "ICT",
         "Oral English", "Civic Education", "Marketing", "Catering craft"
     ],
     art: [
-        "English Language", "Mathematics", "Literature", "CRS", "Government",
+        "English Language", "Mathematics", "Literature in English", "CRS", "Government",
         "Economics", "Digital Technology", "ICT", "Oral English", "Yoruba",
         "Civic Education", "Catering craft"
     ]
@@ -280,6 +292,7 @@ function getAuthoritativeSubjectsForClass(className) {
 
 router.get('/class-subjects', async (req, res, next) => {
     try {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
         const { class: classParam, class_id } = req.query;
         let sql = `
             SELECT cs.class_id, cs.class_name, s.id AS subject_id, s.name AS subject_name 
@@ -299,14 +312,27 @@ router.get('/class-subjects', async (req, res, next) => {
 
         const rows = await dbAll(sql, params);
         const map = {};
+        const seenNamesPerClass = {};
+
         for (const r of rows) {
-            if (!map[r.class_name]) map[r.class_name] = [];
-            map[r.class_name].push({
-                id: r.subject_id,
-                subject_id: r.subject_id,
-                name: r.subject_name,
-                category: 'Curriculum'
-            });
+            const canonicalName = normalizeSubjectName(r.subject_name);
+            const isArtOrCommercial = r.class_name && (r.class_name.includes('Art') || r.class_name.includes('Commercial'));
+            if (isArtOrCommercial && canonicalName.toLowerCase().includes('agric')) {
+                continue;
+            }
+            if (!map[r.class_name]) {
+                map[r.class_name] = [];
+                seenNamesPerClass[r.class_name] = new Set();
+            }
+            if (!seenNamesPerClass[r.class_name].has(canonicalName.toLowerCase())) {
+                seenNamesPerClass[r.class_name].add(canonicalName.toLowerCase());
+                map[r.class_name].push({
+                    id: r.subject_id,
+                    subject_id: r.subject_id,
+                    name: canonicalName,
+                    category: 'Curriculum'
+                });
+            }
         }
 
         // Standard Class Arms
@@ -319,22 +345,29 @@ router.get('/class-subjects', async (req, res, next) => {
             'SS 3', 'SS 3 Science', 'SS 3 Commercial', 'SS 3 Art', 'SS 3 Arts'
         ];
 
-        // Backfill any missing or truncated classes with authoritative curriculum
+        // Backfill any missing classes with authoritative curriculum
         const targetClasses = (classParam && classParam !== 'ALL') ? [classParam.trim()] : standardClasses;
         for (const cls of targetClasses) {
             const authList = getAuthoritativeSubjectsForClass(cls);
-            if (!map[cls] || map[cls].length < authList.length) {
-                const existingNames = new Set((map[cls] || []).map(s => s.name.toLowerCase()));
-                const existing = map[cls] || [];
-                const toAdd = authList
-                    .filter(name => !existingNames.has(name.toLowerCase()))
-                    .map((name, idx) => ({
-                        id: `${cls.toLowerCase().replace(/\s+/g, '')}-auth-${idx + 1}`,
-                        name,
-                        category: 'Curriculum'
-                    }));
-                map[cls] = [...existing, ...toAdd];
+            if (!map[cls]) {
+                map[cls] = [];
+                seenNamesPerClass[cls] = new Set();
             }
+            authList.forEach((name, idx) => {
+                const canonicalName = normalizeSubjectName(name);
+                const isArtOrCommercial = cls && (cls.includes('Art') || cls.includes('Commercial'));
+                if (isArtOrCommercial && canonicalName.toLowerCase().includes('agric')) {
+                    return;
+                }
+                if (!seenNamesPerClass[cls].has(canonicalName.toLowerCase())) {
+                    seenNamesPerClass[cls].add(canonicalName.toLowerCase());
+                    map[cls].push({
+                        id: `${cls.toLowerCase().replace(/\s+/g, '')}-auth-${idx + 1}`,
+                        name: canonicalName,
+                        category: 'Curriculum'
+                    });
+                }
+            });
         }
 
         return res.status(200).json({
@@ -552,18 +585,21 @@ router.post('/subjects/toggle', async (req, res, next) => {
 // --------------------------------------------------------------------------
 router.get('/overview', async (req, res, next) => {
     try {
-        const studentCount = await dbGet(`SELECT COUNT(*) AS total FROM students`);
-        const activeExams = await dbGet(`SELECT COUNT(*) AS total FROM exam_sessions WHERE status = 'active' AND is_locked = 0`);
-        const submittedExams = await dbGet(`SELECT COUNT(*) AS total FROM exam_sessions WHERE status = 'submitted'`);
-        const totalQuestions = await dbGet(`SELECT COUNT(*) AS total FROM questions`);
+        const statsRow = await dbGet(`
+            SELECT
+                (SELECT COUNT(*) FROM students) AS total_students,
+                (SELECT COUNT(*) FROM exam_sessions WHERE status = 'active' AND is_locked = 0) AS active_exams,
+                (SELECT COUNT(*) FROM exam_sessions WHERE status = 'submitted') AS submitted_exams,
+                (SELECT COUNT(*) FROM questions) AS total_questions
+        `);
 
         return res.status(200).json({
             success: true,
             stats: {
-                total_students: studentCount.total || 0,
-                active_exams: activeExams.total || 0,
-                submitted_exams: submittedExams.total || 0,
-                total_questions: totalQuestions.total || 0
+                total_students: statsRow?.total_students || 0,
+                active_exams: statsRow?.active_exams || 0,
+                submitted_exams: statsRow?.submitted_exams || 0,
+                total_questions: statsRow?.total_questions || 0
             }
         });
     } catch (error) {
@@ -588,21 +624,23 @@ async function handleDashboardStats(req, res, next) {
         const session = req.query.session || '2026/2027';
         const term = req.query.term || '1st Term';
 
-        // 1. Candidate Enrollment Per Class & Arm
+        // 1. Candidate Enrollment Per Class & Arm (Single batched query)
         const studentEnrollmentRows = await dbAll(
             `SELECT class, COUNT(*) as candidate_count FROM students GROUP BY class`
         );
-        const totalStudentsRow = await dbGet(`SELECT COUNT(*) as total FROM students`);
-        const totalCandidates = totalStudentsRow ? totalStudentsRow.total : 0;
+        let totalCandidates = 0;
 
-        // Subject count per class from class_subjects
+        // Subject count per class from class_subjects (Single batched query)
         const subjectCountRows = await dbAll(
             `SELECT class_name, COUNT(*) as subject_count FROM class_subjects GROUP BY class_name`
         );
         const subjectCountMap = {};
+        let totalSubjects = 0;
         subjectCountRows.forEach(row => {
             if (row.class_name) {
-                subjectCountMap[row.class_name] = row.subject_count;
+                const cnt = Number(row.subject_count) || 0;
+                subjectCountMap[row.class_name] = cnt;
+                totalSubjects += cnt;
             }
         });
 
@@ -611,6 +649,7 @@ async function handleDashboardStats(req, res, next) {
         studentEnrollmentRows.forEach(row => {
             const cls = row.class;
             const count = Number(row.candidate_count) || 0;
+            totalCandidates += count;
             if (cls) {
                 if (!classStats[cls]) {
                     classStats[cls] = { candidate_count: 0, subject_count: subjectCountMap[cls] || 0 };
@@ -680,18 +719,14 @@ async function handleDashboardStats(req, res, next) {
             scoreBadge = rawAvgScore >= 75 ? 'Distinction' : rawAvgScore >= 60 ? 'Credit' : rawAvgScore >= 50 ? 'Pass' : 'Active Testing';
         }
 
-        // 4. Total Isolated Class Subjects
-        const totalSubjectsRow = await dbGet(`SELECT COUNT(id) as total_subjects FROM class_subjects`);
-        let totalSubjects = totalSubjectsRow ? totalSubjectsRow.total_subjects : 0;
+        // 4. Total Isolated Class Subjects & School Classes Allocation Summary
         if (totalSubjects === 0) {
             const fallbackSubjectsRow = await dbGet(`SELECT COUNT(*) as total FROM subjects`);
             totalSubjects = fallbackSubjectsRow ? fallbackSubjectsRow.total : 0;
         }
 
-        // 5. School Classes Allocation Summary
-        const distinctClassesRow = await dbGet(`SELECT COUNT(DISTINCT class_name) as total_classes FROM class_subjects`);
-        const totalClasses = (distinctClassesRow && distinctClassesRow.total_classes > 0) 
-            ? distinctClassesRow.total_classes 
+        const totalClasses = subjectCountRows.length > 0 
+            ? subjectCountRows.length 
             : standardClassesList.length;
 
         return res.status(200).json({
@@ -1189,62 +1224,38 @@ async function getObtainableScore(className, subjectName, questionOrderStr = nul
     if (subjectName && subjectName !== 'ALL') {
         const normSubject = normalizeSubjectName(subjectName);
         const normSlot = normalizeSlotName(slotName);
+        const clsTrim = (className && className !== 'ALL') ? className.trim() : null;
 
-        // 1. Check assessment_configs (new scoped table)
-        if (normSlot) {
-            let acRow = null;
-            if (className && className !== 'ALL') {
-                acRow = await dbGet(
-                    `SELECT custom_count, preset_mode FROM assessment_configs WHERE (LOWER(class) = LOWER(?) OR class IS NULL) AND LOWER(subject) = LOWER(?) AND (LOWER(assessment_slot) = LOWER(?) OR (LOWER(assessment_slot) = 'terminal_exam' AND ? = 'examination') OR (LOWER(assessment_slot) = 'custom_exam' AND ? = 'custom_assessment')) ORDER BY class DESC LIMIT 1`,
-                    [className.trim(), normSubject, normSlot, normSlot, normSlot]
-                );
-            } else {
-                acRow = await dbGet(
-                    `SELECT custom_count, preset_mode FROM assessment_configs WHERE LOWER(subject) = LOWER(?) AND (LOWER(assessment_slot) = LOWER(?) OR (LOWER(assessment_slot) = 'terminal_exam' AND ? = 'examination') OR (LOWER(assessment_slot) = 'custom_exam' AND ? = 'custom_assessment')) ORDER BY class DESC LIMIT 1`,
-                    [normSubject, normSlot, normSlot, normSlot]
-                );
-            }
-            if (acRow) {
-                const count = parseInt(acRow.custom_count, 10);
-                if (!isNaN(count) && count > 0) {
-                    return count;
-                }
-            }
-        }
+        const unifiedRow = await dbGet(`
+            SELECT
+                (SELECT custom_count FROM assessment_configs 
+                 WHERE (? IS NULL OR LOWER(class) = LOWER(?) OR class IS NULL) 
+                   AND LOWER(subject) = LOWER(?) 
+                   AND (? IS NOT NULL AND (LOWER(assessment_slot) = LOWER(?) OR (LOWER(assessment_slot) = 'terminal_exam' AND ? = 'examination') OR (LOWER(assessment_slot) = 'custom_exam' AND ? = 'custom_assessment')))
+                 ORDER BY class DESC LIMIT 1) AS custom_count,
+                (SELECT delivery_count FROM exam_configs 
+                 WHERE (? IS NULL OR LOWER(class) = LOWER(?) OR class IS NULL OR class = '') 
+                   AND LOWER(subject) = LOWER(?)
+                 ORDER BY class DESC LIMIT 1) AS delivery_count,
+                (SELECT COUNT(*) FROM questions 
+                 WHERE LOWER(subject) = LOWER(?)
+                   AND (? IS NULL OR class IS NULL OR LOWER(class) = LOWER(?) OR LOWER(?) LIKE LOWER(class) || '%' OR LOWER(class) LIKE LOWER(?) || '%')
+                   AND (? IS NULL OR LOWER(assessment_slot) = LOWER(?) OR (LOWER(assessment_slot) = 'terminal_exam' AND ? = 'examination') OR (LOWER(assessment_slot) = 'custom_exam' AND ? = 'custom_assessment'))) AS question_count
+        `, [
+            clsTrim, clsTrim, normSubject, normSlot, normSlot, normSlot, normSlot,
+            clsTrim, clsTrim, normSubject,
+            normSubject, clsTrim, clsTrim, clsTrim, clsTrim, normSlot, normSlot, normSlot, normSlot
+        ]);
 
-        // 2. Check legacy exam_configs
-        let config = null;
-        if (className && className !== 'ALL') {
-            config = await dbGet(
-                `SELECT delivery_count FROM exam_configs WHERE LOWER(class) = LOWER(?) AND LOWER(subject) = LOWER(?)`,
-                [className.trim(), normSubject]
-            );
-        }
-        if (!config) {
-            config = await dbGet(
-                `SELECT delivery_count FROM exam_configs WHERE (class IS NULL OR class = '') AND LOWER(subject) = LOWER(?)`,
-                [normSubject]
-            );
-        }
-        if (config && config.delivery_count && config.delivery_count > 0) {
-            return config.delivery_count;
-        }
+        if (unifiedRow) {
+            const customCount = parseInt(unifiedRow.custom_count, 10);
+            if (!isNaN(customCount) && customCount > 0) return customCount;
 
-        // 3. Check actual question count in database
-        let qCountRow = null;
-        let qSql = `SELECT COUNT(*) AS cnt FROM questions WHERE LOWER(subject) = LOWER(?)`;
-        let qParams = [normSubject];
-        if (className && className !== 'ALL') {
-            qSql += ` AND (class IS NULL OR LOWER(class) = LOWER(?) OR LOWER(?) LIKE LOWER(class) || '%' OR LOWER(class) LIKE LOWER(?) || '%')`;
-            qParams.push(className.trim(), className.trim(), className.trim());
-        }
-        if (normSlot) {
-            qSql += ` AND (LOWER(assessment_slot) = LOWER(?) OR (LOWER(assessment_slot) = 'terminal_exam' AND ? = 'examination') OR (LOWER(assessment_slot) = 'custom_exam' AND ? = 'custom_assessment'))`;
-            qParams.push(normSlot, normSlot, normSlot);
-        }
-        qCountRow = await dbGet(qSql, qParams);
-        if (qCountRow && qCountRow.cnt > 0) {
-            return qCountRow.cnt;
+            const deliveryCount = parseInt(unifiedRow.delivery_count, 10);
+            if (!isNaN(deliveryCount) && deliveryCount > 0) return deliveryCount;
+
+            const questionCount = parseInt(unifiedRow.question_count, 10);
+            if (!isNaN(questionCount) && questionCount > 0) return questionCount;
         }
     }
 
@@ -1261,93 +1272,118 @@ function normalizeSlotName(slot) {
     return s;
 }
 
+/**
+ * Cached helper for getObtainableScore to eliminate N+1 database queries in list rendering loops.
+ * 1. Derives obtainable score from in-memory questionOrderStr (0 DB queries).
+ * 2. Fallbacks to caching by `${className}|${subjectName}|${slotName}` in the provided Map (1 DB query per unique combination).
+ */
+async function getCachedObtainableScore(cache, className, subjectName, questionOrderStr = null, slotName = null) {
+    if (questionOrderStr) {
+        try {
+            const parsed = typeof questionOrderStr === 'string' ? JSON.parse(questionOrderStr) : questionOrderStr;
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                return parsed.length;
+            }
+            if (typeof questionOrderStr === 'string' && questionOrderStr.includes(',')) {
+                const parts = questionOrderStr.split(',').map(s => s.trim()).filter(Boolean);
+                if (parts.length > 0) return parts.length;
+            }
+        } catch (e) {
+            if (typeof questionOrderStr === 'string' && questionOrderStr.includes(',')) {
+                const parts = questionOrderStr.split(',').map(s => s.trim()).filter(Boolean);
+                if (parts.length > 0) return parts.length;
+            }
+        }
+    }
+
+    const normClass = (className || '').trim().toLowerCase();
+    const tierMatch = normClass.match(/^(jss\s*[1-3]|ss\s*[1-3])/i);
+    const baseClass = tierMatch ? tierMatch[1].replace(/\s+/g, ' ').toLowerCase() : normClass;
+    const normSub = (subjectName || '').trim().toLowerCase();
+    const normSlot = normalizeSlotName(slotName) || '';
+    const cacheKey = `${baseClass}|${normSub}|${normSlot}`;
+
+    if (cache) {
+        if (cache.has(cacheKey)) {
+            return await cache.get(cacheKey);
+        }
+        const fetchPromise = getObtainableScore(baseClass || className, subjectName, null, slotName);
+        cache.set(cacheKey, fetchPromise);
+        return await fetchPromise;
+    }
+
+    return await getObtainableScore(baseClass || className, subjectName, null, slotName);
+}
+
 router.get('/reports/class-subject-summary', async (req, res, next) => {
     try {
         const { class_id, class: classParam, subject_id, subject: subjectParam, academic_term_id, term: termParam, assessment_slot: slotParam } = req.query;
         const targetAssessmentSlot = normalizeSlotName(slotParam);
 
-        // Resolve active term & session
-        let activeTerm = null;
-        if (academic_term_id) {
-            activeTerm = await dbGet(`SELECT id, name, session FROM academic_terms WHERE id = ?`, [academic_term_id]);
-        } else if (termParam) {
-            activeTerm = await dbGet(`SELECT id, name, session FROM academic_terms WHERE LOWER(name) = LOWER(?)`, [termParam.trim()]);
-        }
-        if (!activeTerm) {
-            activeTerm = await dbGet(`SELECT id, name, session FROM academic_terms WHERE is_current = 1 ORDER BY id DESC LIMIT 1`);
-        }
-        if (!activeTerm) {
-            activeTerm = { id: 1, name: '1st Term', session: '2026/2027' };
-        }
+        // Resolve active term, class, and subject concurrently
+        const [activeTermRow, targetClassRow, targetSubjectRow] = await Promise.all([
+            academic_term_id
+                ? dbGet(`SELECT id, name, session FROM academic_terms WHERE id = ?`, [academic_term_id])
+                : (termParam
+                    ? dbGet(`SELECT id, name, session FROM academic_terms WHERE LOWER(name) = LOWER(?)`, [termParam.trim()])
+                    : dbGet(`SELECT id, name, session FROM academic_terms WHERE is_current = 1 ORDER BY id DESC LIMIT 1`)),
+            class_id
+                ? dbGet(`SELECT id, name FROM classes WHERE id = ?`, [class_id])
+                : (classParam && classParam !== 'ALL' ? dbGet(`SELECT id, name FROM classes WHERE LOWER(name) = LOWER(?)`, [classParam.trim()]) : Promise.resolve(null)),
+            subject_id
+                ? dbGet(`SELECT id, name FROM subjects WHERE id = ?`, [subject_id])
+                : (subjectParam && subjectParam !== 'ALL' ? dbGet(`SELECT id, name FROM subjects WHERE LOWER(name) = LOWER(?)`, [subjectParam.trim()]) : Promise.resolve(null))
+        ]);
 
-        // Resolve target class
-        let targetClassRow = null;
-        if (class_id) {
-            targetClassRow = await dbGet(`SELECT id, name FROM classes WHERE id = ?`, [class_id]);
-        } else if (classParam && classParam !== 'ALL') {
-            targetClassRow = await dbGet(`SELECT id, name FROM classes WHERE LOWER(name) = LOWER(?)`, [classParam.trim()]);
-        }
+        const activeTerm = activeTermRow || { id: 1, name: '1st Term', session: '2026/2027' };
         const className = targetClassRow ? targetClassRow.name : (classParam && classParam !== 'ALL' ? classParam.trim() : 'SS 1 Art');
         const resolvedClassId = targetClassRow ? targetClassRow.id : null;
-
-        // Resolve target subject
-        let targetSubjectRow = null;
-        if (subject_id) {
-            targetSubjectRow = await dbGet(`SELECT id, name FROM subjects WHERE id = ?`, [subject_id]);
-        } else if (subjectParam && subjectParam !== 'ALL') {
-            targetSubjectRow = await dbGet(`SELECT id, name FROM subjects WHERE LOWER(name) = LOWER(?)`, [subjectParam.trim()]);
-        }
         const subjectName = targetSubjectRow ? targetSubjectRow.name : (subjectParam && subjectParam !== 'ALL' ? subjectParam.trim() : 'Mathematics');
         const resolvedSubjectId = targetSubjectRow ? targetSubjectRow.id : null;
-
         const normSubject = normalizeSubjectName(subjectName);
 
-        // Check if question bank has questions for this slot; if 0 questions exist, strictly return 0 submissions
-        if (targetAssessmentSlot) {
-            const qCountRow = await dbGet(
-                `SELECT COUNT(*) AS cnt FROM questions WHERE LOWER(subject) = LOWER(?) AND (LOWER(class) = LOWER(?) OR LOWER(?) LIKE LOWER(class) || '%' OR LOWER(class) LIKE LOWER(?) || '%' OR class IS NULL) AND assessment_slot = ?`,
-                [normSubject, className, className, className, targetAssessmentSlot]
+        // Pre-fetch obtainable score once for the class & subject context
+        const defaultObtainable = await getObtainableScore(className, normSubject, null, targetAssessmentSlot);
+
+        // If targetAssessmentSlot specified and obtainable score is 0 (0 questions exist), early return 0 submissions
+        if (targetAssessmentSlot && defaultObtainable === 0) {
+            const studentsRoster = await dbAll(
+                `SELECT id, COALESCE(registration_no, reg_number) AS reg_number, surname, first_name, class FROM students WHERE (LOWER(class) = LOWER(?) OR LOWER(class) LIKE LOWER(?) || '%' OR class_id = ?) ORDER BY UPPER(surname) ASC, UPPER(first_name) ASC`,
+                [className, className, resolvedClassId]
             );
-            if (!qCountRow || qCountRow.cnt === 0) {
-                const studentsRoster = await dbAll(
-                    `SELECT id, COALESCE(registration_no, reg_number) AS reg_number, surname, first_name, class FROM students WHERE (LOWER(class) = LOWER(?) OR LOWER(class) LIKE LOWER(?) || '%' OR class_id = ?) ORDER BY UPPER(surname) ASC, UPPER(first_name) ASC`,
-                    [className, className, resolvedClassId]
-                );
-                const defaultObtainable = await getObtainableScore(className, normSubject, null, targetAssessmentSlot);
-                return res.status(200).json({
-                    success: true,
-                    metadata: {
-                        class_name: className,
-                        class_id: resolvedClassId,
-                        subject_name: normSubject,
-                        subject_id: resolvedSubjectId,
-                        academic_session: activeTerm.session,
-                        academic_term: activeTerm.name,
-                        academic_term_id: activeTerm.id,
-                        total_candidates: studentsRoster.length,
-                        submissions_count: 0,
-                        total_obtainable_marks: defaultObtainable
-                    },
-                    candidates: studentsRoster.map((s, idx) => ({
-                        sn: idx + 1,
-                        id: s.id,
-                        student_id: s.id,
-                        reg_number: s.reg_number,
-                        registration_no: s.reg_number,
-                        surname: String(s.surname || '').toUpperCase(),
-                        first_name: String(s.first_name || '').trim(),
-                        full_name: s.first_name ? `${String(s.surname || '').toUpperCase()}, ${String(s.first_name).trim()}` : String(s.surname || '').toUpperCase(),
-                        raw_score: null,
-                        score: null,
-                        total_marks: defaultObtainable,
-                        obtainable_score: defaultObtainable,
-                        percentage: 'N/A',
-                        pct_value: null,
-                        status: 'Not Taken',
-                        submission_time: null
-                    }))
-                });
-            }
+            return res.status(200).json({
+                success: true,
+                metadata: {
+                    class_name: className,
+                    class_id: resolvedClassId,
+                    subject_name: normSubject,
+                    subject_id: resolvedSubjectId,
+                    academic_session: activeTerm.session,
+                    academic_term: activeTerm.name,
+                    academic_term_id: activeTerm.id,
+                    total_candidates: studentsRoster.length,
+                    submissions_count: 0,
+                    total_obtainable_marks: defaultObtainable
+                },
+                candidates: studentsRoster.map((s, idx) => ({
+                    sn: idx + 1,
+                    id: s.id,
+                    student_id: s.id,
+                    reg_number: s.reg_number,
+                    registration_no: s.reg_number,
+                    surname: String(s.surname || '').toUpperCase(),
+                    first_name: String(s.first_name || '').trim(),
+                    full_name: s.first_name ? `${String(s.surname || '').toUpperCase()}, ${String(s.first_name).trim()}` : String(s.surname || '').toUpperCase(),
+                    raw_score: null,
+                    score: null,
+                    total_marks: defaultObtainable,
+                    obtainable_score: defaultObtainable,
+                    percentage: 'N/A',
+                    pct_value: null,
+                    status: 'Not Taken',
+                    submission_time: null
+                }))
+            });
         }
 
         // Unified candidate roster query over both exam_sessions and student_exam_sessions
@@ -1375,7 +1411,10 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
         `;
 
         const candidatesRaw = await dbAll(querySql, [normSubject, targetAssessmentSlot, targetAssessmentSlot, normSubject, targetAssessmentSlot, targetAssessmentSlot, className, className, resolvedClassId]);
-        const defaultObtainable = await getObtainableScore(className, normSubject, null, targetAssessmentSlot);
+
+        const obtainableCache = new Map();
+        const defaultKey = `${(className || '').trim().toLowerCase()}|${(normSubject || '').trim().toLowerCase()}|${normalizeSlotName(targetAssessmentSlot) || ''}`;
+        obtainableCache.set(defaultKey, Promise.resolve(defaultObtainable));
 
         let submissionsCount = 0;
         const formattedCandidates = await Promise.all(candidatesRaw.map(async (c, idx) => {
@@ -1384,7 +1423,7 @@ router.get('/reports/class-subject-summary', async (req, res, next) => {
             const hasSubmitted = statusLower === 'submitted' || statusLower === 'expired' || rawScore !== null;
             if (hasSubmitted) submissionsCount++;
 
-            const obtainable = await getObtainableScore(c.class || className, normSubject, c.question_order, targetAssessmentSlot) || defaultObtainable;
+            const obtainable = await getCachedObtainableScore(obtainableCache, c.class || className, normSubject, c.question_order, targetAssessmentSlot) || defaultObtainable;
             const pct = rawScore !== null ? Number(((rawScore / obtainable) * 100).toFixed(1)) : null;
 
             let statusStr = 'Not Taken';
@@ -1489,16 +1528,6 @@ router.get('/results', async (req, res, next) => {
         }
         sql += ` ORDER BY es.id DESC`;
 
-        const results = await dbAll(sql, params);
-
-        // Fetch dynamic list of all distinct classes in student roster
-        const distinctClassesRows = await dbAll(`SELECT DISTINCT class FROM students WHERE class IS NOT NULL AND TRIM(class) != '' ORDER BY class ASC`);
-        const allClasses = distinctClassesRows.map(r => r.class);
-
-        // Fetch dynamic list of all distinct subjects, filtering out concatenated multi-subject strings
-        const distinctSubjectsRows = await dbAll(`SELECT DISTINCT name FROM subjects WHERE name IS NOT NULL AND TRIM(name) != '' AND name NOT LIKE '%,%' ORDER BY name ASC`);
-        const allSubjects = distinctSubjectsRows.map(r => r.name);
-
         // Fetch complete student roster with latest session scores mapped
         let studentRosterSql = `SELECT id, reg_number, surname, first_name, class, assigned_subject FROM students WHERE 1=1`;
         let rosterParams = [];
@@ -1507,8 +1536,22 @@ router.get('/results', async (req, res, next) => {
             rosterParams.push(targetClass.trim(), `${targetClass.trim()} %`);
         }
         studentRosterSql += ` ORDER BY surname ASC, first_name ASC`;
-        const allStudents = await dbAll(studentRosterSql, rosterParams);
-        
+
+        const metaSql = `
+            SELECT DISTINCT class AS val, 'class' AS type FROM students WHERE class IS NOT NULL AND TRIM(class) != ''
+            UNION ALL
+            SELECT DISTINCT name AS val, 'subject' AS type FROM subjects WHERE name IS NOT NULL AND TRIM(name) != '' AND name NOT LIKE '%,%'
+        `;
+
+        const [results, allStudents, metaRows] = await Promise.all([
+            dbAll(sql, params),
+            dbAll(studentRosterSql, rosterParams),
+            dbAll(metaSql)
+        ]);
+
+        const allClasses = metaRows.filter(r => r.type === 'class').map(r => r.val).sort();
+        const allSubjects = metaRows.filter(r => r.type === 'subject').map(r => r.val).sort();
+
         // Map student ID to latest session matching subject and slot
         const latestSessionMap = new Map();
         results.forEach(resRow => {
@@ -1517,12 +1560,28 @@ router.get('/results', async (req, res, next) => {
             }
         });
 
+        const obtainableCache = new Map();
+        let defaultObtainable = 10;
+        if (targetSubject && targetSubject !== 'ALL') {
+            const normSub = normalizeSubjectName(targetSubject);
+            defaultObtainable = await getObtainableScore(targetClass, normSub, null, normSlot);
+            const defaultKey = `${(targetClass || '').trim().toLowerCase()}|${normSub.toLowerCase()}|${normSlot || ''}`;
+            obtainableCache.set(defaultKey, Promise.resolve(defaultObtainable));
+        }
+
         const studentRosterWithScores = await Promise.all(allStudents.map(async s => {
             const sess = latestSessionMap.get(s.id);
             const rawSub = sess ? sess.subject : (targetSubject || s.assigned_subject);
-            const normSub = rawSub ? normalizeSubjectName(String(rawSub).split(/[,;]/)[0]) : (targetSubject || 'Mathematics');
+            const normSub = rawSub ? normalizeSubjectName(String(rawSub).split(/[,;]/)[0]) : (targetSubject ? normalizeSubjectName(targetSubject) : 'Mathematics');
             const studentSlot = sess ? (sess.assessment_slot || normSlot) : normSlot;
-            const obtainable = await getObtainableScore(s.class, normSub, sess ? sess.question_order : null, studentSlot);
+            
+            let obtainable = defaultObtainable;
+            if (sess && sess.question_order) {
+                obtainable = await getCachedObtainableScore(obtainableCache, s.class, normSub, sess.question_order, studentSlot);
+            } else if (!targetSubject || targetSubject === 'ALL') {
+                obtainable = await getCachedObtainableScore(obtainableCache, s.class, normSub, null, studentSlot);
+            }
+
             const isSubm = sess ? (sess.status === 'submitted' || sess.is_locked === 1) : false;
             return {
                 id: s.id,
@@ -1551,15 +1610,7 @@ router.get('/results', async (req, res, next) => {
 
         let questionCount = 0;
         if (targetSubject && targetSubject !== 'ALL') {
-            const normSub = normalizeSubjectName(targetSubject);
-            let qSql = `SELECT COUNT(*) AS cnt FROM questions WHERE LOWER(subject) = LOWER(?) AND (LOWER(class) = LOWER(?) OR LOWER(?) LIKE LOWER(class) || '%' OR class IS NULL)`;
-            const qParams = [normSub, targetClass || '', targetClass || ''];
-            if (normSlot) {
-                qSql += ` AND LOWER(assessment_slot) = LOWER(?)`;
-                qParams.push(normSlot);
-            }
-            const qCountRow = await dbGet(qSql, qParams);
-            questionCount = qCountRow ? qCountRow.cnt : 0;
+            questionCount = defaultObtainable;
         }
 
         const hasScores = studentRosterWithScores.some(r => r.status === 'submitted' || r.score !== null);
@@ -1794,6 +1845,10 @@ const handleExportReport = async (req, res, next) => {
         const rows = await dbAll(sql, [subjectNameLabel, targetAssessmentSlot, targetAssessmentSlot, subjectNameLabel, targetAssessmentSlot, targetAssessmentSlot, classNameLabel.toLowerCase(), parseInt(class_id, 10) || -1]);
         const defaultObtainable = await getObtainableScore(classNameLabel, subjectNameLabel, null, targetAssessmentSlot);
 
+        const obtainableCache = new Map();
+        const defaultKey = `${(classNameLabel || '').trim().toLowerCase()}|${(subjectNameLabel || '').trim().toLowerCase()}|${normalizeSlotName(targetAssessmentSlot) || ''}`;
+        obtainableCache.set(defaultKey, defaultObtainable);
+
         const reportData = [];
         let sn = 1;
 
@@ -1802,7 +1857,7 @@ const handleExportReport = async (req, res, next) => {
             const firstNameTrim = String(row.first_name || '').trim();
             const classTierStream = row.class || classNameLabel;
 
-            const obtainable = await getObtainableScore(classTierStream, subjectNameLabel, row.question_order, targetAssessmentSlot) || defaultObtainable;
+            const obtainable = await getCachedObtainableScore(obtainableCache, classTierStream, subjectNameLabel, row.question_order, targetAssessmentSlot) || defaultObtainable;
 
             const rawScore = (row.score !== null && row.score !== undefined) ? Number(row.score) : null;
             const statusLower = String(row.raw_status || '').toLowerCase();
@@ -2422,21 +2477,6 @@ router.post('/questions/commit-docx', express.json({ limit: '10mb' }), async (re
             });
         }
 
-        // Normalize subject name using the same logic as the Excel pipeline
-        function normalizeSubjectName(rawSubject) {
-            if (!rawSubject || typeof rawSubject !== 'string') return '';
-            let trimmed = rawSubject.trim().replace(/\s+/g, ' ');
-            if (!trimmed) return '';
-            const lower = trimmed.toLowerCase();
-            if (lower === 'english' || lower === 'eng') return 'English Language';
-            if (lower === 'math' || lower === 'maths') return 'Mathematics';
-            if (lower === 'comp sci' || lower === 'computer' || lower === 'computer science') return 'Computer Studies';
-            if (lower === 'civics') return 'Civic Education';
-            return trimmed.split(' ')
-                .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-                .join(' ');
-        }
-
         const normSubject = normalizeSubjectName(effectiveSubject);
 
         // Handle overwrite mode: delete existing questions for this scope & clean orphan diagrams
@@ -2789,11 +2829,6 @@ router.post('/upload-roster', upload.single('file'), async (req, res, next) => {
 });
 
 // --------------------------------------------------------------------------
-// 8. GET /api/admin/questions
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-// 7.1 GET /api/admin/questions/counts
-// --------------------------------------------------------------------------
 // 7.1 GET /api/admin/questions/counts
 // Returns question count breakdown for all 4 slots for specified (session, term, class, subject)
 // --------------------------------------------------------------------------
@@ -2803,7 +2838,8 @@ router.get('/questions/counts', async (req, res, next) => {
         const session = String(req.query.session || '').trim() || '2026/2027';
         const term = String(req.query.term || '').trim() || '1st Term';
         const className = String(req.query.class || req.query.classId || '').trim();
-        const subject = String(req.query.subject || req.query.subjectId || '').trim();
+        const rawSubject = String(req.query.subject || req.query.subjectId || '').trim();
+        const subject = normalizeSubjectName(rawSubject);
 
         const counts = {
             welcome_test: 0,
@@ -2854,16 +2890,9 @@ router.get('/questions/counts', async (req, res, next) => {
 router.get('/questions', async (req, res, next) => {
     try {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-        console.log('>>> ACTIVE HANDLER HIT <<<', {
-            class: req.query.class || req.query.classId,
-            subject: req.query.subject || req.query.subjectId,
-            slot: req.query.slot || req.query.assessment_slot,
-            session: req.query.session,
-            term: req.query.term
-        });
-
         const targetClass = String(req.query.class || req.query.classId || '').trim();
-        const targetSubject = String(req.query.subject || req.query.subjectId || '').trim();
+        const rawSubject = String(req.query.subject || req.query.subjectId || '').trim();
+        const targetSubject = normalizeSubjectName(rawSubject);
         const rawSlot = String(req.query.slot || req.query.assessment_slot || req.query.assessmentSlot || '').trim().toLowerCase();
         let targetSlot = rawSlot;
         if (targetSlot === 'terminal_exam' || targetSlot === 'terminal' || targetSlot === 'exam') targetSlot = 'examination';

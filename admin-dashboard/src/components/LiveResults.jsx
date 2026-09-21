@@ -197,12 +197,32 @@ export default function LiveResults({
     if (!className || className === 'ALL') return [];
     const baseTier = String(className).replace(/\s+(Science|Art|Arts|Commercial|Gold|Silver|Diamond)$/i, '').trim();
     const mapped = (subjectsByClass && (subjectsByClass[className] || subjectsByClass[baseTier])) || [];
-    const names = (Array.isArray(mapped) ? mapped : [])
-      .map(s => (typeof s === 'string' ? s : (s && s.name ? s.name : '')))
-      .filter(Boolean)
-      .filter(n => !n.includes(','));
+    const canonicalMap = {
+      'agric': 'Agricultural Science',
+      'agriculture': 'Agricultural Science',
+      'basic tech': 'Basic Technology'
+    };
+    const names = Array.from(
+      new Set(
+        (Array.isArray(mapped) ? mapped : [])
+          .map(s => {
+            const raw = typeof s === 'string' ? s : (s && s.name ? s.name : '');
+            const trimmed = raw.trim();
+            const lower = trimmed.toLowerCase();
+            return canonicalMap[lower] || trimmed;
+          })
+          .filter(Boolean)
+          .filter(n => {
+            if (n.includes(',')) return false;
+            if (className && (className.includes('Art') || className.includes('Commercial'))) {
+              return !n.toLowerCase().includes('agric');
+            }
+            return true;
+          })
+      )
+    );
 
-    if (names.length > 0) return names;
+    if (names.length > 0) return names.sort();
 
     const upper = String(className).toUpperCase();
     if (upper.startsWith('JSS')) {
@@ -210,29 +230,29 @@ export default function LiveResults({
         'English Language', 'Mathematics', 'Civic Education', 'Social Studies',
         'Yoruba', 'Music', 'French', 'Digital Technology',
         'Computer Hardware and GSM repair', 'Horticulture', 'Home Economics',
-        'Agriculture', 'Oral English', 'Intermediate Science', 'Basic Science',
-        'Basic Tech', 'CRS', 'Business Studies', 'PHE', 'Nigeria History'
+        'Agricultural Science', 'Oral English', 'Intermediate Science', 'Basic Science',
+        'Basic Technology', 'CRS', 'Business Studies', 'PHE', 'Nigeria History', 'ICT'
       ];
     }
     if (upper.includes('SCIENCE')) {
       return [
         'English Language', 'Mathematics', 'Physics', 'Chemistry', 'Biology',
         'Economics', 'Further Mathematics', 'Digital Technology', 'ICT',
-        'Oral English', 'Geography', 'Civic Education', 'Agric',
+        'Oral English', 'Geography', 'Civic Education', 'Agricultural Science',
         'Horticulture and crop production', 'Computer hardware and GSM repair',
         'Catering craft'
       ];
     }
     if (upper.includes('COMMERCIAL')) {
       return [
-        'English Language', 'Mathematics', 'Account', 'Commerce', 'Government',
+        'English Language', 'Mathematics', 'Financial Accounting', 'Commerce', 'Government',
         'Economics', 'Further Mathematics', 'Digital Technology', 'ICT',
         'Oral English', 'Civic Education', 'Marketing', 'Catering craft'
       ];
     }
     if (upper.includes('ART')) {
       return [
-        'English Language', 'Mathematics', 'Literature', 'CRS', 'Government',
+        'English Language', 'Mathematics', 'Literature in English', 'CRS', 'Government',
         'Economics', 'Digital Technology', 'ICT', 'Oral English', 'Yoruba',
         'Civic Education', 'Catering craft'
       ];

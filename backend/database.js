@@ -9,6 +9,10 @@
 
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const { AsyncLocalStorage } = require('async_hooks');
+
+// AsyncLocalStorage context for request-scoped SQL query tracking & N+1 profiling
+const queryContext = new AsyncLocalStorage();
 
 // Path to local SQLite database file (locked to canonical absolute path)
 const DB_PATH = path.resolve(__dirname, 'cbt_database.db');
@@ -21,6 +25,64 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
         console.log(`✅ [Database Info] Connected to persistent SQLite database at: ${DB_PATH}`);
     }
 });
+
+// Helper to record executed query into active AsyncLocalStorage store
+function recordQuery(sql, rawArgs) {
+    const store = queryContext.getStore();
+    if (!store) return;
+    store.queryCount++;
+    let params = [];
+    if (rawArgs && rawArgs.length > 0) {
+        const nonCallbackArgs = typeof rawArgs[rawArgs.length - 1] === 'function'
+            ? rawArgs.slice(0, rawArgs.length - 1)
+            : rawArgs;
+        if (nonCallbackArgs.length === 1 && Array.isArray(nonCallbackArgs[0])) {
+            params = nonCallbackArgs[0];
+        } else if (nonCallbackArgs.length === 1 && typeof nonCallbackArgs[0] === 'object' && nonCallbackArgs[0] !== null) {
+            params = nonCallbackArgs[0];
+        } else if (nonCallbackArgs.length > 0) {
+            params = nonCallbackArgs;
+        }
+    }
+    const sqlStr = typeof sql === 'string' ? sql.trim().replace(/\s+/g, ' ') : String(sql);
+    store.queries.push({
+        sql: sqlStr,
+        params,
+        time: Date.now()
+    });
+}
+
+// Wrap core database execution methods to record all queries across async and callback usages
+const origRun = db.run.bind(db);
+const origGet = db.get.bind(db);
+const origAll = db.all.bind(db);
+const origExec = db.exec.bind(db);
+const origEach = db.each.bind(db);
+
+db.run = function (sql, ...args) {
+    recordQuery(sql, args);
+    return origRun(sql, ...args);
+};
+
+db.get = function (sql, ...args) {
+    recordQuery(sql, args);
+    return origGet(sql, ...args);
+};
+
+db.all = function (sql, ...args) {
+    recordQuery(sql, args);
+    return origAll(sql, ...args);
+};
+
+db.exec = function (sql, ...args) {
+    recordQuery(sql, args);
+    return origExec(sql, ...args);
+};
+
+db.each = function (sql, ...args) {
+    recordQuery(sql, args);
+    return origEach(sql, ...args);
+};
 
 // Enforce critical connection-level PRAGMAs immediately upon creation
 db.serialize(() => {
@@ -184,6 +246,141 @@ function initDatabase() {
         db.run(`UPDATE questions SET assessment_slot = 'custom_assessment' WHERE LOWER(assessment_slot) = 'custom_exam';`, () => {});
         db.run(`UPDATE assessment_configs SET assessment_slot = 'examination' WHERE LOWER(assessment_slot) = 'terminal_exam';`, () => {});
         db.run(`UPDATE assessment_configs SET assessment_slot = 'custom_assessment' WHERE LOWER(assessment_slot) = 'custom_exam';`, () => {});
+
+        // Subject Alias Unification Migration
+        const subjectAliases = [
+            ['Agricultural Science', ['agriculture', 'agric', 'agricultural science']],
+            ['Social Studies', ['sos', 'social studies']],
+            ['Basic Technology', ['basic tech', 'basic technology']],
+            ['PHE', ['phe', 'physical and health education', 'physical & health education']],
+            ['Business Studies', ['bus studies', 'business studies']],
+            ['Home Economics', ['home ec', 'home econ', 'home economics']],
+            ['CRS', ['crs', 'crk', 'christian religious studies', 'crs/irs']],
+            ['IRS', ['irs', 'irk', 'islamic religious studies']],
+            ['Financial Accounting', ['account', 'accounting', 'financial accounting']],
+            ['Literature in English', ['literature', 'literature in english']],
+            ['Nigeria History', ['history', 'nigerian history', 'nigeria history']],
+            ['English Language', ['english', 'eng', 'english language']],
+            ['Mathematics', ['math', 'maths', 'mathematics']],
+            ['Computer Studies', ['comp sci', 'computer', 'computer science', 'computer studies']],
+            ['Civic Education', ['civics', 'civic education']]
+        ];
+
+        subjectAliases.forEach(([canonical, variants]) => {
+            const placeholders = variants.map(() => '?').join(',');
+            const lowerVars = variants.map(v => v.toLowerCase());
+            db.run(`UPDATE assessment_configs SET subject = ? WHERE LOWER(TRIM(subject)) IN (${placeholders});`, [canonical, ...lowerVars], () => {});
+            db.run(`UPDATE exam_configs SET subject = ? WHERE LOWER(TRIM(subject)) IN (${placeholders});`, [canonical, ...lowerVars], () => {});
+            db.run(`UPDATE questions SET subject = ? WHERE LOWER(TRIM(subject)) IN (${placeholders});`, [canonical, ...lowerVars], () => {});
+            db.run(`UPDATE class_subjects SET subject_name = ? WHERE LOWER(TRIM(subject_name)) IN (${placeholders});`, [canonical, ...lowerVars], () => {});
+            db.run(`INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1);`, [canonical], () => {});
+            db.run(`UPDATE subjects SET name = ? WHERE LOWER(TRIM(name)) IN (${placeholders}) AND name != ?;`, [canonical, ...lowerVars, canonical], () => {});
+            db.run(`UPDATE students SET assigned_subject = ? WHERE LOWER(TRIM(assigned_subject)) IN (${placeholders});`, [canonical, ...lowerVars], () => {});
+        });
+
+        // --------------------------------------------------------------------
+        // UNCONDITIONAL STARTUP CURRICULUM NORMALIZATION & DEDUPLICATION
+        // --------------------------------------------------------------------
+        // 1. Purge Agricultural Science from Art and Commercial streams
+        db.run(`
+            DELETE FROM class_subjects 
+            WHERE LOWER(subject_name) LIKE '%agric%' 
+              AND (class_name LIKE '%Art%' OR class_name LIKE '%Commercial%');
+        `, () => {});
+
+        db.run(`
+            DELETE FROM assessment_configs 
+            WHERE LOWER(subject) LIKE '%agric%' 
+              AND (class LIKE '%Art%' OR class LIKE '%Commercial%');
+        `, () => {});
+
+        db.run(`
+            DELETE FROM exam_configs 
+            WHERE LOWER(subject) LIKE '%agric%' 
+              AND (class LIKE '%Art%' OR class LIKE '%Commercial%');
+        `, () => {});
+
+        // 2. Delete any duplicate rows in class_subjects
+        db.run(`
+            DELETE FROM class_subjects 
+            WHERE id NOT IN (
+                SELECT MIN(id) 
+                FROM class_subjects 
+                GROUP BY LOWER(TRIM(class_name)), LOWER(TRIM(subject_name))
+            );
+        `, () => {});
+
+        // 3. Purge deprecated legacy subject catalog names
+        db.run(`
+            DELETE FROM subjects 
+            WHERE LOWER(TRIM(name)) IN ('agric', 'agriculture', 'basic tech') 
+              AND name NOT IN ('Agricultural Science', 'Basic Technology');
+        `, () => {});
+
+        db.run(`INSERT OR IGNORE INTO subjects (name, is_active) VALUES ('Agricultural Science', 1);`, () => {});
+        db.run(`INSERT OR IGNORE INTO subjects (name, is_active) VALUES ('Basic Technology', 1);`, () => {});
+        db.run(`INSERT OR IGNORE INTO subjects (name, is_active) VALUES ('ICT', 1);`, () => {});
+
+        // 4. Programmatic ICT Insertion for all Junior arms
+        const juniorArmsList = [
+            'JSS 1', 'JSS 1 Gold', 'JSS 1 Silver', 'JSS 1 Diamond',
+            'JSS 2', 'JSS 2 Gold', 'JSS 2 Silver', 'JSS 2 Diamond',
+            'JSS 3', 'JSS 3 Gold', 'JSS 3 Silver', 'JSS 3 Diamond'
+        ];
+        juniorArmsList.forEach((jCls) => {
+            db.run(`
+                INSERT OR IGNORE INTO class_subjects (class_name, subject_name, class_id, subject_id)
+                SELECT ?, 'ICT', 
+                       COALESCE((SELECT id FROM classes WHERE name = ? LIMIT 1), NULL),
+                       COALESCE((SELECT id FROM subjects WHERE name = 'ICT' LIMIT 1), NULL)
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM class_subjects 
+                    WHERE LOWER(TRIM(class_name)) = LOWER(TRIM(?)) 
+                      AND LOWER(TRIM(subject_name)) = 'ict'
+                );
+            `, [jCls, jCls, jCls], () => {});
+        });
+
+        // Deactivate zero-question phantom configs
+        db.run(`
+            UPDATE assessment_configs 
+            SET is_active = 0 
+            WHERE id IN (
+                SELECT ac.id 
+                FROM assessment_configs ac
+                LEFT JOIN questions q ON (
+                    (LOWER(TRIM(q.class)) = LOWER(TRIM(ac.class)) OR ac.class IS NULL OR TRIM(ac.class) = '' OR q.class IS NULL OR TRIM(q.class) = '')
+                    AND LOWER(TRIM(q.subject)) = LOWER(TRIM(ac.subject))
+                    AND (
+                        LOWER(TRIM(q.assessment_slot)) = LOWER(TRIM(ac.assessment_slot))
+                        OR (LOWER(TRIM(q.assessment_slot)) = 'examination' AND LOWER(TRIM(ac.assessment_slot)) = 'terminal_exam')
+                        OR (LOWER(TRIM(q.assessment_slot)) = 'custom_assessment' AND LOWER(TRIM(ac.assessment_slot)) = 'custom_exam')
+                    )
+                    AND LOWER(TRIM(q.session)) = LOWER(TRIM(ac.session))
+                    AND LOWER(TRIM(q.term)) = LOWER(TRIM(ac.term))
+                )
+                WHERE ac.is_active = 1
+                GROUP BY ac.id
+                HAVING COUNT(q.id) = 0
+            );
+        `, () => {});
+
+        db.run(`
+            UPDATE exam_configs
+            SET is_active = 0
+            WHERE id IN (
+                SELECT ec.id
+                FROM exam_configs ec
+                LEFT JOIN questions q ON (
+                    (LOWER(TRIM(q.class)) = LOWER(TRIM(ec.class)) OR ec.class IS NULL OR TRIM(ec.class) = '' OR q.class IS NULL OR TRIM(q.class) = '')
+                    AND LOWER(TRIM(q.subject)) = LOWER(TRIM(ec.subject))
+                )
+                WHERE ec.is_active = 1
+                GROUP BY ec.id
+                HAVING COUNT(q.id) = 0
+            );
+        `, () => {});
+
         db.run(`CREATE INDEX IF NOT EXISTS idx_questions_class_subject ON questions(class, subject);`, () => {});
         db.run(`CREATE INDEX IF NOT EXISTS idx_questions_subject ON questions(subject);`, () => {});
         db.run(`CREATE INDEX IF NOT EXISTS idx_questions_scoped ON questions(session, term, class, subject, assessment_slot);`, () => {});
@@ -568,14 +765,14 @@ function seedDefaultCatalog() {
         'English Language', 'Mathematics', 'Civic Education', 'Social Studies',
         'Yoruba', 'Music', 'French', 'Digital Technology',
         'Computer Hardware and GSM repair', 'Horticulture', 'Home Economics',
-        'Agriculture', 'Oral English', 'Intermediate Science', 'Basic Science',
-        'Basic Tech', 'CRS', 'Business Studies', 'PHE', 'Nigeria History',
+        'Agricultural Science', 'Oral English', 'Intermediate Science', 'Basic Science',
+        'Basic Technology', 'CRS', 'Business Studies', 'PHE', 'Nigeria History',
         'Physics', 'Chemistry', 'Biology', 'Economics', 'Further Mathematics',
-        'ICT', 'Geography', 'Agric', 'Horticulture and crop production',
+        'ICT', 'Geography', 'Horticulture and crop production',
         'Computer hardware and GSM repair', 'Catering craft',
-        'Account', 'Commerce', 'Government', 'Marketing',
-        'Literature', 'Literature in English', 'CRS/IRS', 'Computer Studies',
-        'Financial Accounting', 'Fine Art', 'History', 'Basic Technology'
+        'Financial Accounting', 'Commerce', 'Government', 'Marketing',
+        'Literature in English', 'CRS/IRS', 'Computer Studies',
+        'Fine Art', 'History'
     ];
 
     const subjectInsertSql = `INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1);`;
@@ -592,14 +789,14 @@ function seedDefaultCatalog() {
  * Uses a lightweight `_normalization_meta` table to track completion.
  * Normalization runs when:
  *   1. On first-ever server boot (meta table doesn't exist or no entry)
- *   2. When schema version < CURRICULUM_VERSION (version 3: full 20/16/13/12 curriculum)
+ *   2. When schema version < CURRICULUM_VERSION (version 4: canonical subjects & zero-question guard)
  *   3. When RUN_NORMALIZE=true environment variable is set
  * This prevents unnecessary re-sync operations during normal restarts while
  * automatically applying required curriculum upgrades.
  */
 async function checkAndRunNormalization() {
     try {
-        const CURRICULUM_VERSION = 3;
+        const CURRICULUM_VERSION = 7;
 
         // Create tracking table if it doesn't exist
         await runAsync(`CREATE TABLE IF NOT EXISTS _normalization_meta (
@@ -639,7 +836,7 @@ async function checkAndRunNormalization() {
  * - Syncs distinct class names to `classes` table.
  * - Syncs question options from flat `questions` table to `question_options` table.
  * - Purges concatenated subject strings from subjects table.
- * - Populates `class_subjects` mapping table with strict Junior (20), Science (16), Commercial (13), Art (12) stream allocations.
+ * - Populates `class_subjects` mapping table with strict Junior (21), Science (16), Commercial (13), Art (12) stream allocations.
  *
  * Preserves 100% of student roster, test results, and question banks.
  */
@@ -705,29 +902,30 @@ async function runAutoNormalization() {
         }
 
         // 4. Populate Stream & Tier Subject Mappings into `class_subjects` Table
-        // Authoritative Lists: JSS=20, Science=16, Commercial=13, Art=12
+        // Authoritative Lists: JSS=21, Science=16, Commercial=13, Art=12
         await runAsync('DELETE FROM class_subjects');
         const juniorSubjects = [
             "English Language", "Mathematics", "Civic Education", "Social Studies",
             "Yoruba", "Music", "French", "Digital Technology",
             "Computer Hardware and GSM repair", "Horticulture", "Home Economics",
-            "Agriculture", "Oral English", "Intermediate Science", "Basic Science",
-            "Basic Tech", "CRS", "Business Studies", "PHE", "Nigeria History"
+            "Agricultural Science", "Oral English", "Intermediate Science", "Basic Science",
+            "Basic Technology", "CRS", "Business Studies", "PHE", "Nigeria History",
+            "ICT"
         ];
         const scienceSubjects = [
             "English Language", "Mathematics", "Physics", "Chemistry", "Biology",
             "Economics", "Further Mathematics", "Digital Technology", "ICT",
-            "Oral English", "Geography", "Civic Education", "Agric",
+            "Oral English", "Geography", "Civic Education", "Agricultural Science",
             "Horticulture and crop production", "Computer hardware and GSM repair",
             "Catering craft"
         ];
         const commercialSubjects = [
-            "English Language", "Mathematics", "Account", "Commerce", "Government",
+            "English Language", "Mathematics", "Financial Accounting", "Commerce", "Government",
             "Economics", "Further Mathematics", "Digital Technology", "ICT",
             "Oral English", "Civic Education", "Marketing", "Catering craft"
         ];
         const artsSubjects = [
-            "English Language", "Mathematics", "Literature", "CRS", "Government",
+            "English Language", "Mathematics", "Literature in English", "CRS", "Government",
             "Economics", "Digital Technology", "ICT", "Oral English", "Yoruba",
             "Civic Education", "Catering craft"
         ];
@@ -770,7 +968,179 @@ async function runAutoNormalization() {
             }
         }
 
-        console.log('🎉 [Database Normalization Complete] SQLite WAL ready, class_subjects mappings (JSS: 20, Science: 16, Commercial: 13, Art: 12) synchronized successfully.');
+        // Purge Agricultural Science from Art and Commercial streams in class_subjects
+        await runAsync(`
+            DELETE FROM class_subjects 
+            WHERE LOWER(subject_name) LIKE '%agric%' 
+              AND (class_name LIKE '%Art%' OR class_name LIKE '%Commercial%')
+        `);
+        await runAsync(`
+            DELETE FROM assessment_configs 
+            WHERE LOWER(subject) LIKE '%agric%' 
+              AND (class LIKE '%Art%' OR class LIKE '%Commercial%')
+        `);
+        await runAsync(`
+            DELETE FROM exam_configs 
+            WHERE LOWER(subject) LIKE '%agric%' 
+              AND (class LIKE '%Art%' OR class LIKE '%Commercial%')
+        `);
+
+        // 5. Subject Alias Harmonization across assessment_configs, exam_configs, questions, etc.
+        const aliasMappings = [
+            ['Agricultural Science', ['agriculture', 'agric', 'agricultural science']],
+            ['Social Studies', ['sos', 'social studies']],
+            ['Basic Technology', ['basic tech', 'basic technology']],
+            ['PHE', ['phe', 'physical and health education', 'physical & health education']],
+            ['Business Studies', ['bus studies', 'business studies']],
+            ['Home Economics', ['home ec', 'home econ', 'home economics']],
+            ['CRS', ['crs', 'crk', 'christian religious studies', 'crs/irs']],
+            ['IRS', ['irs', 'irk', 'islamic religious studies']],
+            ['Financial Accounting', ['account', 'accounting', 'financial accounting']],
+            ['Literature in English', ['literature', 'literature in english']],
+            ['Nigeria History', ['history', 'nigerian history', 'nigeria history']],
+            ['English Language', ['english', 'eng', 'english language']],
+            ['Mathematics', ['math', 'maths', 'mathematics']],
+            ['Computer Studies', ['comp sci', 'computer', 'computer science', 'computer studies']],
+            ['Civic Education', ['civics', 'civic education']]
+        ];
+
+        for (const [canonical, variants] of aliasMappings) {
+            const placeholders = variants.map(() => '?').join(',');
+            const lowerVariants = variants.map(v => v.toLowerCase());
+
+            // Merge legacy assessment_configs duplicates
+            const legacyAcRows = await allAsync(
+                `SELECT id, session, term, class, subject, assessment_slot 
+                 FROM assessment_configs 
+                 WHERE LOWER(TRIM(subject)) IN (${placeholders}) AND subject != ?`,
+                [...lowerVariants, canonical]
+            );
+
+            for (const leg of legacyAcRows) {
+                const existingCanonical = await getAsync(
+                    `SELECT id FROM assessment_configs 
+                     WHERE LOWER(TRIM(session)) = LOWER(TRIM(?)) 
+                       AND LOWER(TRIM(term)) = LOWER(TRIM(?)) 
+                       AND ((class IS NULL AND ? IS NULL) OR LOWER(TRIM(class)) = LOWER(TRIM(?)))
+                       AND subject = ? 
+                       AND LOWER(TRIM(assessment_slot)) = LOWER(TRIM(?))`,
+                    [leg.session, leg.term, leg.class, leg.class, canonical, leg.assessment_slot]
+                );
+
+                if (existingCanonical) {
+                    await runAsync(`DELETE FROM assessment_configs WHERE id = ?`, [leg.id]);
+                } else {
+                    await runAsync(`UPDATE assessment_configs SET subject = ? WHERE id = ?`, [canonical, leg.id]);
+                }
+            }
+
+            // Merge legacy exam_configs duplicates
+            const legacyEcRows = await allAsync(
+                `SELECT id, class, subject 
+                 FROM exam_configs 
+                 WHERE LOWER(TRIM(subject)) IN (${placeholders}) AND subject != ?`,
+                [...lowerVariants, canonical]
+            );
+
+            for (const leg of legacyEcRows) {
+                const existingCanonical = await getAsync(
+                    `SELECT id FROM exam_configs 
+                     WHERE ((class IS NULL AND ? IS NULL) OR LOWER(TRIM(class)) = LOWER(TRIM(?))) 
+                       AND subject = ?`,
+                    [leg.class, leg.class, canonical]
+                );
+
+                if (existingCanonical) {
+                    await runAsync(`DELETE FROM exam_configs WHERE id = ?`, [leg.id]);
+                } else {
+                    await runAsync(`UPDATE exam_configs SET subject = ? WHERE id = ?`, [canonical, leg.id]);
+                }
+            }
+
+            // Update questions
+            await runAsync(`UPDATE questions SET subject = ? WHERE LOWER(TRIM(subject)) IN (${placeholders})`, [canonical, ...lowerVariants]);
+
+            // Update student_exam_sessions
+            try {
+                await runAsync(`UPDATE student_exam_sessions SET subject_name = ? WHERE LOWER(TRIM(subject_name)) IN (${placeholders})`, [canonical, ...lowerVariants]);
+            } catch (_) {}
+
+            // Update exam_sessions
+            try {
+                await runAsync(`UPDATE exam_sessions SET subject = ? WHERE LOWER(TRIM(subject)) IN (${placeholders})`, [canonical, ...lowerVariants]);
+            } catch (_) {}
+            try {
+                await runAsync(`UPDATE exam_sessions SET subject_name = ? WHERE LOWER(TRIM(subject_name)) IN (${placeholders})`, [canonical, ...lowerVariants]);
+            } catch (_) {}
+
+            // Update answers
+            try {
+                await runAsync(`UPDATE answers SET subject = ? WHERE LOWER(TRIM(subject)) IN (${placeholders})`, [canonical, ...lowerVariants]);
+            } catch (_) {}
+
+            // Update students assigned_subject
+            try {
+                await runAsync(`UPDATE students SET assigned_subject = ? WHERE LOWER(TRIM(assigned_subject)) IN (${placeholders})`, [canonical, ...lowerVariants]);
+            } catch (_) {}
+
+            // Master subjects table: ensure canonical exists, delete obsolete alias
+            await runAsync(`INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1)`, [canonical]);
+            await runAsync(`DELETE FROM subjects WHERE LOWER(TRIM(name)) IN (${placeholders}) AND name != ?`, [...lowerVariants, canonical]);
+        }
+
+        // Deduplicate class_subjects mapping table so each (class_name, subject_name) is unique
+        try {
+            await runAsync(`
+                DELETE FROM class_subjects 
+                WHERE rowid NOT IN (
+                    SELECT MIN(rowid) 
+                    FROM class_subjects 
+                    GROUP BY LOWER(TRIM(class_name)), LOWER(TRIM(subject_name))
+                )
+            `);
+        } catch (_) {}
+
+        // 6. Automatically Deactivate Zero-Question Phantom Assessment & Exam Configs
+        await runAsync(`
+            UPDATE assessment_configs 
+            SET is_active = 0 
+            WHERE id IN (
+                SELECT ac.id 
+                FROM assessment_configs ac
+                LEFT JOIN questions q ON (
+                    (LOWER(TRIM(q.class)) = LOWER(TRIM(ac.class)) OR ac.class IS NULL OR TRIM(ac.class) = '' OR q.class IS NULL OR TRIM(q.class) = '')
+                    AND LOWER(TRIM(q.subject)) = LOWER(TRIM(ac.subject))
+                    AND (
+                        LOWER(TRIM(q.assessment_slot)) = LOWER(TRIM(ac.assessment_slot))
+                        OR (LOWER(TRIM(q.assessment_slot)) = 'examination' AND LOWER(TRIM(ac.assessment_slot)) = 'terminal_exam')
+                        OR (LOWER(TRIM(q.assessment_slot)) = 'custom_assessment' AND LOWER(TRIM(ac.assessment_slot)) = 'custom_exam')
+                    )
+                    AND LOWER(TRIM(q.session)) = LOWER(TRIM(ac.session))
+                    AND LOWER(TRIM(q.term)) = LOWER(TRIM(ac.term))
+                )
+                WHERE ac.is_active = 1
+                GROUP BY ac.id
+                HAVING COUNT(q.id) = 0
+            )
+        `);
+
+        await runAsync(`
+            UPDATE exam_configs
+            SET is_active = 0
+            WHERE id IN (
+                SELECT ec.id
+                FROM exam_configs ec
+                LEFT JOIN questions q ON (
+                    (LOWER(TRIM(q.class)) = LOWER(TRIM(ec.class)) OR ec.class IS NULL OR TRIM(ec.class) = '' OR q.class IS NULL OR TRIM(q.class) = '')
+                    AND LOWER(TRIM(q.subject)) = LOWER(TRIM(ec.subject))
+                )
+                WHERE ec.is_active = 1
+                GROUP BY ec.id
+                HAVING COUNT(q.id) = 0
+            )
+        `);
+
+        console.log('🎉 [Database Normalization Complete] SQLite WAL ready, class_subjects mappings synchronized, subject aliases harmonized, and zero-question phantom configs deactivated.');
     } catch (err) {
         console.error('⚠️ [Normalization Sync Notice]:', err.message);
     }
@@ -787,6 +1157,7 @@ db.DB_PATH = DB_PATH;
 db.runAsync = runAsync;
 db.getAsync = getAsync;
 db.allAsync = allAsync;
+db.queryContext = queryContext;
 
 module.exports = db;
 

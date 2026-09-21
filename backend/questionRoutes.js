@@ -34,10 +34,21 @@ function normalizeSubjectName(rawSubject) {
     if (!trimmed) return '';
 
     const lower = trimmed.toLowerCase();
-    if (lower === 'english' || lower === 'eng') return 'English Language';
-    if (lower === 'math' || lower === 'maths') return 'Mathematics';
-    if (lower === 'comp sci' || lower === 'computer' || lower === 'computer science') return 'Computer Studies';
-    if (lower === 'civics') return 'Civic Education';
+    if (lower === 'english' || lower === 'eng' || lower === 'english language') return 'English Language';
+    if (lower === 'math' || lower === 'maths' || lower === 'mathematics') return 'Mathematics';
+    if (lower === 'comp sci' || lower === 'computer' || lower === 'computer science' || lower === 'computer studies') return 'Computer Studies';
+    if (lower === 'civics' || lower === 'civic education') return 'Civic Education';
+    if (lower === 'agric' || lower === 'agriculture' || lower === 'agricultural science') return 'Agricultural Science';
+    if (lower === 'sos' || lower === 'social studies') return 'Social Studies';
+    if (lower === 'crs' || lower === 'christian religious studies' || lower === 'crk' || lower === 'crs/irs') return 'CRS';
+    if (lower === 'irs' || lower === 'islamic religious studies' || lower === 'irk') return 'IRS';
+    if (lower === 'basic tech' || lower === 'basic technology') return 'Basic Technology';
+    if (lower === 'phe' || lower === 'physical and health education' || lower === 'physical & health education') return 'PHE';
+    if (lower === 'bus studies' || lower === 'business studies') return 'Business Studies';
+    if (lower === 'home ec' || lower === 'home econ' || lower === 'home economics') return 'Home Economics';
+    if (lower === 'account' || lower === 'accounting' || lower === 'financial accounting') return 'Financial Accounting';
+    if (lower === 'literature' || lower === 'literature in english') return 'Literature in English';
+    if (lower === 'history' || lower === 'nigerian history' || lower === 'nigeria history') return 'Nigeria History';
 
     return trimmed.split(' ')
         .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())

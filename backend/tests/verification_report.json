@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-09-20T16:36:39.919Z",
+  "tests": [
+    {
+      "name": "Zero-Question Active Configs Audit",
+      "passed": true,
+      "details": "0 phantom active configs found in database."
+    },
+    {
+      "name": "Zero-Question Active Legacy Configs Audit",
+      "passed": true,
+      "details": "0 phantom active legacy exam_configs found."
+    },
+    {
+      "name": "Canonical Subject Names in class_subjects",
+      "passed": true,
+      "details": "class_subjects uses \"Agricultural Science\": true, legacy names absent: true"
+    },
+    {
+      "name": "Student Portal Zero-Question Exclusion Guard",
+      "passed": true,
+      "details": "Zero inactive/empty papers returned to JSS 3 Gold student (clean slate)."
+    },
+    {
+      "name": "All Available Papers Have Question Count > 0",
+      "passed": true,
+      "details": "Every paper returned to candidate has actual_question_count > 0: true"
+    }
+  ],
+  "allPassed": true
+}

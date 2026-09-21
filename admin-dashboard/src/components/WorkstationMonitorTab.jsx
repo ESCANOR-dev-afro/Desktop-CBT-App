@@ -29,6 +29,9 @@ export default function WorkstationMonitorTab({
 
   // Real-time polling tick for live class sessions (visibility-aware)
   const fetchLiveMonitor = async () => {
+    if (typeof window !== 'undefined' && window.__IS_EXTRACTING_QUESTIONS__) {
+      return;
+    }
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
       return;
     }

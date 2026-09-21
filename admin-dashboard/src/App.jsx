@@ -72,7 +72,7 @@ export default function App() {
   useEffect(() => {
     // Cache-busting check for legacy curriculum cache
     try {
-      const CURRICULUM_VERSION = 3;
+      const CURRICULUM_VERSION = 7;
       const storedVer = Number(localStorage.getItem('awba_curriculum_version')) || 0;
       if (storedVer < CURRICULUM_VERSION) {
         localStorage.removeItem('awba_curriculum');
@@ -82,6 +82,14 @@ export default function App() {
       }
     } catch (_) {}
 
+    const canonicalMap = {
+      'agric': 'Agricultural Science',
+      'agriculture': 'Agricultural Science',
+      'agricultural science': 'Agricultural Science',
+      'basic tech': 'Basic Technology',
+      'basic technology': 'Basic Technology',
+    };
+
     fetch('/api/admin/class-subjects')
       .then((res) => res.json())
       .then((data) => {
@@ -90,13 +98,22 @@ export default function App() {
           setSubjectsByClass((prev) => {
             const merged = { ...initialSubjectsByClass, ...prev };
             Object.entries(data.classSubjects).forEach(([cls, fetchedList]) => {
-              const defaultList = initialSubjectsByClass[cls] || [];
               if (Array.isArray(fetchedList)) {
-                const fetchedNames = new Set(fetchedList.map((s) => (s?.name || s).toLowerCase()));
-                const missingDefaults = defaultList.filter(
-                  (d) => !fetchedNames.has((d?.name || d).toLowerCase())
-                );
-                merged[cls] = [...fetchedList, ...missingDefaults];
+                const isArtOrCommercial = cls && (cls.includes('Art') || cls.includes('Commercial'));
+                const seen = new Set();
+                const cleanList = [];
+                for (const item of fetchedList) {
+                  const rawName = typeof item === 'string' ? item : item?.name || '';
+                  const lower = rawName.trim().toLowerCase();
+                  const canonical = canonicalMap[lower] || rawName.trim();
+                  if (!canonical) continue;
+                  if (isArtOrCommercial && canonical.toLowerCase().includes('agric')) continue;
+                  if (!seen.has(canonical.toLowerCase())) {
+                    seen.add(canonical.toLowerCase());
+                    cleanList.push(typeof item === 'string' ? canonical : { ...item, name: canonical });
+                  }
+                }
+                merged[cls] = cleanList;
               }
             });
             return merged;

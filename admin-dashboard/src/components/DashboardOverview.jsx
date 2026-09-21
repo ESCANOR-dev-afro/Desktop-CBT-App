@@ -34,7 +34,10 @@ export default function DashboardOverview({
 
   // Live LAN Polling from SQLite Backend Endpoint (Visibility-aware with 8s interval)
   const fetchDashboardStats = useCallback(async () => {
-    // Only poll when browser tab is active/visible and not currently in-flight
+    // Only poll when browser tab is active/visible, not extracting questions, and not currently in-flight
+    if (typeof window !== 'undefined' && window.__IS_EXTRACTING_QUESTIONS__) {
+      return;
+    }
     if (typeof document !== 'undefined' && (document.hidden || document.visibilityState !== 'visible')) {
       return;
     }

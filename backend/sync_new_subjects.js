@@ -35,23 +35,24 @@ async function sync() {
             "English Language", "Mathematics", "Civic Education", "Social Studies",
             "Yoruba", "Music", "French", "Digital Technology",
             "Computer Hardware and GSM repair", "Horticulture", "Home Economics",
-            "Agriculture", "Oral English", "Intermediate Science", "Basic Science",
-            "Basic Tech", "CRS", "Business Studies", "PHE", "Nigeria History"
+            "Agricultural Science", "Oral English", "Intermediate Science", "Basic Science",
+            "Basic Technology", "CRS", "Business Studies", "PHE", "Nigeria History",
+            "ICT"
         ];
         const scienceSubjects = [
             "English Language", "Mathematics", "Physics", "Chemistry", "Biology",
             "Economics", "Further Mathematics", "Digital Technology", "ICT",
-            "Oral English", "Geography", "Civic Education", "Agric",
+            "Oral English", "Geography", "Civic Education", "Agricultural Science",
             "Horticulture and crop production", "Computer hardware and GSM repair",
             "Catering craft"
         ];
         const commercialSubjects = [
-            "English Language", "Mathematics", "Account", "Commerce", "Government",
+            "English Language", "Mathematics", "Financial Accounting", "Commerce", "Government",
             "Economics", "Further Mathematics", "Digital Technology", "ICT",
             "Oral English", "Civic Education", "Marketing", "Catering craft"
         ];
         const artsSubjects = [
-            "English Language", "Mathematics", "Literature", "CRS", "Government",
+            "English Language", "Mathematics", "Literature in English", "CRS", "Government",
             "Economics", "Digital Technology", "ICT", "Oral English", "Yoruba",
             "Civic Education", "Catering craft"
         ];
@@ -106,15 +107,22 @@ async function sync() {
             }
         }
 
-        // 4. Update normalization meta to version 3
+        // 3b. Hard-purge Agricultural Science from Art and Commercial streams
+        await runAsync(`
+            DELETE FROM class_subjects 
+            WHERE LOWER(subject_name) LIKE '%agric%' 
+              AND (class_name LIKE '%Art%' OR class_name LIKE '%Commercial%')
+        `);
+
+        // 4. Update normalization meta to version 7
         await runAsync(`CREATE TABLE IF NOT EXISTS _normalization_meta (
             id INTEGER PRIMARY KEY CHECK(id = 1),
             last_run_at DATETIME,
             version INTEGER DEFAULT 1
         )`);
         await runAsync(
-            `INSERT INTO _normalization_meta (id, last_run_at, version) VALUES (1, datetime('now'), 3)
-             ON CONFLICT(id) DO UPDATE SET last_run_at = datetime('now'), version = 3`
+            `INSERT INTO _normalization_meta (id, last_run_at, version) VALUES (1, datetime('now'), 7)
+             ON CONFLICT(id) DO UPDATE SET last_run_at = datetime('now'), version = 7`
         );
 
         console.log(`🎉 [Subject Sync Complete] Successfully synchronized ${insertedCount} class-subject mapping entries.`);
@@ -138,4 +146,4 @@ async function sync() {
     }
 }
 
-sync();
+setTimeout(sync, 1000);
