@@ -25,7 +25,7 @@ const IMG_TAG_RE = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
  * Parses DOCX buffer using Math & Physical Sciences strategy.
  */
 async function parseMathScienceDocx(buffer, options = {}) {
-    const diagramsDir = options.diagramsDir || path.join(__dirname, '../../../uploads/diagrams');
+    const diagramsDir = options.diagramsDir || path.join(__dirname, '../../uploads/diagrams');
     const diagramsUrlPrefix = options.diagramsUrlPrefix || '/uploads/diagrams';
     const baseSlug = generateDocSlug(options.docContext || options);
     const warnings = [];

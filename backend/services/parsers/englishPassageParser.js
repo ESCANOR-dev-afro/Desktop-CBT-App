@@ -30,7 +30,7 @@ const IMG_TAG_RE = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
  * Parses DOCX buffer using English & Languages strategy.
  */
 async function parseEnglishPassageDocx(buffer, options = {}) {
-    const diagramsDir = options.diagramsDir || path.join(__dirname, '../../../uploads/diagrams');
+    const diagramsDir = options.diagramsDir || path.join(__dirname, '../../uploads/diagrams');
     const diagramsUrlPrefix = options.diagramsUrlPrefix || '/uploads/diagrams';
     const baseSlug = generateDocSlug(options.docContext || options);
     const warnings = [];

@@ -134,7 +134,7 @@ function parsePlainText(text, options = {}, profileMode = 'standard_general') {
  * Parses DOCX buffer using Standard & General strategy.
  */
 async function parseStandardDocx(buffer, options = {}) {
-    const diagramsDir = options.diagramsDir || path.join(__dirname, '../../../uploads/diagrams');
+    const diagramsDir = options.diagramsDir || path.join(__dirname, '../../uploads/diagrams');
     const diagramsUrlPrefix = options.diagramsUrlPrefix || '/uploads/diagrams';
     const baseSlug = generateDocSlug(options.docContext || options);
     const warnings = [];
