@@ -12,6 +12,7 @@ const AdmZip = require('adm-zip');
 const { parseMathScienceDocx } = require('./mathScienceParser');
 const { parseEnglishPassageDocx } = require('./englishPassageParser');
 const { parseStandardDocx, parsePlainText } = require('./standardDocxParser');
+const { humanizeParserWarnings } = require('./common/textSanitizer');
 
 /**
  * Resolves the appropriate parsing strategy profile name.
@@ -131,4 +132,5 @@ module.exports = {
     parseMathScienceDocx,
     parseEnglishPassageDocx,
     parseStandardDocx,
+    humanizeParserWarnings,
 };

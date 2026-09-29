@@ -245,6 +245,23 @@ function sanitizeDocumentText(text, options = {}) {
     // 1. Normalize line endings
     sanitized = sanitized.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
+    // 1.1 Separate unspaced answer tokens (e.g. "OxidationAns: B" -> "Oxidation Ans: B", "CH3COOHAns: B" -> "CH3COOH Ans: B")
+    sanitized = sanitized.replace(/(?<=[a-zA-Z0-9\>])(?=(?:Ans(?:wer)?|Answer|Ans|Key|ANS|ANSWER|KEY)\s*[:=\.\s\-]+[A-Ea-e]\b)/gi, ' ');
+
+    // 1.2 Normalize HTML tags wrapping Question Numbers at start of lines (e.g. "<b>10.</b>" -> "10. ")
+    sanitized = sanitized.replace(/(?:^|\n|\r)[^\S\r\n]*(?:<[a-z0-9]+[^>]*>\s*)*(\d{1,3})\s*(?:<\/[a-z0-9]+>\s*)*([.)])[^\S\r\n]*/gi, '\n$1$2 ');
+
+    // 1.3 Normalize HTML tags and brackets wrapping Answer keys (e.g. "<b>Ans: B</b>", "[Ans: B]", "(Answer: C)", "Ans: <b>B</b>")
+    sanitized = sanitized.replace(/(?:\[|\()?[^\S\r\n]*(?:<[a-z0-9]+[^>]*>[^\S\r\n]*)*(?:Ans(?:wer)?|Answer|Ans|Key|ANS|ANSWER|KEY)[^\S\r\n]*(?:<\/[a-z0-9]+>[^\S\r\n]*)*[:=\.\s\-]+[^\S\r\n]*(?:<[a-z0-9]+>[^\S\r\n]*)*\(?([A-Ea-e])\)?[^\S\r\n]*(?:<\/[a-z0-9]+>[^\S\r\n]*)*(?:\]|\))?/gi, ' Ans: $1 ');
+
+    // Ensure answer keys on separate lines retain newline boundaries
+    sanitized = sanitized.replace(/(?<=\n)[^\S\r\n]*(\bAns:\s*[A-Ea-e]\b)[^\S\r\n]*(?=\r?\n|$)/gi, '$1');
+    sanitized = sanitized.replace(/(\bAns:\s*[A-Ea-e]\b)[^\S\r\n]+(?=\d{1,3}[.)]|(?:SECTION|PART|INSTRUCTION|PASSAGE|From\s+the|Choose|Select)\b)/gi, '$1\n');
+
+    // 1.4 Normalize HTML tags wrapping Option markers (e.g. "<b>A.</b>", "<strong>A.</strong>", "<b>A</b>.", "<u>A.</u>", "<b>(A)</b>", "(<b>A</b>)")
+    sanitized = sanitized.replace(/(?:^|[\s\t\n\r>])(?:<[a-z0-9]+[^>]*>\s*)*\(?([A-Ea-e])\)?(?:<\/[a-z0-9]+>\s*)*([.):\-])[^\S\r\n]*/gi, ' $1$2 ');
+    sanitized = sanitized.replace(/(?:^|[\s\t\n\r>])\((?:<[a-z0-9]+[^>]*>\s*)*([A-Ea-e])(?:<\/[a-z0-9]+>\s*)*\)[^\S\r\n]*/gi, ' $1. ');
+
     // 2. Replace all tab characters \t with two spaces to preserve column separations for tabular cloze rows
     sanitized = sanitized.replace(/\t/g, '  ');
 
@@ -275,6 +292,85 @@ function sanitizeDocumentText(text, options = {}) {
     return sanitized;
 }
 
+/**
+ * Humanizes and sanitizes parser warnings for non-technical teachers and admins.
+ * Filters out internal engine/Mammoth notices and translates block failures into clear, actionable guidance.
+ *
+ * @param {string[]} rawWarnings - Array of raw parser warning strings
+ * @param {Object[]} [questions=[]] - Parsed questions array to detect collapsed/missing options
+ * @returns {string[]} Clean, teacher-friendly warning messages
+ */
+function humanizeParserWarnings(rawWarnings = [], questions = []) {
+    if (!rawWarnings || !Array.isArray(rawWarnings)) return [];
+
+    const humanized = [];
+    const seen = new Set();
+
+    for (const w of rawWarnings) {
+        if (!w || typeof w !== 'string') continue;
+        const trimmed = w.trim();
+        if (!trimmed) continue;
+
+        // 1. Suppress internal library notices (Mammoth, internal formatting warnings)
+        if (/^Mammoth:/i.test(trimmed)) continue;
+        if (/Did not understand this style mapping/i.test(trimmed)) continue;
+        if (/Unrecognised (?:paragraph|run|table) style/i.test(trimmed)) continue;
+        if (/An unrecognised element was ignored/i.test(trimmed)) continue;
+
+        let message = trimmed;
+
+        // 2. Transform "Could not parse question block for Question X"
+        const blockMatch = trimmed.match(/Could not parse question block for Question\s+(\d+)/i);
+        if (blockMatch) {
+            const qNum = blockMatch[1];
+            message = `Question ${qNum}: Could not detect all 4 options (A-D) clearly. Please check the spacing and option letters in your Word document.`;
+        }
+
+        // 3. Transform "Question X: No answer key detected."
+        const noAnsMatch = trimmed.match(/^Question\s+(\d+):\s*No answer key detected\.?/i);
+        if (noAnsMatch) {
+            const qNum = noAnsMatch[1];
+            message = `Question ${qNum}: No answer key found (e.g., 'Ans: B'). You can select the correct key manually in the dropdown above before importing.`;
+        }
+
+        // 4. Transform Image conversion errors
+        if (/^Image conversion failed:/i.test(trimmed)) {
+            message = `A diagram image in your document could not be processed. Please check that images are standard PNG or JPEG format.`;
+        }
+
+        if (!seen.has(message)) {
+            seen.add(message);
+            humanized.push(message);
+        }
+    }
+
+    // 5. Inspect parsed questions for merged/collapsed options
+    if (questions && Array.isArray(questions)) {
+        for (const q of questions) {
+            if (!q) continue;
+            const qNum = q.number || q.question_number;
+            const opts = q.options || {};
+            const optA = (opts.A || q.option_a || '').trim();
+            const optB = (opts.B || q.option_b || '').trim();
+            const optC = (opts.C || q.option_c || '').trim();
+            const optD = (opts.D || q.option_d || '').trim();
+
+            if (optA && optB && (!optC || !optD)) {
+                let msg = `Question ${qNum}: Has fewer than 4 options detected.`;
+                if (!optC && !optD && /C\b|D\b/.test(optB)) {
+                    msg = `Question ${qNum}: Options C and D appear to be merged into Option B. Ensure each option letter (A, B, C, D) is clearly marked.`;
+                }
+                if (!seen.has(msg)) {
+                    seen.add(msg);
+                    humanized.push(msg);
+                }
+            }
+        }
+    }
+
+    return humanized;
+}
+
 module.exports = {
     CLOZE_GAP_RE,
     DOCUMENT_HEADER_REGEX,
@@ -287,4 +383,5 @@ module.exports = {
     isHeaderMetadata,
     stripHeaderMetadata,
     sanitizeDocumentText,
+    humanizeParserWarnings,
 };

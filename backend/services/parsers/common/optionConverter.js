@@ -11,12 +11,12 @@ const { isInsideMath } = require('./mathOmmlConverter');
  * Question number boundary detector.
  * Matches: "1.", "1)", "01.", "  1. ", etc.
  */
-const QUESTION_NUMBER_RE = /^\s*(\d{1,3})\s*[.)]\s*/;
+const QUESTION_NUMBER_RE = /^\s*(?:<[^>]+>)*\s*(\d{1,3})\s*(?:<\/[^>]+>)*[.)]\s*/;
 
 /**
  * Capital-letter-safe stacked option detector.
  */
-const STACKED_OPTION_RE = /^\s*\(?([A-Ea-e])\)?[.):\-]\s+(.+)/;
+const STACKED_OPTION_RE = /^\s*(?:<[^>]+>)*\s*\(?([A-Ea-e])\)?(?:<\/[^>]+>)*[.):\-]\s+(.+)/;
 
 /**
  * Capital-letter-safe inline option splitter.
@@ -25,15 +25,15 @@ const INLINE_OPTIONS_RE = /(?:^|(?<=\s)|\()([A-Ea-e])[.):\-]\s+([\s\S]+?)(?=(?:\
 
 /**
  * Inline answer key detector (per-question).
- * Matches: "Ans: B", "Answer: C", "ANSWER = A", "ANS - D", "Ans B", "(Ans: A)", "[Ans: B]"
+ * Matches: "Ans: B", "Answer: C", "ANSWER = A", "ANS - D", "Ans B", "(Ans: A)", "[Ans: B]", "KEY: B"
  */
-const INLINE_ANSWER_RE = /(?:\[|\(|\s)*(?:Ans(?:wer)?|ANSWER|ANS)\s*[:=\.\s\-]+\(?([A-Ea-e])\)?(?!\w)(?:\)|\])*/i;
+const INLINE_ANSWER_RE = /(?:\[|\(|\s)*(?:Ans(?:wer)?|ANSWER|ANS|Key|KEY)\s*[:=\.\s\-]+\(?([A-Ea-e])\)?(?!\w)(?:\)|\])*/i;
 
 /**
  * Trailing option answer key detector (e.g. "D. 1675m Ans C", "D. None [Ans: B]", "D. were Ans D", "D. controversial Key C").
- * Matches trailing answer keys attached to the end of option text (strictly A-D).
+ * Matches trailing answer keys attached to the end of option text (A-E).
  */
-const TRAILING_ANS_REGEX = /(?:\[|\(|\s)*(?:Ans(?:wer)?|Answer|Ans|Key|ANS|ANSWER|KEY)[:\.\s=\-]+([A-Da-d])(?:\b|\)|\])*\s*$/i;
+const TRAILING_ANS_REGEX = /(?:\[|\(|\s)*(?:Ans(?:wer)?|Answer|Ans|Key|ANS|ANSWER|KEY)\s*[:\.\s=\-]+\(?([A-Ea-e])\)?(?:\b|\)|\])*\s*$/i;
 const TRAILING_OPTION_ANSWER_RE = TRAILING_ANS_REGEX;
 
 /**
@@ -130,28 +130,40 @@ function parseQuestionBlock(blockText, qNumber = null, context = null) {
         }
     }
 
-    const tokenRegex = /(?:^|\r?\n|\r|[\s\t]+|\()([A-Ea-e])(?:[\.\):]|(?=[ \t]+[A-Za-z0-9\$\\\/\[\u0080-\uFFFFˈˌ]))/gu;
+    // Tokenize candidate option keys A, B, C, D, E (with punctuation or whitespace delimiter)
+    const tokenRegex = /(?<=^|\r?\n|\r|[\s\t(])([A-Ea-e])(?:([.):\-])|(?=[ \t]+[A-Za-z0-9\$\\\/\[\u0080-\uFFFFˈˌ_]))/gu;
     const tokens = [];
     let m;
 
     while ((m = tokenRegex.exec(text)) !== null) {
-        const letter = m[1].toUpperCase();
-        const matchFull = m[0];
-        const letterIdx = m.index + matchFull.indexOf(m[1]);
+        const rawLetter = m[1];
+        const letter = rawLetter.toUpperCase();
+        const punct = m[2] || '';
+        const hasPunct = !!punct;
+        const isLowerNoPunct = (rawLetter >= 'a' && rawLetter <= 'e') && !hasPunct;
+
+        // Skip standalone lowercase 'a' without punctuation inside sentences (English indefinite article)
+        if (isLowerNoPunct && rawLetter === 'a') {
+            continue;
+        }
+
+        const letterIdx = m.index;
 
         if (isInsideMath(text, letterIdx)) {
             continue;
         }
 
-        const prevChar = letterIdx > 0 ? text[letterIdx - 1] : '';
-        if (prevChar && /[a-zA-Z0-9]/.test(prevChar) && !matchFull.startsWith('(')) {
-            continue;
+        let contentStart = letterIdx + m[0].length;
+        while (contentStart < text.length && (text[contentStart] === ' ' || text[contentStart] === '\t')) {
+            contentStart++;
         }
 
         tokens.push({
             letter: letter,
+            rawLetter: rawLetter,
             matchStart: letterIdx,
-            contentStart: m.index + matchFull.length,
+            contentStart: contentStart,
+            hasPunct: hasPunct,
         });
     }
 
@@ -161,7 +173,7 @@ function parseQuestionBlock(blockText, qNumber = null, context = null) {
     const candD = tokens.filter(t => t.letter === 'D');
     const candE = tokens.filter(t => t.letter === 'E');
 
-    if (tokens.length === 0) {
+    if (tokens.length === 0 || candB.length === 0) {
         const isClozeAllowed = context && (context.allowCloze === true || context.profileMode === 'english_languages');
         if (isClozeAllowed) {
             const isQuestionSentence = /^(?:Given|Evaluate|Solve|What|Which|Calculate|Find|Determine|How|Why|Where|When|If|State|Show|Prove|Let|In\s+the|For\s+what|An?\s+|The\s+)\b/i.test(text);
@@ -197,7 +209,7 @@ function parseQuestionBlock(blockText, qNumber = null, context = null) {
                 }
             }
         }
-        return null;
+        if (candB.length === 0) return null;
     }
 
     let tokenA = null;
@@ -206,47 +218,82 @@ function parseQuestionBlock(blockText, qNumber = null, context = null) {
     let tokenD = null;
     let tokenE = null;
 
-    if (candB.length === 0) {
-        return null;
-    }
+    let bestChain = null;
 
-    if (candA.length > 0) {
-        const firstB = candB[0];
-        const validAs = candA.filter(a => a.matchStart < firstB.matchStart);
-        if (validAs.length > 0) {
-            tokenA = validAs[validAs.length - 1];
-            tokenB = firstB;
+    for (const b of candB) {
+        const validCs = candC.filter(c => c.matchStart >= b.contentStart);
+        if (validCs.length === 0) continue;
+
+        for (const c of validCs) {
+            const validDs = candD.filter(d => d.matchStart >= c.contentStart);
+            if (validDs.length === 0) continue;
+
+            for (const d of validDs) {
+                const validEs = candE.filter(e => e.matchStart >= d.contentStart);
+                const e = validEs.length > 0 ? validEs[0] : null;
+
+                const validAs = candA.filter(a => a.matchStart < b.matchStart);
+                let a = null;
+                if (validAs.length > 0) {
+                    const punctAs = validAs.filter(cand => cand.hasPunct);
+                    a = punctAs.length > 0 ? punctAs[punctAs.length - 1] : validAs[validAs.length - 1];
+                }
+
+                const chain = { A: a, B: b, C: c, D: d, E: e };
+                let score = 0;
+                if (a) score += a.hasPunct ? 20 : 5;
+                if (b.hasPunct) score += 20; else score += 5;
+                if (c.hasPunct) score += 20; else score += 5;
+                if (d.hasPunct) score += 20; else score += 5;
+                if (e) score += e.hasPunct ? 20 : 5;
+
+                const lenA = a ? b.matchStart - a.contentStart : 0;
+                const lenB = c.matchStart - b.contentStart;
+                const lenC = d.matchStart - c.contentStart;
+                const lenD = e ? e.matchStart - d.contentStart : text.length - d.contentStart;
+
+                if (a && lenA > 0 && lenA < 300) score += 10;
+                if (lenB > 0 && lenB < 300) score += 10;
+                if (lenC > 0 && lenC < 300) score += 10;
+                if (lenD > 0 && lenD < 300) score += 10;
+
+                // Penalize if lenA contains sentence-ending punctuation like '?' or '.'
+                if (a && /[.?!]/.test(text.substring(a.contentStart, b.matchStart))) {
+                    score -= 50;
+                }
+
+                if (!bestChain || score > bestChain.score) {
+                    bestChain = { chain, score };
+                }
+            }
         }
     }
 
-    if (!tokenA && candB.length > 0 && candC.length > 0) {
+    if (bestChain) {
+        tokenA = bestChain.chain.A;
+        tokenB = bestChain.chain.B;
+        tokenC = bestChain.chain.C;
+        tokenD = bestChain.chain.D;
+        tokenE = bestChain.chain.E;
+    } else {
         tokenB = candB[0];
+        const validAs = candA.filter(a => a.matchStart < tokenB.matchStart);
+        if (validAs.length > 0) {
+            tokenA = validAs[validAs.length - 1];
+        }
+        if (candC.length > 0) {
+            tokenC = candC.find(c => c.matchStart > tokenB.contentStart) || null;
+        }
+        if (tokenC && candD.length > 0) {
+            tokenD = candD.find(d => d.matchStart > tokenC.contentStart) || null;
+        }
+        if (tokenD && candE.length > 0) {
+            tokenE = candE.find(e => e.matchStart > tokenD.contentStart) || null;
+        }
     }
 
     if (!tokenB) {
         return null;
-    }
-
-    if (candC.length > 0) {
-        const firstC = candC.find(c => c.matchStart > tokenB.contentStart);
-        if (firstC) {
-            tokenC = firstC;
-        }
-    }
-
-    const prevToken = tokenC || tokenB;
-    if (prevToken && candD.length > 0) {
-        const validDs = candD.filter(d => d.matchStart > prevToken.contentStart);
-        if (validDs.length > 0) {
-            tokenD = validDs[0];
-        }
-    }
-
-    if (tokenD && candE.length > 0) {
-        const validEs = candE.filter(e => e.matchStart > tokenD.contentStart);
-        if (validEs.length > 0) {
-            tokenE = validEs[0];
-        }
     }
 
     let stem = '';

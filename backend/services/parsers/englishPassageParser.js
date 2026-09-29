@@ -14,7 +14,7 @@
 const mammoth = require('mammoth');
 const path = require('path');
 const fs = require('fs');
-const { stripHtml, extractParagraphsFromHtml } = require('./common/textSanitizer');
+const { stripHtml, extractParagraphsFromHtml, humanizeParserWarnings } = require('./common/textSanitizer');
 const { convertFiveToFourOptions } = require('./common/optionConverter');
 const { extractDocxMedia, createDiagramContext, associateParagraphMedia, generateDocSlug, saveOptimizedDiagram } = require('./common/docxMediaExtractor');
 const {
@@ -78,7 +78,19 @@ async function parseEnglishPassageDocx(buffer, options = {}) {
     const mammothResult = await mammoth.convertToHtml(
         { buffer },
         {
-            styleMap: ["u => u", "b => b", "i => i", "strike => s", "sup => sup", "sub => sub"],
+            styleMap: [
+                "b => b",
+                "i => i",
+                "u => u",
+                "strike => s",
+                "r[style-name='superscript'] => sup",
+                "r[style-name='subscript'] => sub",
+                "r[style-name='Superscript'] => sup",
+                "r[style-name='Subscript'] => sub",
+                "p[style-name='List Paragraph'] => p:fresh",
+                "p[style-name='List Paragraph1'] => p:fresh",
+                "p[style-name='No Spacing'] => p:fresh",
+            ],
             convertImage: mammoth.images.imgElement(async (image) => {
                 try {
                     const rawExt = (image.contentType || 'image/png').split('/')[1] || 'png';
@@ -110,14 +122,6 @@ async function parseEnglishPassageDocx(buffer, options = {}) {
             }),
         }
     );
-
-    if (mammothResult.messages && mammothResult.messages.length > 0) {
-        mammothResult.messages.forEach(msg => {
-            if (msg.type === 'warning' || msg.type === 'error') {
-                warnings.push(`Mammoth: ${msg.message}`);
-            }
-        });
-    }
 
     const html = mammothResult.value || '';
     const paragraphs = extractParagraphsFromHtml(html);
@@ -205,7 +209,7 @@ async function parseEnglishPassageDocx(buffer, options = {}) {
     return {
         questions: finalQuestions,
         images: extractedImages,
-        warnings: [...warnings, ...parseResult.warnings],
+        warnings: humanizeParserWarnings([...warnings, ...parseResult.warnings], finalQuestions),
         metadata: {
             sourceFormat: 'docx',
             profileMode: 'english_languages',

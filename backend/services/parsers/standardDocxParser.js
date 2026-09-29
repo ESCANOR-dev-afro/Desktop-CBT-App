@@ -14,7 +14,7 @@
 const mammoth = require('mammoth');
 const path = require('path');
 const fs = require('fs');
-const { stripHtml, sanitizeDocumentText, extractParagraphsFromHtml } = require('./common/textSanitizer');
+const { stripHtml, sanitizeDocumentText, extractParagraphsFromHtml, humanizeParserWarnings } = require('./common/textSanitizer');
 const { convertFiveToFourOptions } = require('./common/optionConverter');
 const { extractDocxMedia, createDiagramContext, associateParagraphMedia, generateDocSlug, saveOptimizedDiagram } = require('./common/docxMediaExtractor');
 const { parseDocument, parseQuestionBlock, findQuestionBoundaries } = require('./common/documentParser');
@@ -116,7 +116,7 @@ function parsePlainText(text, options = {}, profileMode = 'standard_general') {
     return {
         questions: finalQuestions,
         images: [],
-        warnings,
+        warnings: humanizeParserWarnings(warnings, finalQuestions),
         metadata: {
             sourceFormat: 'txt',
             profileMode: profileMode || 'standard_general',
@@ -157,7 +157,19 @@ async function parseStandardDocx(buffer, options = {}) {
     const mammothResult = await mammoth.convertToHtml(
         { buffer },
         {
-            styleMap: ["u => u", "b => b", "i => i", "strike => s", "sup => sup", "sub => sub"],
+            styleMap: [
+                "b => b",
+                "i => i",
+                "u => u",
+                "strike => s",
+                "r[style-name='superscript'] => sup",
+                "r[style-name='subscript'] => sub",
+                "r[style-name='Superscript'] => sup",
+                "r[style-name='Subscript'] => sub",
+                "p[style-name='List Paragraph'] => p:fresh",
+                "p[style-name='List Paragraph1'] => p:fresh",
+                "p[style-name='No Spacing'] => p:fresh",
+            ],
             convertImage: mammoth.images.imgElement(async (image) => {
                 try {
                     const rawExt = (image.contentType || 'image/png').split('/')[1] || 'png';
@@ -267,7 +279,7 @@ async function parseStandardDocx(buffer, options = {}) {
     return {
         questions: finalQuestions,
         images: extractedImages,
-        warnings: [...warnings, ...parseResult.warnings],
+        warnings: humanizeParserWarnings([...warnings, ...parseResult.warnings], finalQuestions),
         metadata: {
             sourceFormat: 'docx',
             profileMode: 'standard_general',
