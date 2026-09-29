@@ -24,6 +24,7 @@ const {
     stripHtml,
     normalizeClozeGaps,
     sanitizeDocumentText,
+    humanizeParserWarnings,
 } = require('./parsers/common/textSanitizer');
 
 const {
@@ -101,8 +102,10 @@ module.exports = {
     cleanupStalePreviewDiagrams,
     generateDocSlug,
     generateScopedDiagramFilename,
+    humanizeParserWarnings,
     // Exported for backward-compatibility & testing
     _internal: {
+        humanizeParserWarnings,
         generateDocSlug,
         generateScopedDiagramFilename,
         ommlToLatex,
