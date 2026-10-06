@@ -19,11 +19,14 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 logs/
+*_log.txt
 
-# SQLite Database Lock Files (Keep seed schema, ignore active WAL sessions)
+# SQLite Database Files & Lock Files
+*.db
 *.db-journal
 *.db-wal
 *.db-shm
+backend/*.db
 
 # Environment & OS Metadata
 .env

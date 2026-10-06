@@ -263,7 +263,9 @@ function initDatabase() {
             ['English Language', ['english', 'eng', 'english language']],
             ['Mathematics', ['math', 'maths', 'mathematics']],
             ['Computer Studies', ['comp sci', 'computer', 'computer science', 'computer studies']],
-            ['Civic Education', ['civics', 'civic education']]
+            ['Civic Education', ['civics', 'civic education']],
+            ['Citizenship and Heritage Studies', ['citizenship and heritage studies', 'citizenship and heritage', 'citizenship & heritage studies', 'chs', 'citizenship studies']],
+            ['Computer hardware and GSM repair', ['computer hardware and gsm repair', 'computer hardware and gsm', 'computer hardware', 'gsm repair', 'computer hardware & gsm repair']]
         ];
 
         subjectAliases.forEach(([canonical, variants]) => {
@@ -772,7 +774,7 @@ function seedDefaultCatalog() {
         'Computer hardware and GSM repair', 'Catering craft',
         'Financial Accounting', 'Commerce', 'Government', 'Marketing',
         'Literature in English', 'CRS/IRS', 'Computer Studies',
-        'Fine Art', 'History'
+        'Fine Art', 'History', 'Citizenship and Heritage Studies'
     ];
 
     const subjectInsertSql = `INSERT OR IGNORE INTO subjects (name, is_active) VALUES (?, 1);`;
@@ -796,7 +798,7 @@ function seedDefaultCatalog() {
  */
 async function checkAndRunNormalization() {
     try {
-        const CURRICULUM_VERSION = 7;
+        const CURRICULUM_VERSION = 8;
 
         // Create tracking table if it doesn't exist
         await runAsync(`CREATE TABLE IF NOT EXISTS _normalization_meta (
@@ -910,7 +912,7 @@ async function runAutoNormalization() {
             "Computer Hardware and GSM repair", "Horticulture", "Home Economics",
             "Agricultural Science", "Oral English", "Intermediate Science", "Basic Science",
             "Basic Technology", "CRS", "Business Studies", "PHE", "Nigeria History",
-            "ICT"
+            "ICT", "Citizenship and Heritage Studies"
         ];
         const scienceSubjects = [
             "English Language", "Mathematics", "Physics", "Chemistry", "Biology",
@@ -922,12 +924,13 @@ async function runAutoNormalization() {
         const commercialSubjects = [
             "English Language", "Mathematics", "Financial Accounting", "Commerce", "Government",
             "Economics", "Further Mathematics", "Digital Technology", "ICT",
-            "Oral English", "Civic Education", "Marketing", "Catering craft"
+            "Oral English", "Civic Education", "Marketing", "Catering craft",
+            "Computer hardware and GSM repair"
         ];
         const artsSubjects = [
             "English Language", "Mathematics", "Literature in English", "CRS", "Government",
             "Economics", "Digital Technology", "ICT", "Oral English", "Yoruba",
-            "Civic Education", "Catering craft"
+            "Civic Education", "Catering craft", "Computer hardware and GSM repair"
         ];
 
         const allStreamSubjects = Array.from(new Set([
@@ -1001,7 +1004,9 @@ async function runAutoNormalization() {
             ['English Language', ['english', 'eng', 'english language']],
             ['Mathematics', ['math', 'maths', 'mathematics']],
             ['Computer Studies', ['comp sci', 'computer', 'computer science', 'computer studies']],
-            ['Civic Education', ['civics', 'civic education']]
+            ['Civic Education', ['civics', 'civic education']],
+            ['Citizenship and Heritage Studies', ['citizenship and heritage studies', 'citizenship and heritage', 'citizenship & heritage studies', 'chs', 'citizenship studies']],
+            ['Computer hardware and GSM repair', ['computer hardware and gsm repair', 'computer hardware and gsm', 'computer hardware', 'gsm repair', 'computer hardware & gsm repair']]
         ];
 
         for (const [canonical, variants] of aliasMappings) {

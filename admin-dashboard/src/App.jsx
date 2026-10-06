@@ -72,7 +72,7 @@ export default function App() {
   useEffect(() => {
     // Cache-busting check for legacy curriculum cache
     try {
-      const CURRICULUM_VERSION = 7;
+      const CURRICULUM_VERSION = 8;
       const storedVer = Number(localStorage.getItem('awba_curriculum_version')) || 0;
       if (storedVer < CURRICULUM_VERSION) {
         localStorage.removeItem('awba_curriculum');

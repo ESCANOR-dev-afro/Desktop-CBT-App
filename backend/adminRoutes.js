@@ -127,6 +127,8 @@ function normalizeSubjectName(rawSubject) {
     if (lower === 'account' || lower === 'accounting' || lower === 'financial accounting') return 'Financial Accounting';
     if (lower === 'literature' || lower === 'literature in english') return 'Literature in English';
     if (lower === 'history' || lower === 'nigerian history' || lower === 'nigeria history') return 'Nigeria History';
+    if (lower === 'citizenship and heritage studies' || lower === 'citizenship and heritage' || lower === 'citizenship & heritage studies' || lower === 'chs' || lower === 'citizenship studies') return 'Citizenship and Heritage Studies';
+    if (lower === 'computer hardware and gsm repair' || lower === 'computer hardware & gsm repair' || lower === 'gsm repair' || lower === 'computer hardware and gsm' || lower === 'computer hardware') return 'Computer hardware and GSM repair';
 
     return trimmed.split(' ')
         .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
@@ -261,7 +263,7 @@ const authoritativeCurriculumByStream = {
         "Computer Hardware and GSM repair", "Horticulture", "Home Economics",
         "Agricultural Science", "Oral English", "Intermediate Science", "Basic Science",
         "Basic Technology", "CRS", "Business Studies", "PHE", "Nigeria History",
-        "ICT"
+        "ICT", "Citizenship and Heritage Studies"
     ],
     science: [
         "English Language", "Mathematics", "Physics", "Chemistry", "Biology",
@@ -273,12 +275,13 @@ const authoritativeCurriculumByStream = {
     commercial: [
         "English Language", "Mathematics", "Financial Accounting", "Commerce", "Government",
         "Economics", "Further Mathematics", "Digital Technology", "ICT",
-        "Oral English", "Civic Education", "Marketing", "Catering craft"
+        "Oral English", "Civic Education", "Marketing", "Catering craft",
+        "Computer hardware and GSM repair"
     ],
     art: [
         "English Language", "Mathematics", "Literature in English", "CRS", "Government",
         "Economics", "Digital Technology", "ICT", "Oral English", "Yoruba",
-        "Civic Education", "Catering craft"
+        "Civic Education", "Catering craft", "Computer hardware and GSM repair"
     ]
 };
 

@@ -37,7 +37,7 @@ async function sync() {
             "Computer Hardware and GSM repair", "Horticulture", "Home Economics",
             "Agricultural Science", "Oral English", "Intermediate Science", "Basic Science",
             "Basic Technology", "CRS", "Business Studies", "PHE", "Nigeria History",
-            "ICT"
+            "ICT", "Citizenship and Heritage Studies"
         ];
         const scienceSubjects = [
             "English Language", "Mathematics", "Physics", "Chemistry", "Biology",
@@ -49,12 +49,13 @@ async function sync() {
         const commercialSubjects = [
             "English Language", "Mathematics", "Financial Accounting", "Commerce", "Government",
             "Economics", "Further Mathematics", "Digital Technology", "ICT",
-            "Oral English", "Civic Education", "Marketing", "Catering craft"
+            "Oral English", "Civic Education", "Marketing", "Catering craft",
+            "Computer hardware and GSM repair"
         ];
         const artsSubjects = [
             "English Language", "Mathematics", "Literature in English", "CRS", "Government",
             "Economics", "Digital Technology", "ICT", "Oral English", "Yoruba",
-            "Civic Education", "Catering craft"
+            "Civic Education", "Catering craft", "Computer hardware and GSM repair"
         ];
 
         // 1. Insert into `subjects` master catalog
@@ -114,15 +115,15 @@ async function sync() {
               AND (class_name LIKE '%Art%' OR class_name LIKE '%Commercial%')
         `);
 
-        // 4. Update normalization meta to version 7
+        // 4. Update normalization meta to version 8
         await runAsync(`CREATE TABLE IF NOT EXISTS _normalization_meta (
             id INTEGER PRIMARY KEY CHECK(id = 1),
             last_run_at DATETIME,
             version INTEGER DEFAULT 1
         )`);
         await runAsync(
-            `INSERT INTO _normalization_meta (id, last_run_at, version) VALUES (1, datetime('now'), 7)
-             ON CONFLICT(id) DO UPDATE SET last_run_at = datetime('now'), version = 7`
+            `INSERT INTO _normalization_meta (id, last_run_at, version) VALUES (1, datetime('now'), 8)
+             ON CONFLICT(id) DO UPDATE SET last_run_at = datetime('now'), version = 8`
         );
 
         console.log(`🎉 [Subject Sync Complete] Successfully synchronized ${insertedCount} class-subject mapping entries.`);

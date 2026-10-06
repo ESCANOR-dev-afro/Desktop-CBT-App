@@ -74,6 +74,8 @@ function normalizeSubjectName(rawSubject) {
     if (lower === 'account' || lower === 'accounting' || lower === 'financial accounting') return 'Financial Accounting';
     if (lower === 'literature' || lower === 'literature in english') return 'Literature in English';
     if (lower === 'history' || lower === 'nigerian history' || lower === 'nigeria history') return 'Nigeria History';
+    if (lower === 'citizenship and heritage studies' || lower === 'citizenship and heritage' || lower === 'citizenship & heritage studies' || lower === 'chs' || lower === 'citizenship studies') return 'Citizenship and Heritage Studies';
+    if (lower === 'computer hardware and gsm repair' || lower === 'computer hardware & gsm repair' || lower === 'gsm repair' || lower === 'computer hardware and gsm' || lower === 'computer hardware') return 'Computer hardware and GSM repair';
 
     return trimmed.split(' ')
         .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())

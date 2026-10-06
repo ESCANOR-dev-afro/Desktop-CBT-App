@@ -43,6 +43,7 @@ const junior20List = buildCurriculum(
     'PHE',
     'Nigeria History',
     'ICT',
+    'Citizenship and Heritage Studies',
   ],
   'jss',
   'Junior Core'
@@ -86,6 +87,7 @@ const commercialList = buildCurriculum(
     'Civic Education',
     'Marketing',
     'Catering craft',
+    'Computer hardware and GSM repair',
   ],
   'com',
   'Commercial'
@@ -105,6 +107,7 @@ const artsList = buildCurriculum(
     'Yoruba',
     'Civic Education',
     'Catering craft',
+    'Computer hardware and GSM repair',
   ],
   'art',
   'Arts'

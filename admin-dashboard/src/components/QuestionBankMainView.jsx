@@ -80,9 +80,15 @@ const canonicalMap = {
   'comp sci': 'Computer Studies',
   'computer': 'Computer Studies',
   'computer science': 'Computer Studies',
-  'computer studies': 'Computer Studies',
   'civics': 'Civic Education',
-  'civic education': 'Civic Education'
+  'civic education': 'Civic Education',
+  'citizenship and heritage studies': 'Citizenship and Heritage Studies',
+  'citizenship and heritage': 'Citizenship and Heritage Studies',
+  'citizenship & heritage studies': 'Citizenship and Heritage Studies',
+  'chs': 'Citizenship and Heritage Studies',
+  'computer hardware and gsm repair': 'Computer hardware and GSM repair',
+  'computer hardware & gsm repair': 'Computer hardware and GSM repair',
+  'gsm repair': 'Computer hardware and GSM repair'
 };
 
 const normalizeSubjectName = (raw) => {

@@ -231,7 +231,8 @@ export default function LiveResults({
         'Yoruba', 'Music', 'French', 'Digital Technology',
         'Computer Hardware and GSM repair', 'Horticulture', 'Home Economics',
         'Agricultural Science', 'Oral English', 'Intermediate Science', 'Basic Science',
-        'Basic Technology', 'CRS', 'Business Studies', 'PHE', 'Nigeria History', 'ICT'
+        'Basic Technology', 'CRS', 'Business Studies', 'PHE', 'Nigeria History', 'ICT',
+        'Citizenship and Heritage Studies'
       ];
     }
     if (upper.includes('SCIENCE')) {
@@ -247,14 +248,15 @@ export default function LiveResults({
       return [
         'English Language', 'Mathematics', 'Financial Accounting', 'Commerce', 'Government',
         'Economics', 'Further Mathematics', 'Digital Technology', 'ICT',
-        'Oral English', 'Civic Education', 'Marketing', 'Catering craft'
+        'Oral English', 'Civic Education', 'Marketing', 'Catering craft',
+        'Computer hardware and GSM repair'
       ];
     }
     if (upper.includes('ART')) {
       return [
         'English Language', 'Mathematics', 'Literature in English', 'CRS', 'Government',
         'Economics', 'Digital Technology', 'ICT', 'Oral English', 'Yoruba',
-        'Civic Education', 'Catering craft'
+        'Civic Education', 'Catering craft', 'Computer hardware and GSM repair'
       ];
     }
     return [];
