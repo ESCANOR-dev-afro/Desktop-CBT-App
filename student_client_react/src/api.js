@@ -184,4 +184,17 @@ export const submitExam = async (studentId, sessionId, userAnswers, subject, ext
   return response.data;
 };
 
+/**
+ * Logout student and reset workstation seat for next batch
+ */
+export const logoutStudent = async () => {
+  try {
+    const response = await apiClient.post('/student/logout');
+    return response.data;
+  } catch (err) {
+    console.warn('Logout notification notice:', err.message);
+    return { success: true };
+  }
+};
+
 export default apiClient;

@@ -3,14 +3,14 @@ import { CheckCircle2, Hand, LogOut, LayoutDashboard } from 'lucide-react';
 
 export default function CompletionScreen({ completionInfo, onReturnToHub, onLogout }) {
   const { studentName, regNumber, studentClass, subject, totalQuestions, answeredCount } = completionInfo || {};
-  const [countdown, setCountdown] = useState(15);
+  const [countdown, setCountdown] = useState(20);
 
   useEffect(() => {
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          onReturnToHub();
+          onLogout();
           return 0;
         }
         return prev - 1;
@@ -18,7 +18,7 @@ export default function CompletionScreen({ completionInfo, onReturnToHub, onLogo
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [onReturnToHub]);
+  }, [onLogout]);
 
   return (
     <div className="min-h-screen w-full bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4 sm:p-6 lg:p-8 transition-colors">
@@ -79,7 +79,7 @@ export default function CompletionScreen({ completionInfo, onReturnToHub, onLogo
 
         {/* Auto-Reset Countdown Banner */}
         <div className="text-xs text-[#64748B] dark:text-slate-400 font-semibold">
-          Returning to Exam Portal Hub in <span className="font-mono text-[#F96302] font-bold text-sm">{countdown}</span> seconds...
+          Workstation will automatically reset for the next candidate in <span className="font-mono text-[#F96302] font-bold text-sm">{countdown}</span> seconds...
         </div>
 
         {/* Action Buttons */}

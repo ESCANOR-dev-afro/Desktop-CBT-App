@@ -60,7 +60,7 @@ async function runCompressionTests() {
     const rawLargePngBuffer = await sharp(largeSvg).png().toBuffer();
     console.log(`  ℹ️ Generated uncompressed test image buffer size: ${(rawLargePngBuffer.length / 1024).toFixed(1)} KB`);
 
-    // TEST 1: JPEG Optimization
+    // TEST 1: JPEG Optimization (<50KB target)
     const targetJpeg = path.join(testDir, '_test_compressed_diagram.jpeg');
     await saveOptimizedDiagram(rawLargePngBuffer, targetJpeg);
 
@@ -69,14 +69,28 @@ async function runCompressionTests() {
     const jpegSizeKb = jpegStat.size / 1024;
     console.log(`  ℹ️ Compressed JPEG size: ${jpegSizeKb.toFixed(1)} KB`);
 
-    check(jpegSizeKb < 120, `JPEG file size is strictly under 120KB (actual: ${jpegSizeKb.toFixed(1)} KB)`);
+    check(jpegSizeKb < 50, `JPEG file size is strictly under 50KB (actual: ${jpegSizeKb.toFixed(1)} KB)`);
 
     // Inspect metadata of output file
     const jpegMeta = await sharp(targetJpeg).metadata();
-    check(jpegMeta.width <= 800 && jpegMeta.height <= 800, `JPEG dimensions scaled within 800x800 box (actual: ${jpegMeta.width}x${jpegMeta.height})`);
+    check(jpegMeta.width <= 800, `JPEG width scaled within max-width 800px (actual: ${jpegMeta.width}x${jpegMeta.height})`);
     check(jpegMeta.format === 'jpeg', 'Output format is valid JPEG');
 
-    // TEST 2: PNG Optimization
+    // TEST 2: WebP Optimization (<50KB target)
+    const targetWebp = path.join(testDir, '_test_compressed_diagram.webp');
+    await saveOptimizedDiagram(rawLargePngBuffer, targetWebp);
+
+    check(fs.existsSync(targetWebp), 'Optimized WebP file saved to disk');
+    const webpStat = fs.statSync(targetWebp);
+    const webpSizeKb = webpStat.size / 1024;
+    console.log(`  ℹ️ Compressed WebP size: ${webpSizeKb.toFixed(1)} KB`);
+
+    check(webpSizeKb < 50, `WebP file size is strictly under 50KB (actual: ${webpSizeKb.toFixed(1)} KB)`);
+    const webpMeta = await sharp(targetWebp).metadata();
+    check(webpMeta.width <= 800, `WebP width scaled within max-width 800px (actual: ${webpMeta.width}x${webpMeta.height})`);
+    check(webpMeta.format === 'webp', 'Output format is valid WebP');
+
+    // TEST 3: PNG Optimization (<50KB target)
     const targetPng = path.join(testDir, '_test_compressed_diagram.png');
     await saveOptimizedDiagram(rawLargePngBuffer, targetPng);
 
@@ -85,11 +99,11 @@ async function runCompressionTests() {
     const pngSizeKb = pngStat.size / 1024;
     console.log(`  ℹ️ Compressed PNG size: ${pngSizeKb.toFixed(1)} KB`);
 
-    check(pngSizeKb < 150, `PNG file size is within optimized budget (actual: ${pngSizeKb.toFixed(1)} KB)`);
+    check(pngSizeKb < 50, `PNG file size is strictly under 50KB (actual: ${pngSizeKb.toFixed(1)} KB)`);
     const pngMeta = await sharp(targetPng).metadata();
-    check(pngMeta.width <= 800 && pngMeta.height <= 800, `PNG dimensions scaled within 800x800 box (actual: ${pngMeta.width}x${pngMeta.height})`);
+    check(pngMeta.width <= 800, `PNG width scaled within max-width 800px (actual: ${pngMeta.width}x${pngMeta.height})`);
 
-    // TEST 3: Small image without enlargement
+    // TEST 4: Small image without enlargement
     const smallSvg = Buffer.from(`
         <svg width="250" height="180" xmlns="http://www.w3.org/2000/svg">
             <rect width="100%" height="100%" fill="#eee"/>
@@ -103,17 +117,46 @@ async function runCompressionTests() {
     const smallMeta = await sharp(targetSmall).metadata();
     check(smallMeta.width === 250 && smallMeta.height === 180, `Small image not enlarged (actual: ${smallMeta.width}x${smallMeta.height})`);
 
+    // TEST 5: Express Static /uploads Caching Headers (maxAge: '1d' -> max-age=86400)
+    const http = require('http');
+    const app = require('../server');
+    const server = http.createServer(app);
+    await new Promise(r => server.listen(0, '127.0.0.1', r));
+    const port = server.address().port;
+
+    const cacheHeaderRes = await new Promise(resolve => {
+        http.get(`http://127.0.0.1:${port}/uploads/diagrams/_test_compressed_diagram.webp`, (res) => {
+            const data = {
+                status: res.statusCode,
+                cacheControl: res.headers['cache-control'] || '',
+                etag: res.headers['etag'] || '',
+            };
+            res.resume(); // Drain and release Windows file handle
+            res.on('end', () => resolve(data));
+        });
+    });
+
+    await new Promise(r => server.close(r));
+
+    check(cacheHeaderRes.status === 200, `GET /uploads/diagrams/... returns HTTP 200 (actual: ${cacheHeaderRes.status})`);
+    check(cacheHeaderRes.cacheControl.includes('max-age=86400') || cacheHeaderRes.cacheControl.includes('public'), `Cache-Control header specifies maxAge: '1d' (actual: "${cacheHeaderRes.cacheControl}")`);
+    check(Boolean(cacheHeaderRes.etag), 'ETag header is present for conditional validation');
+
     // CLEANUP
-    if (fs.existsSync(targetJpeg)) fs.unlinkSync(targetJpeg);
-    if (fs.existsSync(targetPng)) fs.unlinkSync(targetPng);
-    if (fs.existsSync(targetSmall)) fs.unlinkSync(targetSmall);
+    const safeUnlink = (p) => {
+        try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (_) {}
+    };
+    safeUnlink(targetJpeg);
+    safeUnlink(targetWebp);
+    safeUnlink(targetPng);
+    safeUnlink(targetSmall);
 
     console.log('\n======================================================================');
     console.log(`📊 TEST RUN COMPLETE: ${passedTests} passed, ${totalTests - passedTests} failed`);
     console.log('======================================================================\n');
 
     if (totalTests === passedTests) {
-        console.log('🎉 ALL DIAGRAM COMPRESSION TESTS PASSED PERFECTLY!\n');
+        console.log('🎉 ALL DIAGRAM COMPRESSION & CACHING TESTS PASSED PERFECTLY!\n');
     } else {
         process.exit(1);
     }

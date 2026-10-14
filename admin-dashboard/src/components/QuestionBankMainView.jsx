@@ -1997,6 +1997,8 @@ function DocxPreviewModal({
   const handleConfirmImport = () => {
     const correctedQuestions = previewQuestions.map((q, i) => ({
       ...q,
+      number: i + 1,
+      question_number: i + 1,
       correct_answer: editedAnswers[i] || q.correct_answer || 'A',
       has_answer: Boolean(editedAnswers[i] || q.correct_answer),
     }));
@@ -2083,7 +2085,7 @@ function DocxPreviewModal({
                   <div className="flex-1">
                     <div className="flex items-center space-x-2 mb-1">
                       <span className="text-[10px] font-bold text-white bg-brand px-2 py-0.5 rounded-md">
-                        Q{q.number}
+                        Q{idx + 1}
                       </span>
                       {isMissingAnswer && (
                         <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded-md animate-pulse">
@@ -2155,7 +2157,7 @@ function DocxPreviewModal({
                   <div className="mt-2 flex items-center space-x-2">
                     <img
                       src={q.diagram_image_url}
-                      alt={`Diagram for Q${q.number}`}
+                      alt={`Diagram for Q${idx + 1}`}
                       className="max-h-24 rounded-lg border border-slate-200 dark:border-slate-700 shadow-xs"
                       onError={(e) => { e.target.style.display = 'none'; }}
                     />

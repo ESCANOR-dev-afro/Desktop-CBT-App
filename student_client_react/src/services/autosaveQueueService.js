@@ -123,7 +123,7 @@ class AutosaveQueueService {
       }
     }
 
-    // 2. Prepare delta payload
+    // 2. Prepare lightweight delta payload (no bloated answers map sent over LAN)
     const item = {
       student_id: payload.studentId || payload.student_id,
       studentId: payload.studentId || payload.student_id,
@@ -135,7 +135,6 @@ class AutosaveQueueService {
       questionId: payload.questionId || payload.question_id,
       selected_option: payload.selectedOption || payload.selected_option,
       selectedOption: payload.selectedOption || payload.selected_option,
-      answers: payload.answers,
       timestamp: payload.timestamp || Date.now(),
       sessionId: sessId,
     };
@@ -152,7 +151,7 @@ class AutosaveQueueService {
   }
 
   /**
-   * Flushes pending items to the server
+   * Flushes pending items to the server with single-delta or bulk-batch coalescing
    */
   async flushQueue() {
     if (this.isFlushing || this.queue.length === 0) return;
@@ -160,25 +159,60 @@ class AutosaveQueueService {
 
     try {
       while (this.queue.length > 0) {
-        const item = this.queue[0];
-        try {
-          const res = await apiClient.post('/exam/autosave', item, {
-            timeout: 3500,
-          });
+        if (this.queue.length === 1) {
+          // Single-item delta post (<150 bytes payload, <5ms DB query)
+          const item = this.queue[0];
+          try {
+            const res = await apiClient.post('/exam/autosave', item, {
+              timeout: 3500,
+            });
 
-          if (res && res.status >= 200 && res.status < 300) {
-            // Synced successfully
-            this.queue.shift();
-            this.persistQueue();
-          } else {
-            throw new Error(`Server returned HTTP ${res?.status}`);
+            if (res && res.status >= 200 && res.status < 300) {
+              this.queue.shift();
+              this.persistQueue();
+            } else {
+              throw new Error(`Server returned HTTP ${res?.status}`);
+            }
+          } catch (postErr) {
+            console.warn('⚠️ [Autosave Queue] Network drop detected. Silent retry queued:', postErr.message);
+            this.updateStatus('RECONNECTING');
+            this.isFlushing = false;
+            return;
           }
-        } catch (postErr) {
-          // Network drop, timeout, or server unavailable
-          console.warn('⚠️ [Autosave Queue] Network drop detected. Silent retry queued:', postErr.message);
-          this.updateStatus('RECONNECTING');
-          this.isFlushing = false;
-          return;
+        } else {
+          // Multi-item coalesced batch post (sync entire backlog in a single roundtrip)
+          const batch = [...this.queue];
+          const first = batch[0];
+          const batchPayload = {
+            studentId: first.studentId || first.student_id,
+            student_id: first.studentId || first.student_id,
+            regNumber: first.regNumber || first.reg_number,
+            reg_number: first.regNumber || first.reg_number,
+            subject: first.subject || first.subject_name,
+            sessionId: first.sessionId,
+            answers: batch.map(b => ({
+              question_id: b.question_id || b.questionId,
+              selected_option: b.selected_option || b.selectedOption,
+            })),
+          };
+
+          try {
+            const res = await apiClient.post('/exam/autosave', batchPayload, {
+              timeout: 4500,
+            });
+
+            if (res && res.status >= 200 && res.status < 300) {
+              this.queue.splice(0, batch.length);
+              this.persistQueue();
+            } else {
+              throw new Error(`Server returned HTTP ${res?.status}`);
+            }
+          } catch (batchErr) {
+            console.warn('⚠️ [Autosave Queue] Bulk batch retry queued:', batchErr.message);
+            this.updateStatus('RECONNECTING');
+            this.isFlushing = false;
+            return;
+          }
         }
       }
 

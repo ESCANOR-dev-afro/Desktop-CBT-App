@@ -308,6 +308,7 @@ function createDiagramContext() {
     return {
         latestOrPendingDiagram: null,
         pendingTargetQuestionNum: null,
+        pendingGroupScope: null,
         groupDiagramScope: null, // { imageUrl: string, startQ: number, endQ: number }
         consumedDiagrams: new Set(),
         questionDiagramMap: new Map(), // numeric questionNumber -> imageUrl
@@ -326,6 +327,17 @@ function createDiagramContext() {
          */
         registerImage(imageUrl, targetQNum = null) {
             if (!imageUrl) return;
+            if (this.pendingGroupScope) {
+                this.groupDiagramScope = {
+                    imageUrl,
+                    startQ: this.pendingGroupScope.startQ,
+                    endQ: this.pendingGroupScope.endQ,
+                };
+                this.pendingGroupScope = null;
+                this.latestOrPendingDiagram = null;
+                this.pendingTargetQuestionNum = null;
+                return;
+            }
             this.latestOrPendingDiagram = imageUrl;
             this.pendingTargetQuestionNum = targetQNum !== null && !isNaN(targetQNum) ? Number(targetQNum) : null;
         },
@@ -344,14 +356,24 @@ function createDiagramContext() {
                 const endQ = parseInt(endStr, 10);
                 const targetImg = this.latestOrPendingDiagram || fallbackImageUrl;
 
-                if (!isNaN(startQ) && !isNaN(endQ) && targetImg) {
-                    this.groupDiagramScope = {
-                        imageUrl: targetImg,
-                        startQ: Math.min(startQ, endQ),
-                        endQ: Math.max(startQ, endQ),
-                    };
-                    this.latestOrPendingDiagram = null;
-                    this.pendingTargetQuestionNum = null;
+                if (!isNaN(startQ) && !isNaN(endQ)) {
+                    const minQ = Math.min(startQ, endQ);
+                    const maxQ = Math.max(startQ, endQ);
+                    if (targetImg) {
+                        this.groupDiagramScope = {
+                            imageUrl: targetImg,
+                            startQ: minQ,
+                            endQ: maxQ,
+                        };
+                        this.latestOrPendingDiagram = null;
+                        this.pendingTargetQuestionNum = null;
+                        this.pendingGroupScope = null;
+                    } else {
+                        this.pendingGroupScope = {
+                            startQ: minQ,
+                            endQ: maxQ,
+                        };
+                    }
                 }
             }
         },
@@ -421,6 +443,7 @@ function createDiagramContext() {
         reset() {
             this.latestOrPendingDiagram = null;
             this.pendingTargetQuestionNum = null;
+            this.pendingGroupScope = null;
             this.groupDiagramScope = null;
             this.questionDiagramMap.clear();
         },
@@ -443,6 +466,8 @@ function associateParagraphMedia(paragraphs, diagramCtx, docContext = {}, option
     if (!paragraphs || !Array.isArray(paragraphs)) {
         return { textLines: [], lineOffsets: [] };
     }
+    options = options || {};
+    docContext = docContext || {};
 
     const diagramsDir = options.diagramsDir || (typeof docContext === 'object' && docContext.diagramsDir) || path.join(__dirname, '../../../uploads/diagrams');
     const diagramsUrlPrefix = options.diagramsUrlPrefix || (typeof docContext === 'object' && docContext.diagramsUrlPrefix) || '/uploads/diagrams';
@@ -537,8 +562,10 @@ function associateParagraphMedia(paragraphs, diagramCtx, docContext = {}, option
         return newUrl;
     }
 
+    const warnings = [];
     let currentQNum = null;
     let seenOptionsForCurrentQ = false;
+    let pendingGroupDirective = null;
 
     // Second pass: map images to their questions with strict proximity & intent
     for (let i = 0; i < parsed.length; i++) {
@@ -551,6 +578,7 @@ function associateParagraphMedia(paragraphs, diagramCtx, docContext = {}, option
             seenOptionsForCurrentQ = true;
         }
 
+        // Multi-question directive detection
         if (p.rawText) {
             const match = p.rawText.match(MULTI_Q_DIAGRAM_RE);
             if (match) {
@@ -560,6 +588,9 @@ function associateParagraphMedia(paragraphs, diagramCtx, docContext = {}, option
                     const minQ = Math.min(startQ, endQ);
                     const maxQ = Math.max(startQ, endQ);
                     const rangeKey = `${minQ}_${maxQ}`;
+                    pendingGroupDirective = { minQ, maxQ, rangeKey, pIdx: i };
+
+                    // If image is inside this same paragraph
                     if (p.images.length > 0) {
                         const renamedUrl = renameImageForQuestion(p.images[0], rangeKey);
                         p.images[0] = renamedUrl;
@@ -568,6 +599,25 @@ function associateParagraphMedia(paragraphs, diagramCtx, docContext = {}, option
                             startQ: minQ,
                             endQ: maxQ,
                         };
+                        for (let q = minQ; q <= maxQ; q++) {
+                            diagramCtx.setQuestionDiagram(q, renamedUrl);
+                        }
+                        pendingGroupDirective = null;
+                    }
+                    // Or if image was in immediate preceding paragraph
+                    else if (i > 0 && parsed[i - 1].images.length > 0) {
+                        const prevImg = parsed[i - 1].images[0];
+                        const renamedUrl = renameImageForQuestion(prevImg, rangeKey);
+                        parsed[i - 1].images[0] = renamedUrl;
+                        diagramCtx.groupDiagramScope = {
+                            imageUrl: renamedUrl,
+                            startQ: minQ,
+                            endQ: maxQ,
+                        };
+                        for (let q = minQ; q <= maxQ; q++) {
+                            diagramCtx.setQuestionDiagram(q, renamedUrl);
+                        }
+                        pendingGroupDirective = null;
                     }
                 }
             }
@@ -576,8 +626,21 @@ function associateParagraphMedia(paragraphs, diagramCtx, docContext = {}, option
         if (p.images.length > 0) {
             const rawImg = p.images[0];
 
+            // 0. Check if pending multi-question directive applies to this image
+            if (pendingGroupDirective && (i - pendingGroupDirective.pIdx <= 2)) {
+                const renamedUrl = renameImageForQuestion(rawImg, pendingGroupDirective.rangeKey);
+                diagramCtx.groupDiagramScope = {
+                    imageUrl: renamedUrl,
+                    startQ: pendingGroupDirective.minQ,
+                    endQ: pendingGroupDirective.maxQ,
+                };
+                for (let q = pendingGroupDirective.minQ; q <= pendingGroupDirective.maxQ; q++) {
+                    diagramCtx.setQuestionDiagram(q, renamedUrl);
+                }
+                pendingGroupDirective = null;
+            }
             // 1. Image in same paragraph as question start (e.g. "3. Fig 12... <img ...>")
-            if (p.qNum !== null) {
+            else if (p.qNum !== null) {
                 const finalUrl = renameImageForQuestion(rawImg, p.qNum);
                 diagramCtx.setQuestionDiagram(p.qNum, finalUrl);
             }
@@ -600,24 +663,43 @@ function associateParagraphMedia(paragraphs, diagramCtx, docContext = {}, option
                     diagramCtx.setQuestionDiagram(currentQNum, finalUrl);
                 }
             }
-            // 3. Image is preceded by caption or immediately before a subsequent question
+            // 3. Image between questions or preceding next question
             else {
                 const nextQInfo = findNextQ(i + 1, 3);
                 const prevP = i > 0 ? parsed[i - 1] : null;
+                const nextP = i + 1 < parsed.length ? parsed[i + 1] : null;
                 const isPrecededByCaption = prevP && prevP.isCaption;
+                const isFollowedByCaption = nextP && nextP.isCaption;
 
-                if (nextQInfo && (p.isCaption || isPrecededByCaption || nextQInfo.targetP.hasDiagramRef || (nextQInfo.distance === 1 && nextQInfo.qNum !== 1))) {
-                    const finalUrl = renameImageForQuestion(rawImg, nextQInfo.qNum);
-                    diagramCtx.setQuestionDiagram(nextQInfo.qNum, finalUrl);
-                } else if (nextQInfo && nextQInfo.distance === 1 && nextQInfo.qNum === 1 && (p.isCaption || isPrecededByCaption || nextQInfo.targetP.hasDiagramRef)) {
-                    const finalUrl = renameImageForQuestion(rawImg, nextQInfo.qNum);
-                    diagramCtx.setQuestionDiagram(nextQInfo.qNum, finalUrl);
+                if (nextQInfo) {
+                    let targetQNum;
+                    if (nextQInfo.qNum > (currentQNum || 0)) {
+                        targetQNum = nextQInfo.qNum;
+                    } else if (currentQNum !== null && currentQNum >= 1) {
+                        targetQNum = currentQNum + 1;
+                    } else {
+                        targetQNum = nextQInfo.qNum;
+                    }
+
+                    // Strict protection for Question 1: Never spill header logo/generic images into Q1
+                    if (targetQNum === 1) {
+                        if (p.isCaption || isPrecededByCaption || isFollowedByCaption || nextQInfo.targetP.hasDiagramRef) {
+                            const finalUrl = renameImageForQuestion(rawImg, 1);
+                            diagramCtx.setQuestionDiagram(1, finalUrl);
+                        } else {
+                            renameImageForQuestion(rawImg, 'unknown');
+                            warnings.push(`Unresolved diagram image "${path.basename(rawImg)}": appears before Question 1 without figure caption or question reference; preserved on disk but detached.`);
+                        }
+                    } else {
+                        const finalUrl = renameImageForQuestion(rawImg, targetQNum);
+                        diagramCtx.setQuestionDiagram(targetQNum, finalUrl);
+                    }
                 } else if (currentQNum !== null && p.hasDiagramRef) {
                     const finalUrl = renameImageForQuestion(rawImg, currentQNum);
                     diagramCtx.setQuestionDiagram(currentQNum, finalUrl);
                 } else {
-                    // Unassociated / floating image (e.g. header logo) — DO NOT assign to Question 1!
                     renameImageForQuestion(rawImg, 'unknown');
+                    warnings.push(`Unresolved diagram image "${path.basename(rawImg)}": could not safely determine owning question in document flow; preserved on disk.`);
                 }
             }
         }
@@ -636,7 +718,7 @@ function associateParagraphMedia(paragraphs, diagramCtx, docContext = {}, option
         }
     }
 
-    return { textLines, lineOffsets };
+    return { textLines, lineOffsets, warnings };
 }
 
 /**

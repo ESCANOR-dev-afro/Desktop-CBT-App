@@ -240,6 +240,30 @@ function recordSubmit(reqOrIp, payload = {}) {
 }
 
 /**
+ * Records candidate logout / workstation reset for clean batch handover.
+ */
+function recordLogout(reqOrIp, payload = {}) {
+    const node = resolveNode(reqOrIp, payload.node_id);
+    if (!node) return null;
+
+    node.status = 'CONNECTED';
+    node.student_name = null;
+    node.student_reg = null;
+    node.class_tier = null;
+    node.subject = null;
+    node.assessment_slot = null;
+    node.current_question = 0;
+    node.total_questions = 0;
+    node.answered_count = 0;
+    node.time_remaining = null;
+    node.last_heartbeat = Date.now();
+    node.is_locked = false;
+
+    pushNodeEvent(node, 'STUDENT_LOGOUT', `Workstation Seat #${node.seat_number} cleared and ready for next batch`);
+    return node;
+}
+
+/**
  * Returns full 92-node floor grid with auto-stale OFFLINE resolution and summary counts.
  */
 function getWorkstationGrid() {
@@ -466,6 +490,7 @@ module.exports = {
     recordLogin,
     recordHeartbeat,
     recordSubmit,
+    recordLogout,
     getWorkstationGrid,
     getNodeAudit,
     unlockNode,

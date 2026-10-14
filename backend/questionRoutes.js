@@ -13,6 +13,7 @@ const XLSX = require('xlsx');
 const path = require('path');
 const fs = require('fs');
 const db = require('./database');
+const questionCache = require('./services/questionCache');
 const { logAuditAction } = require('./services/auditLogger');
 const { deleteDiagramFiles } = require('./services/parsers/common/docxMediaExtractor');
 const { saveOptimizedDiagram } = require('./services/parsers/common/imageOptimizer');
@@ -570,6 +571,11 @@ async function handleQuestionBankUpload(req, res, next) {
             },
             ip_address: req.ip || '127.0.0.1'
         });
+
+        // Invalidate in-memory question bank cache for this subject
+        try {
+            questionCache.invalidate(fallbackSubject);
+        } catch (_) {}
 
         const feedbackMsg = registeredImagesCount > 0
             ? `${insertedCount} Question(s) and ${registeredImagesCount} Diagram(s) imported successfully.`

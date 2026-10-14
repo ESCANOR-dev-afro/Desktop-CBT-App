@@ -27,13 +27,26 @@ export default function ExamScreen({
 }) {
   const regNo = student?.reg_number || student?.registration_no || 'CANDIDATE';
   
-  // Hydrate initial state with storageService fallback for 100% crash recovery
+  // Hydrate initial state with storageService fallback for 100% crash recovery & server session resumption
   const cachedAnswers = storageService.getAnswers(regNo, subject);
   const cachedFlagged = storageService.getFlagged(regNo, subject);
+  const effectiveAnswers = { ...cachedAnswers, ...initialAnswers };
 
-  const [currentIndex, setCurrentIndex] = useState(initialCurrentIndex);
-  const [answers, setAnswers] = useState({ ...cachedAnswers, ...initialAnswers });
+  const [answers, setAnswers] = useState(effectiveAnswers);
   const [flagged, setFlagged] = useState({ ...cachedFlagged, ...initialFlagged });
+  const [currentIndex, setCurrentIndex] = useState(() => {
+    if (initialCurrentIndex !== undefined && initialCurrentIndex > 0) {
+      return initialCurrentIndex;
+    }
+    // Jump directly to the first unanswered question upon session resumption
+    if (Array.isArray(questions) && questions.length > 0) {
+      const firstUnanswered = questions.findIndex(q => !effectiveAnswers[q.id]);
+      if (firstUnanswered !== -1) {
+        return firstUnanswered;
+      }
+    }
+    return 0;
+  });
   const [timeRemaining, setTimeRemaining] = useState(() => {
     const passedSeconds = Number(initialDurationSeconds);
     if (passedSeconds > 0) return passedSeconds;

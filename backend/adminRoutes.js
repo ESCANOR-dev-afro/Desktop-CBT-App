@@ -22,6 +22,7 @@ const { deriveSessionPrefix, getActiveSessionString, generateNextRegistrationNo 
 const { handleQuestionBankUpload } = require('./questionRoutes');
 const { parseDocxBuffer, parsePlainText, deleteDiagramFiles, cleanupOrphanedDiagramFiles, cleanupStalePreviewDiagrams } = require('./services/docxQuestionParser');
 const workstationManager = require('./services/workstationManager');
+const questionCache = require('./services/questionCache');
 
 // Configure Multer memory storage for uploaded documents
 const upload = multer({ 
@@ -2627,6 +2628,11 @@ router.post('/questions/commit-docx', express.json({ limit: '10mb' }), async (re
             console.warn('⚠️ [Audit Log Notice]:', auditErr.message);
         }
 
+        // Invalidate in-memory question bank cache for this subject
+        try {
+            questionCache.invalidate(normSubject);
+        } catch (_) {}
+
         return res.status(201).json({
             success: true,
             message: `${insertedCount} question(s) imported successfully from "${filename}".`,
@@ -3071,6 +3077,11 @@ router.post('/questions', async (req, res, next) => {
             }
         }
 
+        // Invalidate in-memory question bank cache for this subject
+        try {
+            questionCache.invalidate(normSubject);
+        } catch (_) {}
+
         return res.status(201).json({
             success: true,
             message: "Question created successfully.",
@@ -3195,6 +3206,11 @@ const handleClearSubjectQuestions = async (req, res, next) => {
             performed_by: 'ADMIN'
         });
 
+        // Invalidate in-memory question bank cache for cleared subject
+        try {
+            questionCache.invalidate(normalizedSubject);
+        } catch (_) {}
+
         return res.status(200).json({
             success: true,
             message: `Question bank for ${trimmedClass} - ${normalizedSubject} [${reqSlot}] successfully cleared.`,
@@ -3258,6 +3274,10 @@ router.delete('/questions/:id', async (req, res, next) => {
         }
         await dbRun(`DELETE FROM question_options WHERE question_id = ?`, [qId]);
         await dbRun(`DELETE FROM questions WHERE id = ?`, [qId]);
+
+        // Invalidate in-memory question bank cache
+        try { questionCache.invalidate(); } catch (_) {}
+
         return res.json({
             success: true,
             message: `Question #${qId} deleted successfully.`
@@ -3299,6 +3319,9 @@ const handleUpdateCorrectAnswer = async (req, res, next) => {
         `, [normAns, qId]);
 
         console.log(`🔑 [Question Key Updated] Question #${qId} answer key set to "${normAns}".`);
+
+        // Invalidate in-memory question bank cache
+        try { questionCache.invalidate(); } catch (_) {}
 
         return res.status(200).json({
             success: true,

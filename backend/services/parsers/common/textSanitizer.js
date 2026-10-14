@@ -98,14 +98,24 @@ function extractParagraphsFromHtml(rawHtml) {
     let processedHtml = rawHtml;
 
     // 1. Resolve ordered lists: <ol><li>...</li></ol> -> <p>${index}. ...</p>
-    processedHtml = processedHtml.replace(/<ol\b[^>]*>([\s\S]*?)<\/ol>/gi, (match, olContent) => {
-        let itemNum = 1;
+    // Preserves running question numbering across multiple <ol> chunks when diagrams or paragraphs interrupt lists
+    let runningItemNum = 1;
+    processedHtml = processedHtml.replace(/<ol\b([^>]*)>([\s\S]*?)<\/ol>/gi, (match, attrs, olContent) => {
+        const startMatch = attrs ? attrs.match(/\bstart=["']?(\d+)["']?/i) : null;
+        if (startMatch) {
+            runningItemNum = parseInt(startMatch[1], 10);
+        }
         return olContent.replace(/<li\b[^>]*>([\s\S]*?)<\/li>/gi, (liMatch, liContent) => {
             const cleanText = liContent.replace(/<[^>]+>/g, '').trim();
             if (/^\d{1,3}[\.\)]/.test(cleanText)) {
+                const existingNum = parseInt(cleanText.match(/^\d{1,3}/)[0], 10);
+                runningItemNum = Math.max(runningItemNum, existingNum + 1);
                 return `<p>${liContent}</p>`;
             }
-            return `<p>${itemNum++}. ${liContent}</p>`;
+            if (/^\(?[A-Ea-e]\)?[\.\):\-]\s+/.test(cleanText)) {
+                return `<p>${liContent}</p>`;
+            }
+            return `<p>${runningItemNum++}. ${liContent}</p>`;
         });
     });
 

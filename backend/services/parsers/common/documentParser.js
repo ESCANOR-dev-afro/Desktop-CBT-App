@@ -968,9 +968,17 @@ function parseDocument(rawText, imageBindings = new Map(), lineOffsets = [], dia
         }
 
         // Process each segmented question block
+        const seenQuestionNumbers = new Set();
         for (let i = 0; i < boundaries.length; i++) {
             const b = boundaries[i];
             const nextB = i + 1 < boundaries.length ? boundaries[i + 1] : null;
+
+            let effectiveQNum = b.qNum;
+            if (seenQuestionNumbers.has(effectiveQNum)) {
+                effectiveQNum = nextAutoNum;
+                warnings.push(`Question ${b.qNum}: Duplicate question number detected in document; auto-reassigned sequential number ${effectiveQNum}.`);
+            }
+            seenQuestionNumbers.add(effectiveQNum);
 
             const rawBlockText = nextB
                 ? workingText.substring(b.contentStart, nextB.matchStart)
@@ -981,19 +989,19 @@ function parseDocument(rawText, imageBindings = new Map(), lineOffsets = [], dia
             // Check if questionBlockText contains multiple unnumbered questions
             const qLines = questionBlockText.split('\n').map(l => l.trim()).filter(Boolean);
             if (qLines.length > 1) {
-                // First question is b.qNum
+                // First question is effectiveQNum
                 let mainQLines = [];
                 let inFirstQ = true;
                 for (let k = 0; k < qLines.length; k++) {
                     const ql = qLines[k];
                     if (inFirstQ) {
                         mainQLines.push(ql);
-                        const qObj = parseQuestionBlock(mainQLines.join('\n'), b.qNum, currentContext);
+                        const qObj = parseQuestionBlock(mainQLines.join('\n'), effectiveQNum, currentContext);
                         if (qObj && qObj.options && qObj.options.A && qObj.options.B) {
                             const nextQl = k + 1 < qLines.length ? qLines[k + 1] : '';
                             if (!nextQl || parseQuestionBlock(nextQl, nextAutoNum, currentContext)) {
-                                nextAutoNum = Math.max(nextAutoNum, b.qNum + 1);
-                                ctx.bindDiagramForQuestion(qObj, b.qNum, null);
+                                nextAutoNum = Math.max(nextAutoNum, effectiveQNum + 1);
+                                ctx.bindDiagramForQuestion(qObj, effectiveQNum, null);
                                 questions.push(qObj);
                                 inFirstQ = false;
                             }
@@ -1008,21 +1016,21 @@ function parseDocument(rawText, imageBindings = new Map(), lineOffsets = [], dia
                     }
                 }
                 if (inFirstQ && mainQLines.length > 0) {
-                    const qObj = parseQuestionBlock(mainQLines.join('\n'), b.qNum, currentContext);
+                    const qObj = parseQuestionBlock(mainQLines.join('\n'), effectiveQNum, currentContext);
                     if (qObj) {
-                        nextAutoNum = Math.max(nextAutoNum, b.qNum + 1);
-                        ctx.bindDiagramForQuestion(qObj, b.qNum, null);
+                        nextAutoNum = Math.max(nextAutoNum, effectiveQNum + 1);
+                        ctx.bindDiagramForQuestion(qObj, effectiveQNum, null);
                         questions.push(qObj);
                     }
                 }
             } else {
-                const qObj = parseQuestionBlock(questionBlockText, b.qNum, currentContext);
+                const qObj = parseQuestionBlock(questionBlockText, effectiveQNum, currentContext);
                 if (qObj) {
-                    nextAutoNum = Math.max(nextAutoNum, b.qNum + 1);
-                    ctx.bindDiagramForQuestion(qObj, b.qNum, null);
+                    nextAutoNum = Math.max(nextAutoNum, effectiveQNum + 1);
+                    ctx.bindDiagramForQuestion(qObj, effectiveQNum, null);
                     questions.push(qObj);
                 } else {
-                    warnings.push(`Could not parse question block for Question ${b.qNum}`);
+                    warnings.push(`Could not parse question block for Question ${effectiveQNum}`);
                 }
             }
 

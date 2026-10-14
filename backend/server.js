@@ -105,12 +105,18 @@ const handleAdminLogin = (req, res) => {
 app.post('/api/admin/login', handleAdminLogin);
 app.post('/admin/api/admin/login', handleAdminLogin);
 
-app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+const uploadsStaticConfig = {
     maxAge: '1d',
     immutable: true,
     etag: true,
-    lastModified: true
-}));
+    lastModified: true,
+    setHeaders: (res) => {
+        res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+    }
+};
+
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), uploadsStaticConfig));
+app.use('/api/uploads', express.static(path.join(__dirname, 'uploads'), uploadsStaticConfig));
 app.use('/api/exam', examRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/questions', questionRoutes);

@@ -205,7 +205,10 @@ async function parseStandardDocx(buffer, options = {}) {
     const html = mammothResult.value || '';
     const paragraphs = extractParagraphsFromHtml(html);
     const diagramCtx = createDiagramContext();
-    const { textLines, lineOffsets } = associateParagraphMedia(paragraphs, diagramCtx, options.docContext || options, { diagramsDir, diagramsUrlPrefix });
+    const { textLines, lineOffsets, warnings: mediaWarnings } = associateParagraphMedia(paragraphs, diagramCtx, options.docContext || options, { diagramsDir, diagramsUrlPrefix });
+    if (mediaWarnings && mediaWarnings.length > 0) {
+        warnings.push(...mediaWarnings);
+    }
 
     const documentText = textLines.join('\n');
     const parseResult = parseDocument(documentText, new Map(), lineOffsets, diagramCtx, { profileMode: 'standard_general', allowCloze: false });

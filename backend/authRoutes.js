@@ -255,23 +255,25 @@ const handleStudentLogin = async (req, res, next) => {
         const rawReg = registration_no || reg_number || regNo || regNumber;
         const rawPass = surname || password;
 
-        if (!rawReg || !rawPass) {
-            return res.status(400).json({
-                success: false,
-                message: "Registration number and surname are required."
-            });
-        }
-
-        // Step a: Normalize registration_no to UPPERCASE and sanitize input surname
-        const formattedRegNumber = String(rawReg).trim().toUpperCase();
-        const formattedSurname = String(rawPass).trim().toUpperCase();
+        const formattedRegNumber = rawReg ? String(rawReg).trim().toUpperCase() : '';
+        const formattedSurname = rawPass ? String(rawPass).trim().toUpperCase() : '';
         const normalizedInputSurname = normalizeSurname(rawPass);
         const clientIp = workstation_ip || req.ip || '127.0.0.1';
 
-        if (!formattedRegNumber || !normalizedInputSurname) {
+        // 1. Missing Inputs validation
+        if (!formattedRegNumber) {
             return res.status(400).json({
                 success: false,
-                message: "Registration number and surname are required."
+                field: "regNumber",
+                message: "Please enter your Registration Number."
+            });
+        }
+
+        if (!normalizedInputSurname) {
+            return res.status(400).json({
+                success: false,
+                field: "surname",
+                message: "Please enter your Surname."
             });
         }
 
@@ -283,32 +285,36 @@ const handleStudentLogin = async (req, res, next) => {
         `;
         let student = await dbGet(studentSql, [formattedRegNumber, formattedRegNumber]);
 
-        // Step c: If student found by reg_no, verify compound normalized surname/password
-        if (student) {
-            const dbSurname = String(student.surname || '').trim().toUpperCase();
-            const normalizedDbSurname = normalizeSurname(student.surname);
-            const crypto = require('crypto');
-            const passHash = crypto.createHash('sha256').update(formattedSurname).digest('hex');
-
-            const isSurnameMatch = normalizedDbSurname === normalizedInputSurname || dbSurname === formattedSurname;
-            const isPasswordMatch = student.password && (
-                student.password === passHash ||
-                student.password === formattedSurname ||
-                normalizeSurname(student.password) === normalizedInputSurname
-            );
-
-            if (!isSurnameMatch && !isPasswordMatch) {
-                console.log(`⚠️ [Login Password Mismatch]: Candidate Reg Number "${formattedRegNumber}" exists, but entered surname "${formattedSurname}" (normalized: "${normalizedInputSurname}") did not match DB surname "${student.surname}" (normalized: "${normalizedDbSurname}").`);
-                return res.status(401).json({
-                    success: false,
-                    message: "Invalid Surname. Please enter your surname as registered."
-                });
-            }
-        } else {
+        // 2. Unknown Candidate
+        if (!student) {
             console.log(`⚠️ [Login Unknown Reg Number]: Registration Number "${formattedRegNumber}" not found in database.`);
             return res.status(401).json({
                 success: false,
-                message: "Invalid Registration Number. Please verify your ID."
+                field: "regNumber",
+                message: "Registration number not found. Please verify your ID slip."
+            });
+        }
+
+        // Step c: Verify compound normalized surname/password
+        const dbSurname = String(student.surname || '').trim().toUpperCase();
+        const normalizedDbSurname = normalizeSurname(student.surname);
+        const crypto = require('crypto');
+        const passHash = crypto.createHash('sha256').update(formattedSurname).digest('hex');
+
+        const isSurnameMatch = normalizedDbSurname === normalizedInputSurname || dbSurname === formattedSurname;
+        const isPasswordMatch = student.password && (
+            student.password === passHash ||
+            student.password === formattedSurname ||
+            normalizeSurname(student.password) === normalizedInputSurname
+        );
+
+        // 3. Password / Surname Mismatch
+        if (!isSurnameMatch && !isPasswordMatch) {
+            console.log(`⚠️ [Login Password Mismatch]: Candidate Reg Number "${formattedRegNumber}" exists, but entered surname "${formattedSurname}" (normalized: "${normalizedInputSurname}") did not match DB surname "${student.surname}" (normalized: "${normalizedDbSurname}").`);
+            return res.status(401).json({
+                success: false,
+                field: "surname",
+                message: "Incorrect surname. Enter ONLY your Surname in ALL CAPS."
             });
         }
 
@@ -334,6 +340,7 @@ const handleStudentLogin = async (req, res, next) => {
         const existingSession = await dbGet(sessionCheckSql, [student.id]);
 
         let sessionId;
+        let isResumed = false;
 
         // Step f: Check for unexpired active exam session in student_exam_sessions
         let activeSessionObj = null;
@@ -341,6 +348,16 @@ const handleStudentLogin = async (req, res, next) => {
             `SELECT * FROM student_exam_sessions WHERE student_id = ? AND status = 'IN_PROGRESS' ORDER BY session_id DESC LIMIT 1`,
             [student.id]
         );
+
+        // Fetch candidate's saved answers directly from SQLite answers table
+        const savedAnswerRows = await dbAll(
+            `SELECT question_id, selected_option FROM answers WHERE student_id = ?`,
+            [student.id]
+        );
+        const answersMap = {};
+        for (const r of (savedAnswerRows || [])) {
+            answersMap[r.question_id] = r.selected_option;
+        }
 
         if (activeSesRow) {
             let deliveredQuestions = [];
@@ -355,6 +372,9 @@ const handleStudentLogin = async (req, res, next) => {
                 let selectedAnswers = {};
                 try { selectedAnswers = JSON.parse(activeSesRow.selected_answers_json || '{}'); } catch (_) {}
 
+                // Merge session snapshot answers with live answers table (answers table takes precedence)
+                const mergedAnswers = { ...selectedAnswers, ...answersMap };
+
                 activeSessionObj = {
                     session_id: activeSesRow.session_id,
                     student_id: student.id,
@@ -365,14 +385,17 @@ const handleStudentLogin = async (req, res, next) => {
                     duration_minutes: sessionDurationMinutes,
                     duration_seconds: remainingSeconds,
                     delivered_questions: deliveredQuestions,
-                    selected_answers: selectedAnswers
+                    selected_answers: mergedAnswers,
+                    saved_answers: mergedAnswers
                 };
+                isResumed = true;
             }
         }
 
         // Create new active session or update workstation IP on active session
         if (existingSession && existingSession.status === 'active' && existingSession.is_locked === 0) {
             sessionId = existingSession.id;
+            isResumed = true;
             const updateSessionSql = `
                 UPDATE exam_sessions 
                 SET workstation_ip = ?, login_time = CURRENT_TIMESTAMP 
@@ -380,6 +403,10 @@ const handleStudentLogin = async (req, res, next) => {
             `;
             await dbRun(updateSessionSql, [clientIp, sessionId]);
             console.log(`🔑 [Session Resumed] Student ID ${student.id} (${student.registration_no || student.reg_number}) resumed Session #${sessionId} from IP ${clientIp}`);
+        } else if (activeSessionObj && activeSessionObj.session_id) {
+            sessionId = activeSessionObj.session_id;
+            isResumed = true;
+            console.log(`🔑 [Session Resumed] Student ID ${student.id} (${student.registration_no || student.reg_number}) resumed In-Progress Session #${sessionId} from IP ${clientIp}`);
         } else {
             const insertSessionSql = `
                 INSERT INTO exam_sessions (student_id, workstation_ip, login_time, status, is_locked, term_id, assessment_slot)
@@ -400,10 +427,12 @@ const handleStudentLogin = async (req, res, next) => {
             });
         } catch (_) {}
 
-        // Step g: Return success response with student metadata & session_id
+        // Step g: Return success response with student metadata, session_id, and saved_answers map
         return res.status(200).json({
             success: true,
-            message: "Login successful",
+            status: isResumed ? "RESUMED" : "NEW",
+            is_resumed: isResumed,
+            message: isResumed ? "Session resumed successfully." : "Login successful",
             student: {
                 id: student.id,
                 regNo: student.registration_no || student.reg_number,
@@ -419,12 +448,17 @@ const handleStudentLogin = async (req, res, next) => {
             },
             session_id: sessionId,
             has_active_session: activeSessionObj !== null,
-            active_session: activeSessionObj
+            active_session: activeSessionObj,
+            saved_answers: activeSessionObj ? activeSessionObj.saved_answers : answersMap
         });
 
     } catch (error) {
         console.error('❌ [Login Route Error]:', error);
-        next(error);
+        return res.status(500).json({
+            success: false,
+            field: "general",
+            message: "Server connection error. Please notify the invigilator."
+        });
     }
 };
 
@@ -432,6 +466,22 @@ router.post('/login', handleStudentLogin);
 router.post('/student/login', handleStudentLogin);
 router.post('/auth/student-login', handleStudentLogin);
 router.post('/auth/login', handleStudentLogin);
+
+const handleStudentLogout = (req, res) => {
+    try {
+        workstationManager.recordLogout(req);
+        return res.status(200).json({
+            success: true,
+            message: "Workstation cleared and ready for next batch."
+        });
+    } catch (err) {
+        return res.status(200).json({ success: true, message: "Logged out." });
+    }
+};
+
+router.post('/student/logout', handleStudentLogout);
+router.post('/auth/logout', handleStudentLogout);
+router.post('/logout', handleStudentLogout);
 
 /**
  * POST /api/student/verify-session

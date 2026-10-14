@@ -1,5 +1,7 @@
 const assert = require('assert');
-const { createDiagramContext, parseDocxRelationships } = require('../services/parsers/common/docxMediaExtractor');
+const { createDiagramContext, parseDocxRelationships, associateParagraphMedia, generateScopedDiagramFilename } = require('../services/parsers/common/docxMediaExtractor');
+const { extractParagraphsFromHtml } = require('../services/parsers/common/textSanitizer');
+const { parseDocument } = require('../services/parsers/common/documentParser');
 const { parseMathScienceDocx } = require('../services/parsers/mathScienceParser');
 const { parseStandardDocx } = require('../services/parsers/standardDocxParser');
 
@@ -554,6 +556,142 @@ ANSWER: C
       'jpeg'
     );
     assert.strictEqual(fmName, 'ss_3_science_further_mathematics_examination_q1_img1.jpeg');
+  });
+
+  // TEST 12: Regression - Agricultural Science multi-question docx with split <ol> and diagrams at Q16, Q23, Q24
+  await runTest('Regression: Continuous numbering across split <ol> preserves Q16, Q23, Q24 image binding and leaves Q1 clean', async () => {
+    let html = '<ol>';
+    for (let i = 1; i <= 15; i++) {
+      html += `<li>What is item ${i}?</li><p>A. OptA B. OptB C. OptC D. OptD</p><p>ANSWER: A</p>`;
+    }
+    html += '</ol>';
+    // Image 1 before Q16
+    html += '<p><img src="media/image1.png" /></p>';
+    html += '<ol><li>Identify the crop shown above.</li><p>A. Maize B. Yam C. Cassava D. Rice</p><p>ANSWER: B</p></ol>';
+    html += '<ol>';
+    for (let i = 17; i <= 22; i++) {
+      html += `<li>Question ${i} content.</li><p>A. A B. B C. C D. D</p><p>ANSWER: C</p>`;
+    }
+    html += '</ol>';
+    // Image 2 before Q23
+    html += '<p><img src="media/image2.png" /></p>';
+    html += '<ol><li>The farming tool shown is used for?</li><p>A. Clearing B. Tilling C. Weeding D. Harvesting</p><p>ANSWER: A</p></ol>';
+    // Image 3 before Q24
+    html += '<p><img src="media/image3.png" /></p>';
+    html += '<ol><li>Name the weed in the diagram.</li><p>A. Spear grass B. Elephant grass C. Goat weed D. Guinea grass</p><p>ANSWER: D</p></ol>';
+
+    const paragraphs = extractParagraphsFromHtml(html);
+    assert.ok(paragraphs.some(p => p.includes('16. Identify the crop')), 'Paragraph for Q16 should be numbered 16, not 1');
+    assert.ok(paragraphs.some(p => p.includes('23. The farming tool')), 'Paragraph for Q23 should be numbered 23, not 1');
+    assert.ok(paragraphs.some(p => p.includes('24. Name the weed')), 'Paragraph for Q24 should be numbered 24, not 1');
+
+    const diagramCtx = createDiagramContext();
+    const { textLines, lineOffsets, warnings } = associateParagraphMedia(
+      paragraphs,
+      diagramCtx,
+      { classTier: 'jss_1', subject: 'agricultural_science', slot: 'midterm_ca' },
+      {}
+    );
+
+    const qMap = diagramCtx.questionDiagramMap;
+    // Q1 must NOT have a diagram
+    assert.strictEqual(qMap.has(1), false, 'Q1 should not have any diagram assigned');
+    // Q16 must have image 1
+    assert.strictEqual(qMap.has(16), true, 'Q16 should have diagram assigned');
+    assert.ok(qMap.get(16).includes('q16_img1'), `Q16 diagram URL should contain q16_img1: ${qMap.get(16)}`);
+    // Q23 must have image 2
+    assert.strictEqual(qMap.has(23), true, 'Q23 should have diagram assigned');
+    assert.ok(qMap.get(23).includes('q23_img1'), `Q23 diagram URL should contain q23_img1: ${qMap.get(23)}`);
+    // Q24 must have image 3
+    assert.strictEqual(qMap.has(24), true, 'Q24 should have diagram assigned');
+    assert.ok(qMap.get(24).includes('q24_img1'), `Q24 diagram URL should contain q24_img1: ${qMap.get(24)}`);
+
+    // Verify parseDocument preserves this binding
+    const parsed = parseDocument(textLines.join('\n'), new Map(), lineOffsets, diagramCtx, {
+      profileMode: 'standard_general',
+      allowCloze: false
+    });
+
+    const q1 = parsed.questions.find(q => (q.number || q.question_number) === 1);
+    const q16 = parsed.questions.find(q => (q.number || q.question_number) === 16);
+    const q23 = parsed.questions.find(q => (q.number || q.question_number) === 23);
+    const q24 = parsed.questions.find(q => (q.number || q.question_number) === 24);
+
+    assert.ok(q1, 'Parsed Q1 should exist');
+    assert.strictEqual(q1.diagram_image_url, null, 'Parsed Q1 must have no diagram');
+    assert.strictEqual(q1.has_diagram, false, 'Parsed Q1 has_diagram must be false');
+    assert.ok(q16 && q16.diagram_image_url && q16.has_diagram, 'Parsed Q16 must have diagram');
+    assert.ok(q23 && q23.diagram_image_url && q23.has_diagram, 'Parsed Q23 must have diagram');
+    assert.ok(q24 && q24.diagram_image_url && q24.has_diagram, 'Parsed Q24 must have diagram');
+  });
+
+  // TEST 13: Floating pre-Q1 diagrams are detached and emit warnings
+  await runTest('Regression: Floating uncaptioned diagrams before Q1 do not corrupt Q1 and issue warnings', async () => {
+    const paragraphs = [
+      '<p>School Examination Header</p>',
+      '<p><img src="/uploads/diagrams/header_logo.png" /></p>',
+      '<p>Instructions: Answer all questions.</p>',
+      '<p>1. What is 2 + 2?</p>',
+      '<p>A. 1</p>',
+      '<p>B. 2</p>',
+      '<p>C. 3</p>',
+      '<p>D. 4</p>',
+      '<p>ANSWER: D</p>'
+    ];
+
+    const diagramCtx = createDiagramContext();
+    const { textLines, lineOffsets, warnings } = associateParagraphMedia(
+      paragraphs,
+      diagramCtx,
+      { classTier: 'jss_1', subject: 'maths', slot: 'examination' },
+      {}
+    );
+
+    assert.strictEqual(diagramCtx.questionDiagramMap.has(1), false, 'Logo before Q1 should NOT be assigned to Q1');
+    assert.ok(warnings.some(w => w.includes('Unresolved diagram image')), 'Should emit warning for floating image');
+
+    const parsed = parseDocument(textLines.join('\n'), new Map(), lineOffsets, diagramCtx, {
+      profileMode: 'standard_general',
+      allowCloze: false
+    });
+    const q1 = parsed.questions.find(q => (q.number || q.question_number) === 1);
+    assert.ok(q1, 'Parsed Q1 should exist');
+    assert.strictEqual(q1.diagram_image_url, null, 'Q1 diagram must remain null');
+    assert.strictEqual(q1.has_diagram, false, 'Q1 has_diagram must be false');
+  });
+
+  // TEST 14: Duplicate question numbers in input text are automatically normalized
+  await runTest('Regression: parseDocument detects duplicate question numbers, fixes sequence, and logs warning', () => {
+    const rawText = `1. Question one?
+A. Option A
+B. Option B
+C. Option C
+D. Option D
+ANSWER: A
+
+1. Collided Question one again?
+A. Option A
+B. Option B
+C. Option C
+D. Option D
+ANSWER: B
+
+1. Third collided Question one?
+A. Option A
+B. Option B
+C. Option C
+D. Option D
+ANSWER: C`;
+
+    const parsed = parseDocument(rawText, new Map(), [], null, {
+      profileMode: 'standard_general',
+      allowCloze: false
+    });
+    assert.strictEqual(parsed.questions.length, 3);
+    assert.strictEqual(parsed.questions[0].number, 1);
+    assert.strictEqual(parsed.questions[1].number, 2);
+    assert.strictEqual(parsed.questions[2].number, 3);
+    assert.ok(parsed.warnings.some(w => w.includes('Duplicate question number detected')), 'Should emit duplicate question number warning');
   });
 
   console.log('\n----------------------------------------------------------------------');

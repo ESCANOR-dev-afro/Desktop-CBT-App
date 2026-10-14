@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { IdCard, User, AlertCircle, ArrowRight, ShieldCheck, RefreshCw, Monitor } from 'lucide-react';
 import { loginStudent } from '../api';
+import storageService from '../services/storageService';
 import ServerConfigModal from './ServerConfigModal';
 import AdminPinModal from './AdminPinModal';
 
@@ -8,40 +9,82 @@ export default function LoginScreen({ onLoginSuccess, errorMessage }) {
   const [regNumber, setRegNumber] = useState('');
   const [surname, setSurname] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(errorMessage || '');
+  const [fieldErrors, setFieldErrors] = useState({
+    regNumber: '',
+    surname: '',
+    general: errorMessage || ''
+  });
   const [isAdminPinModalOpen, setIsAdminPinModalOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
+  // Clean Workstation Handover: Guarantee that mounting LoginScreen purges all residual session state
+  useEffect(() => {
+    try {
+      storageService.clearAllExamData();
+      sessionStorage.clear();
+    } catch (e) {
+      console.warn('Storage purge on login mount error:', e);
+    }
+  }, []);
+
   useEffect(() => {
     if (errorMessage) {
-      setError(errorMessage);
+      setFieldErrors(prev => ({ ...prev, general: errorMessage }));
     }
   }, [errorMessage]);
 
   const handleCredentialSubmit = async (e) => {
     e.preventDefault();
-    if (!regNumber.trim() || !surname.trim()) {
-      setError('Please enter both your Registration Number and Surname.');
+    const trimmedReg = regNumber.trim();
+    const trimmedSurname = surname.trim();
+
+    const errors = { regNumber: '', surname: '', general: '' };
+    let hasError = false;
+
+    if (!trimmedReg) {
+      errors.regNumber = 'Please enter your Registration Number.';
+      hasError = true;
+    }
+
+    if (!trimmedSurname) {
+      errors.surname = 'Please enter your Surname.';
+      hasError = true;
+    }
+
+    if (hasError) {
+      setFieldErrors(errors);
       return;
     }
 
     setLoading(true);
-    setError('');
+    setFieldErrors({ regNumber: '', surname: '', general: '' });
 
     try {
-      const data = await loginStudent(regNumber, surname);
+      const data = await loginStudent(trimmedReg, trimmedSurname);
       if (data.success && data.student) {
         onLoginSuccess({
           student: data.student,
           sessionId: data.session_id,
+          status: data.status,
+          isResumed: Boolean(data.is_resumed || data.status === 'RESUMED'),
+          savedAnswers: data.saved_answers || data.answers || null,
         });
       } else {
-        setError(data.message || 'Invalid Registration Number or Surname. Please check and try again.');
+        const targetField = data.field || 'general';
+        setFieldErrors(prev => ({
+          ...prev,
+          [targetField]: data.message || 'Invalid credentials. Please verify and try again.'
+        }));
       }
     } catch (err) {
       console.error('Login error:', err);
-      const msg = err.response?.data?.message || 'Invalid Registration Number or Surname. Please check and try again.';
-      setError(msg);
+      const errData = err.response?.data;
+      const targetField = errData?.field || 'general';
+      const msg = errData?.message || (err.message?.includes('Network') ? 'Server connection error. Please notify the invigilator.' : 'Invalid credentials. Please check and try again.');
+      setFieldErrors(prev => ({
+        ...prev,
+        [targetField]: msg
+      }));
     } finally {
       setLoading(false);
     }
@@ -109,11 +152,11 @@ export default function LoginScreen({ onLoginSuccess, errorMessage }) {
               </p>
             </div>
 
-            {/* Error Message Alert */}
-            {error && (
+            {/* General Server/Lockout Alert Banner */}
+            {fieldErrors.general && (
               <div className="mb-5 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                <div className="flex-1 font-semibold text-slate-800">{error}</div>
+                <div className="flex-1 font-semibold text-slate-800">{fieldErrors.general}</div>
               </div>
             )}
 
@@ -125,16 +168,32 @@ export default function LoginScreen({ onLoginSuccess, errorMessage }) {
                   Registration Number
                 </label>
                 <div className="relative">
-                  <IdCard className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-500" />
+                  <IdCard className={`absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 ${fieldErrors.regNumber ? 'text-red-500' : 'text-orange-500'}`} />
                   <input
                     type="text"
                     required
                     placeholder="ENTER REG NUMBER (E.G. AWA26270001)"
                     value={regNumber}
-                    onChange={(e) => setRegNumber(e.target.value.toUpperCase())}
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white focus:ring-2 focus:ring-orange-500/20 rounded-xl pl-10 pr-4 py-2.5 sm:py-3 text-sm font-medium text-slate-900 placeholder-slate-400 transition-all uppercase tracking-wider outline-none"
+                    onChange={(e) => {
+                      setRegNumber(e.target.value.toUpperCase());
+                      if (fieldErrors.regNumber || fieldErrors.general) {
+                        setFieldErrors(prev => ({ ...prev, regNumber: '', general: '' }));
+                      }
+                    }}
+                    className={`w-full border rounded-xl pl-10 pr-4 py-2.5 sm:py-3 text-sm font-medium placeholder-slate-400 transition-all uppercase tracking-wider outline-none ${
+                      fieldErrors.regNumber
+                        ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20 bg-red-50/30 text-red-900'
+                        : 'bg-slate-50 border-slate-200 focus:border-orange-500 focus:bg-white focus:ring-2 focus:ring-orange-500/20 text-slate-900'
+                    }`}
                   />
                 </div>
+                {/* Field-specific inline error */}
+                {fieldErrors.regNumber && (
+                  <p className="text-red-500 text-xs font-semibold mt-1.5 flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{fieldErrors.regNumber}</span>
+                  </p>
+                )}
               </div>
 
               {/* Field 2: Student Surname (Visible, unmasked text input) */}
@@ -143,16 +202,32 @@ export default function LoginScreen({ onLoginSuccess, errorMessage }) {
                   Student Surname
                 </label>
                 <div className="relative">
-                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-500" />
+                  <User className={`absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 ${fieldErrors.surname ? 'text-red-500' : 'text-orange-500'}`} />
                   <input
                     type="text"
                     required
                     placeholder="ENTER SURNAME (E.G. SAMUEL / EKEH)"
                     value={surname}
-                    onChange={(e) => setSurname(e.target.value.toUpperCase())}
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-orange-500 focus:bg-white focus:ring-2 focus:ring-orange-500/20 rounded-xl pl-10 pr-4 py-2.5 sm:py-3 text-sm font-medium text-slate-900 placeholder-slate-400 transition-all uppercase tracking-wider outline-none"
+                    onChange={(e) => {
+                      setSurname(e.target.value.toUpperCase());
+                      if (fieldErrors.surname || fieldErrors.general) {
+                        setFieldErrors(prev => ({ ...prev, surname: '', general: '' }));
+                      }
+                    }}
+                    className={`w-full border rounded-xl pl-10 pr-4 py-2.5 sm:py-3 text-sm font-medium placeholder-slate-400 transition-all uppercase tracking-wider outline-none ${
+                      fieldErrors.surname
+                        ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20 bg-red-50/30 text-red-900'
+                        : 'bg-slate-50 border-slate-200 focus:border-orange-500 focus:bg-white focus:ring-2 focus:ring-orange-500/20 text-slate-900'
+                    }`}
                   />
                 </div>
+                {/* Field-specific inline error */}
+                {fieldErrors.surname && (
+                  <p className="text-red-500 text-xs font-semibold mt-1.5 flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{fieldErrors.surname}</span>
+                  </p>
+                )}
               </div>
 
               {/* Server Status Strip with Interactive Server Config Button Protected by PIN */}

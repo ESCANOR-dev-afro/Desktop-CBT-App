@@ -133,25 +133,61 @@ export const storageService = {
   },
 
   /**
-   * Clear all CBT exam-related data from localStorage (session, answers, flagged)
-   * Called on full logout / session reset
+   * Clear all CBT exam-related data from localStorage & sessionStorage (session, credentials, answers, queues)
+   * Called on full logout / workstation batch handover / exam completion
    */
   clearAllExamData: () => {
     try {
       storageService.clearActiveSession();
-      // Remove all keys matching CBT answer and flagged prefixes
+
+      const specificKeys = [
+        'cbt_active_session',
+        'cbt_student',
+        'cbt_session_id',
+        'cbt_stage',
+        'cbt_subject',
+        'cbt_questions',
+        'cbt_answers',
+        'cbt_flagged',
+        'cbt_current_index',
+        'cbt_completion_info',
+        'cbt_time_remaining',
+        'cbt_duration_minutes',
+        'cbt_assessment_slot',
+        'cbt_config_id',
+        'cbt_academic_session',
+        'cbt_academic_term'
+      ];
+      specificKeys.forEach(k => {
+        try { localStorage.removeItem(k); } catch (_) {}
+      });
+
+      // Remove all dynamic keys matching CBT answer, flagged, pending queue, or active exam prefixes
       const keysToRemove = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (
           key &&
           (key.startsWith(STORAGE_KEYS.ANSWERS_PREFIX) ||
-            key.startsWith(STORAGE_KEYS.FLAGGED_PREFIX))
+            key.startsWith(STORAGE_KEYS.FLAGGED_PREFIX) ||
+            key.startsWith('cbt_pending_queue_') ||
+            key.startsWith('active_exam_') ||
+            key.startsWith('cbt_'))
         ) {
-          keysToRemove.push(key);
+          // Preserve custom server IP config and UI theme
+          if (key !== 'cbt_custom_server' && key !== 'cbt_student_theme') {
+            keysToRemove.push(key);
+          }
         }
       }
-      keysToRemove.forEach((key) => localStorage.removeItem(key));
+      keysToRemove.forEach((key) => {
+        try { localStorage.removeItem(key); } catch (_) {}
+      });
+
+      // Also clear sessionStorage completely
+      try {
+        sessionStorage.clear();
+      } catch (_) {}
     } catch (e) {
       console.warn('⚠️ storageService: Error clearing all exam data:', e);
     }

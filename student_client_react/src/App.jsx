@@ -5,6 +5,7 @@ import InstructionsScreen from './components/InstructionsScreen';
 import ExamScreen from './components/ExamScreen';
 import CompletionScreen from './components/CompletionScreen';
 import storageService from './services/storageService';
+import { logoutStudent } from './api';
 
 export default function App() {
   // Screen Stage: 'LOGIN' | 'DASHBOARD' | 'INSTRUCTIONS' | 'EXAM' | 'SUBMITTED'
@@ -118,15 +119,18 @@ export default function App() {
   }, [stage, student, sessionId, subject, assessmentSlot, academicSession, academicTerm, configId, questions, durationMinutes, completionInfo]);
 
   // Step 1: Login Success -> Navigate to Full-Screen Student Dashboard
-  const handleLoginSuccess = ({ student: std, sessionId: sessId }) => {
+  const handleLoginSuccess = ({ student: std, sessionId: sessId, savedAnswers: sAns }) => {
     setStudent(std);
     setSessionId(sessId);
+    if (sAns && Object.keys(sAns).length > 0) {
+      setAnswers(prev => ({ ...sAns, ...prev }));
+    }
     storageService.saveActiveSession({ student: std, sessionId: sessId, stage: 'DASHBOARD' });
     setStage('DASHBOARD');
   };
 
   // Step 2: Subject Selected on Dashboard -> Navigate to Pre-Exam Instructions
-  const handleSelectSubject = ({ subject: sub, sessionId: sId, questions: qList, durationMinutes: dMins, durationSeconds: dSecs, assessmentSlot: aSlot, session: aSession, term: aTerm, configId: cId }) => {
+  const handleSelectSubject = ({ subject: sub, sessionId: sId, questions: qList, durationMinutes: dMins, durationSeconds: dSecs, assessmentSlot: aSlot, session: aSession, term: aTerm, configId: cId, savedAnswers: sAns }) => {
     const validMinutes = Number(dMins) > 0 ? Number(dMins) : 15;
     const validSeconds = Number(dSecs) > 0 ? Number(dSecs) : validMinutes * 60;
     const resolvedSlot = aSlot || 'welcome_test';
@@ -152,8 +156,9 @@ export default function App() {
     const regNo = stdReg(student);
     const cachedAns = storageService.getAnswers(regNo, sub);
     const cachedFlg = storageService.getFlagged(regNo, sub);
+    const effectiveAns = { ...(sAns || {}), ...(cachedAns || {}) };
 
-    setAnswers(cachedAns);
+    setAnswers(effectiveAns);
     setFlagged(cachedFlg);
     setCurrentIndex(0);
     setStage('INSTRUCTIONS');
@@ -161,9 +166,13 @@ export default function App() {
 
   const stdReg = (st) => st?.reg_number || st?.registration_no || '';
 
-  // Safe Session Reset / Logout (Only on explicit Logout action)
-  const resetSessionState = () => {
+  // Safe Session Reset / Logout (Clean Workstation Handover)
+  const resetSessionState = async () => {
+    try {
+      await logoutStudent();
+    } catch (_) {}
     storageService.clearAllExamData();
+    sessionStorage.clear();
     localStorage.removeItem('cbt_stage');
     localStorage.removeItem('cbt_student');
     localStorage.removeItem('cbt_session_id');

@@ -104,6 +104,8 @@ export default function StudentDashboard({ student, sessionId, onSelectSubject, 
         questions: res.questions,
         durationMinutes: durationInMinutes,
         durationSeconds: durationInSeconds,
+        savedAnswers: res.saved_answers || res.answers || null,
+        isResumed: Boolean(res.is_resumed || res.status === 'RESUMED'),
       });
 
     } catch (err) {
