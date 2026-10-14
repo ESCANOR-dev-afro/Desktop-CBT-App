@@ -3,7 +3,6 @@ import {
   Users,
   BookOpen,
   Monitor,
-  Plus,
   ShieldCheck,
   FileSpreadsheet
 } from 'lucide-react';
@@ -15,7 +14,6 @@ export default function ClassWorkspace({
   subjectsByClass,
   students,
   workstations,
-  onOpenAddSubject,
   onOpenAddStudent,
   onOpenUploadRoster,
   onDeleteStudent,
@@ -95,13 +93,6 @@ export default function ClassWorkspace({
             <span>Upload Class List</span>
           </button>
 
-          <button
-            onClick={onOpenAddSubject}
-            className="px-4 py-3 rounded-xl bg-brand hover:bg-brand-600 text-white text-xs font-bold transition-all shadow-lg shadow-brand/25 flex items-center space-x-2 brand-glow-sm cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Add Subject for {currentClass}</span>
-          </button>
         </div>
       </div>
 

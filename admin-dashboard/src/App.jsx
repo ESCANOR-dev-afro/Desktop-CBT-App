@@ -6,7 +6,6 @@ import LiveResults from './components/LiveResults';
 import ClassWorkspace from './components/ClassWorkspace';
 import QuestionBankMainView from './components/QuestionBankMainView';
 import WorkstationMonitorView from './components/WorkstationMonitorView';
-import AddSubjectModal from './components/AddSubjectModal';
 import AddStudentModal from './components/AddStudentModal';
 import UploadRosterModal from './components/UploadRosterModal';
 import Toast from './components/Toast';
@@ -54,7 +53,6 @@ export default function App() {
   const academicSession = currentSession;
 
   // Modals state
-  const [isAddSubjectOpen, setIsAddSubjectOpen] = useState(false);
   const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
   const [isUploadRosterOpen, setIsUploadRosterOpen] = useState(false);
 
@@ -137,44 +135,6 @@ export default function App() {
     ]);
   };
 
-  // Dynamic Class-Specific Subject Isolation Handler with Database Persistence
-  const handleAddSubject = async (targetClass, newSubject) => {
-    setSubjectsByClass((prev) => {
-      const existingList = prev[targetClass] || [];
-      return {
-        ...prev,
-        [targetClass]: [...existingList, newSubject],
-      };
-    });
-
-    // Add activity log entry
-    const newLog = {
-      id: String(Date.now()),
-      time: new Date().toLocaleTimeString('en-US', { hour12: false }),
-      event: `New Subject "${newSubject.name}" created & strictly isolated to ${targetClass}`,
-      category: 'IsolationEngine',
-    };
-    setActivityLogs((prev) => [newLog, ...prev]);
-
-    // Persist new subject mapping to backend SQLite database
-    try {
-      await fetch('/api/admin/class-subjects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          class: targetClass,
-          subject: newSubject.name,
-        }),
-      });
-    } catch (e) {
-      console.log('Notice: Subject backend sync notice', e);
-    }
-
-    showToast(
-      `Subject "${newSubject.name}" successfully added and isolated strictly to ${targetClass}!`,
-      'success'
-    );
-  };
 
   // Fetch database students on load to ensure persistence across page refreshes
   useEffect(() => {
@@ -363,7 +323,6 @@ export default function App() {
         <Header
           activeView={activeView}
           selectedClass={selectedClass}
-          onOpenAddSubject={() => setIsAddSubjectOpen(true)}
           onOpenAddStudent={() => setIsAddStudentOpen(true)}
           activeTerm={activeTerm}
           academicSession={academicSession}
@@ -422,7 +381,6 @@ export default function App() {
                 students={students}
                 questionsData={questionsData}
                 workstations={workstations}
-                onOpenAddSubject={() => setIsAddSubjectOpen(true)}
                 onOpenAddStudent={() => setIsAddStudentOpen(true)}
                 onOpenUploadRoster={() => setIsUploadRosterOpen(true)}
                 onAddQuestion={handleAddQuestion}
@@ -436,14 +394,6 @@ export default function App() {
       </div>
 
       {/* Modals & Notifications */}
-      <AddSubjectModal
-        isOpen={isAddSubjectOpen}
-        onClose={() => setIsAddSubjectOpen(false)}
-        classesList={classesList}
-        currentClass={selectedClass}
-        onAddSubject={handleAddSubject}
-      />
-
       <AddStudentModal
         isOpen={isAddStudentOpen}
         onClose={() => setIsAddStudentOpen(false)}
